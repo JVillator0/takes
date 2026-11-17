@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Tests\Support\QueueDelays;
 use Tests\Support\SourceScan;
 
 /*
@@ -40,54 +41,35 @@ test('money config files never use floats', function (): void {
     expect(SourceScan::floatViolations(MONEY_CONFIG_PATHS))->toBe([]);
 });
 
-test('no queued job backs off or is delayed longer than 15 minutes', function (): void {
+test('no queued class backs off or is delayed longer than 15 minutes', function (): void {
     $violations = [];
 
-    foreach (SourceScan::phpFiles(['app/Jobs']) as $file) {
-        $class = 'App\\Jobs\\'.str_replace(
+    // Jobs, queued listeners, notifications and mailables: anything in app/
+    // that implements ShouldQueue.
+    foreach (SourceScan::phpFiles(['app']) as $file) {
+        $class = 'App\\'.str_replace(
             ['/', '.php'],
             ['\\', ''],
-            substr($file, strlen(base_path('app/Jobs/'))),
+            substr($file, strlen(base_path('app/'))),
         );
 
-        if (! class_exists($class) || ! is_subclass_of($class, ShouldQueue::class)) {
+        if (! class_exists($class) || ! is_subclass_of($class, ShouldQueue::class) || (new ReflectionClass($class))->isAbstract()) {
             continue;
         }
 
-        $reflection = new ReflectionClass($class);
+        $seconds = QueueDelays::declaredSeconds($class);
 
-        if ($reflection->isAbstract()) {
-            continue;
-        }
-
-        $job = $reflection->newInstanceWithoutConstructor();
-
-        $backoff = method_exists($job, 'backoff')
-            ? $job->backoff()
-            : ($reflection->hasProperty('backoff') ? $reflection->getProperty('backoff')->getValue($job) : null);
-
-        $delays = array_merge(
-            array_map(intval(...), array_filter(is_array($backoff) ? $backoff : [$backoff], is_numeric(...))),
-            is_int($job->delay ?? null) ? [$job->delay] : [],
-        );
-
-        if ($delays !== [] && max($delays) > MAX_QUEUE_DELAY_SECONDS) {
-            $violations[] = "{$class}: ".max($delays).'s';
+        if ($seconds !== [] && max($seconds) > MAX_QUEUE_DELAY_SECONDS) {
+            $violations[] = "{$class}: ".max($seconds).'s';
         }
     }
 
-    // Literal release()/delay() arguments anywhere a job could be dispatched from.
-    foreach (SourceScan::phpFiles(['app']) as $file) {
-        $contents = (string) file_get_contents($file);
-
-        if (preg_match_all('/->(?:release|delay)\(\s*(\d+)\s*\)/', $contents, $matches) > 0) {
-            foreach ($matches[1] as $seconds) {
-                if ((int) $seconds > MAX_QUEUE_DELAY_SECONDS) {
-                    $violations[] = str_replace(base_path().'/', '', $file).": {$seconds}s";
-                }
-            }
-        }
-    }
+    // ->delay(...) / ->release(...) calls: integer literal or class constant
+    // within the cap; anything that cannot be verified statically fails.
+    $violations = [
+        ...$violations,
+        ...SourceScan::queueDelayViolations(['app', 'routes'], MAX_QUEUE_DELAY_SECONDS),
+    ];
 
     expect($violations)->toBe([]);
 });
