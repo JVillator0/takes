@@ -14,6 +14,7 @@ use Database\Seeders\AdminRolesSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
+use Spatie\Permission\PermissionRegistrar;
 
 // Spec 7 issue 5: Studio › Projects (A09), spend = Σ settled charges of the project's takes.
 
@@ -69,4 +70,14 @@ it('loads the projects list with a fixed number of queries', function (): void {
     Livewire::test(ListProjects::class)->assertOk();
 
     expect(count(DB::getQueryLog()))->toBe($withOne);
+});
+
+it('refuses the projects pages without the project permissions', function (): void {
+    $project = Project::factory()->create();
+    $admin = User::factory()->admin(AdminRole::Auditor)->create();
+    $admin->roles()->first()?->revokePermissionTo(['ViewAny:Project', 'View:Project']);
+    app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+    $this->actingAs($admin->refresh())->get('/admin/studio/projects')->assertForbidden();
+    $this->get('/admin/studio/projects/'.$project->id)->assertForbidden();
 });

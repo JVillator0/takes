@@ -5,6 +5,8 @@ declare(strict_types=1);
 use App\Enums\Auth\AdminRole;
 use App\Enums\Webhooks\WebhookOutcome;
 use App\Filament\Admin\Clusters\Providers\Resources\WebhookDeliveries\Pages\ListWebhookDeliveries;
+use App\Filament\Admin\Clusters\Studio\Resources\Takes\Pages\ViewTake;
+use App\Filament\Admin\Clusters\Studio\Resources\Takes\RelationManagers\WebhookDeliveriesRelationManager;
 use App\Filament\Admin\Widgets\WebhookDeliveryStatsOverview;
 use App\Models\Take;
 use App\Models\User;
@@ -16,6 +18,7 @@ use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
+use Spatie\Permission\PermissionRegistrar;
 
 // Spec 7 § Providers › Webhook events (A11, D-027): every delivery with its outcome, stats over 24 hours.
 
@@ -97,4 +100,28 @@ it('filters by take and loads with a fixed number of queries', function (): void
     Livewire::test(ListWebhookDeliveries::class)->assertOk();
 
     expect(count(DB::getQueryLog()))->toBe($withTwo);
+});
+
+it('refuses the deliveries page and hides its stats without their permissions', function (): void {
+    $admin = User::factory()->admin(AdminRole::Auditor)->create();
+    $this->actingAs($admin);
+    expect(WebhookDeliveryStatsOverview::canView())->toBeTrue();
+
+    $admin->roles()->first()?->revokePermissionTo(['ViewAny:WebhookDelivery', 'View:WebhookDelivery', 'View:WebhookDeliveryStatsOverview']);
+    app(PermissionRegistrar::class)->forgetCachedPermissions();
+    $this->actingAs($admin->refresh());
+
+    expect(WebhookDeliveryStatsOverview::canView())->toBeFalse();
+    $this->get('/admin/providers/webhook-deliveries')->assertForbidden();
+});
+
+it('offers no take filter on the take view, where the deliveries are already one take\'s', function (): void {
+    $take = Take::factory()->succeeded()->create();
+    WebhookDelivery::factory()->create(['take_id' => $take->id]);
+
+    $relationManager = Livewire::test(WebhookDeliveriesRelationManager::class, ['ownerRecord' => $take, 'pageClass' => ViewTake::class])
+        ->assertTableFilterExists('outcome');
+
+    expect($relationManager->instance()->getTable()->getFilter('take'))->toBeNull();
+    Livewire::test(ListWebhookDeliveries::class)->assertTableFilterExists('take');
 });
