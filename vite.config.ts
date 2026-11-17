@@ -59,6 +59,11 @@ export default defineConfig({
             denyWarnings: true,
             typeAware: true,
         },
+        rules: {
+            // Spec 1-01: no `any` in TypeScript (ESLint's
+            // @typescript-eslint/no-explicit-any, enforced through oxlint).
+            'typescript/no-explicit-any': 'error',
+        },
     },
     fmt: {
         printWidth: 80,
