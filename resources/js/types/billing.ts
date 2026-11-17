@@ -18,14 +18,16 @@ export type BillingSummary = {
     };
 };
 
-/** A credit pack from `takes.purchase_packs_usd`. */
+/** CreditPackResource: a pack from `takes.purchase_packs_usd`. */
 export type CreditPack = {
-    /** Whole dollars: the `package` the purchase request sends. */
-    usd: number;
+    /** Opaque identifier, sent back as the purchase's `package`; never money. */
+    id: string;
     /** "$10.00" */
     amount: string;
     /** "$0.00": simulated purchases carry no tax. */
     tax: string;
+    /** What the customer pays, from the server; never added up on the client. */
+    total: string;
 };
 
 /** App\Enums\Billing\BillingActivityKind. */

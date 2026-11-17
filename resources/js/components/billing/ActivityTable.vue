@@ -215,6 +215,7 @@ const cell =
                     :href="show({ query: { page: activity.page - 1 } })"
                     :only="['activity']"
                     preserve-scroll
+                    preserve-state
                     class="underline underline-offset-4"
                 >
                     {{ t('billing.activity.newer') }}
@@ -224,6 +225,7 @@ const cell =
                     :href="show({ query: { page: activity.page + 1 } })"
                     :only="['activity']"
                     preserve-scroll
+                    preserve-state
                     class="underline underline-offset-4"
                 >
                     {{ t('billing.activity.earlier') }}

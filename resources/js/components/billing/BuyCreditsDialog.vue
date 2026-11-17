@@ -36,7 +36,7 @@ const emit = defineEmits<{
 const { t } = useCopy();
 
 const form = useForm({
-    package: 0,
+    package: '',
     idempotency_key: '',
 });
 
@@ -53,7 +53,7 @@ watch(
         }
 
         form.clearErrors();
-        form.package = pack.usd;
+        form.package = pack.id;
         form.idempotency_key = crypto.randomUUID();
         failed.value = false;
     },
@@ -75,6 +75,9 @@ function pay(): void {
 
     form.post(store.url(), {
         preserveScroll: true,
+        // Keeps the page mounted: the selected tab stays, and the dialog can
+        // hand focus back to the pack button that opened it.
+        preserveState: true,
         onSuccess: () => emit('close'),
         // Keep the page and the dialog: the same key is safe to retry.
         onHttpException: () => {
@@ -122,7 +125,7 @@ function onOpenChange(value: boolean): void {
                 </div>
                 <div class="flex justify-between gap-4 px-3 py-2 font-semibold">
                     <dt>{{ t('billing.total') }}</dt>
-                    <dd>{{ pack.amount }}</dd>
+                    <dd>{{ pack.total }}</dd>
                 </div>
             </dl>
 
@@ -153,7 +156,7 @@ function onOpenChange(value: boolean): void {
                     {{
                         form.processing
                             ? t('billing.processing')
-                            : t('billing.pay', { amount: pack.amount })
+                            : t('billing.pay', { amount: pack.total })
                     }}
                 </Button>
             </DialogFooter>

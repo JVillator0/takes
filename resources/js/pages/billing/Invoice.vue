@@ -144,11 +144,15 @@ function print(): void {
                     <tr>
                         <th
                             scope="row"
-                            colspan="3"
+                            colspan="2"
                             class="border-b px-2 py-2 text-left font-normal"
                         >
                             {{ t('billing.invoice.tax') }}
                         </th>
+                        <!-- The Unit column: hidden below 640px like its header. -->
+                        <td
+                            class="border-b px-2 py-2 max-sm:hidden print:table-cell"
+                        />
                         <td class="border-b px-2 py-2 text-right">
                             {{ invoice.tax }}
                         </td>
@@ -156,9 +160,10 @@ function print(): void {
                 </tbody>
                 <tfoot>
                     <tr class="font-semibold">
-                        <th scope="row" colspan="3" class="px-2 py-2 text-left">
+                        <th scope="row" colspan="2" class="px-2 py-2 text-left">
                             {{ t('billing.invoice.total_paid') }}
                         </th>
+                        <td class="px-2 py-2 max-sm:hidden print:table-cell" />
                         <td class="px-2 py-2 text-right">
                             {{ invoice.total }}
                         </td>

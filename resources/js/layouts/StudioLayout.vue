@@ -167,6 +167,9 @@ const { t } = useCopy();
             <slot />
         </main>
 
-        <Toaster />
+        <!-- A live toast (e.g. "View invoice") never prints on the invoice. -->
+        <div class="print:hidden">
+            <Toaster />
+        </div>
     </div>
 </template>

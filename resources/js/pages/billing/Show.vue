@@ -133,7 +133,7 @@ const tabClass =
                 >
                     <Button
                         v-for="pack in packs"
-                        :key="pack.usd"
+                        :key="pack.id"
                         type="button"
                         variant="outline"
                         :aria-label="
