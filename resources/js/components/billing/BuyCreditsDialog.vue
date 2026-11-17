@@ -51,6 +51,14 @@ const form = useForm({
  */
 const outcome = ref<'failed' | 'unconfirmed' | null>(null);
 
+/**
+ * Set once an attempt with this key may have committed, and kept for the
+ * life of the key (reset only when a pack opens with a new key). While set,
+ * a later refusal (429 throttle, 419 expired session, 422) says nothing
+ * about that first attempt, so it stays unconfirmed, never "not charged".
+ */
+const mayHaveCommitted = ref(false);
+
 const open = computed(() => props.pack !== null);
 
 watch(
@@ -64,19 +72,20 @@ watch(
         form.package = pack.id;
         form.idempotency_key = crypto.randomUUID();
         outcome.value = null;
+        mayHaveCommitted.value = false;
     },
     { immediate: true },
 );
 
 const errorMessage = computed(() => {
+    if (outcome.value === 'unconfirmed') {
+        return t('billing.purchase_unconfirmed');
+    }
+
     const firstError = Object.values(form.errors)[0];
 
     if (firstError) {
         return firstError;
-    }
-
-    if (outcome.value === 'unconfirmed') {
-        return t('billing.purchase_unconfirmed');
     }
 
     return outcome.value === 'failed' ? t('billing.purchase_failed') : null;
@@ -95,9 +104,14 @@ function pay(): void {
         // hand focus back to the pack button that opened it.
         preserveState: true,
         onSuccess: () => emit('close'),
+        onError: () => {
+            if (mayHaveCommitted.value) {
+                unconfirmed();
+            }
+        },
         // Keep the page and the dialog (and so the key): a retry replays.
         onHttpException: (response) => {
-            if (response.status >= 500) {
+            if (response.status >= 500 || mayHaveCommitted.value) {
                 unconfirmed();
             } else {
                 outcome.value = 'failed';
@@ -114,6 +128,7 @@ function pay(): void {
 }
 
 function unconfirmed(): void {
+    mayHaveCommitted.value = true;
     outcome.value = 'unconfirmed';
     emit('unconfirmed');
 }
