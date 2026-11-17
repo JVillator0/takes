@@ -207,6 +207,6 @@ jobs:
         run: vendor/bin/pest --parallel --exclude-group=concurrency
 
       # Spec 3-03: serial run of the concurrency group (DatabaseMigrations,
-      # real transactions). Enable once the group exists.
-      # - name: Pest (concurrency group, serial)
-      #   run: vendor/bin/pest --group=concurrency
+      # real transactions, two worker processes racing on one customer).
+      - name: Pest (concurrency group, serial)
+        run: vendor/bin/pest --group=concurrency

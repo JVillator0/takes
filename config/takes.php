@@ -57,4 +57,10 @@ return [
         'password' => env('DEMO_ACCOUNTS_PASSWORD', 'password'),
     ],
 
+    /*
+     * Credit packs a customer can buy, in whole US dollars (spec 3-03 §5,
+     * D-051). No env override; specs 4 and 6 only read it.
+     */
+    'purchase_packs_usd' => [5, 10, 25],
+
 ];
