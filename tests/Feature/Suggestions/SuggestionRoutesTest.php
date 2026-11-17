@@ -244,3 +244,17 @@ it('marks an unavailable base image on the references row and refuses apply with
         ->assertConflict()
         ->assertExactJson(['reason' => 'image_unavailable', 'message' => 'This image is no longer available']);
 });
+
+it('rejects an instruction that is not valid UTF-8 with a validation error, not a 500', function (): void {
+    Suggestions::fake(Suggestions::messageBody(Suggestions::proposal()));
+
+    $this->actingAs($this->customer, 'customer')
+        ->post(route('suggestions.store', $this->take), [
+            'instruction' => "warmer \xB1\x31 light",
+            'request_key' => (string) Str::uuid(),
+        ], ['Accept' => 'application/json'])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('instruction');
+
+    expect(Suggestions::anthropicRequests())->toHaveCount(0);
+});

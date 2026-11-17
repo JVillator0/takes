@@ -19,7 +19,8 @@ final class StoreSuggestionRequest extends CustomerFormRequest
     public function rules(): array
     {
         return [
-            'instruction' => ['required', 'string', 'max:'.GetSuggestionQuoteQuery::MAX_INSTRUCTION_CHARACTERS],
+            // `regex` with /u fails on invalid UTF-8, which the JSON message could not encode.
+            'instruction' => ['required', 'string', 'max:'.GetSuggestionQuoteQuery::MAX_INSTRUCTION_CHARACTERS, 'regex:/\A[\s\S]*\z/u'],
             'request_key' => ['required', 'uuid'],
         ];
     }
