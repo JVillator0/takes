@@ -3,6 +3,7 @@ import { Link, usePage } from '@inertiajs/vue3';
 import { computed } from 'vue';
 import Breadcrumbs from '@/components/Breadcrumbs.vue';
 import BalancePill from '@/components/takes/BalancePill.vue';
+import BuyCreditsModal from '@/components/takes/BuyCreditsModal.vue';
 import TakesMark from '@/components/takes/TakesMark.vue';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -13,6 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Toaster } from '@/components/ui/sonner';
 import UserMenuContent from '@/components/UserMenuContent.vue';
+import { useBuyCredits } from '@/composables/useBuyCredits';
 import { useCopy } from '@/composables/useCopy';
 import { getInitials } from '@/composables/useInitials';
 import { dashboard } from '@/routes';
@@ -27,6 +29,7 @@ type Props = {
     breadcrumbs?: BreadcrumbItem[];
     /** Overrides the signed-in customer's shared balance (e.g. a live-updated one). */
     balance?: BalanceSummary | null;
+    /** Forces the Buy credits button; by default it shows when the customer may buy (auth.can). */
     showBuyCredits?: boolean;
     /** Full-bleed pages (the workspace) manage their own padding. */
     fluid?: boolean;
@@ -55,6 +58,19 @@ defineSlots<{
 
 const page = usePage();
 const customer = computed(() => page.props.auth.customer);
+const buyCredits = useBuyCredits();
+
+/** Buy credits (D-026) sits in the bar for every customer who may buy. */
+const canBuyCredits = computed(
+    () =>
+        props.showBuyCredits ||
+        page.props.auth.can?.purchaseCredits.allowed === true,
+);
+
+const openBuyCredits = (): void => {
+    emit('buyCredits');
+    buyCredits.open();
+};
 
 /**
  * The pill on every customer page: the page's balance if it passes one,
@@ -119,12 +135,12 @@ const { t } = useCopy();
                         />
                     </slot>
                     <Button
-                        v-if="showBuyCredits"
+                        v-if="canBuyCredits"
                         type="button"
                         variant="outline"
                         size="sm"
                         class="hidden sm:inline-flex"
-                        @click="emit('buyCredits')"
+                        @click="openBuyCredits"
                     >
                         {{ t('billing.buy_credits') }}
                     </Button>
@@ -167,6 +183,7 @@ const { t } = useCopy();
             <slot />
         </main>
 
+        <BuyCreditsModal v-if="customer" />
         <Toaster />
     </div>
 </template>

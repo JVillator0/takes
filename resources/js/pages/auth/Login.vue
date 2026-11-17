@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
 import { register } from '@/routes';
+import { store as tryDemo } from '@/routes/demo';
 import { store } from '@/routes/login';
 import { request } from '@/routes/password';
 import type { DemoLogin } from '@/types';
@@ -26,6 +27,8 @@ type DemoPanel = {
     title: string;
     description: string;
     adminHint: string;
+    /** "Try a demo account" (POST /demo, spec 4). */
+    tryDemo: string;
     logins: DemoLogin[];
 };
 
@@ -140,7 +143,18 @@ function onDemoLoginError(errors: Errors): void {
             {{ demoPanel.description }}
         </p>
 
-        <!-- Spec 4 adds the "Try a demo account" button (POST /demo) here. -->
+        <!-- A fresh ephemeral account with the welcome credit (D-045), throttled per IP. -->
+        <Form
+            v-bind="tryDemo.form()"
+            v-slot="{ errors, processing }"
+            class="mt-4"
+            data-test="try-demo"
+        >
+            <Button type="submit" class="w-full" :disabled="processing">
+                {{ demoPanel.tryDemo }}
+            </Button>
+            <InputError class="mt-1" :message="errors.denial" />
+        </Form>
 
         <ul class="mt-4 grid gap-2">
             <li v-for="login in demoPanel.logins" :key="login.key">

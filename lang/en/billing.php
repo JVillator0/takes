@@ -30,6 +30,7 @@ return [
 
     /* Balance pill and Buy credits entry points (P03, P04, P10). */
     'buy_credits' => 'Buy credits',
+    'packs_label' => 'Choose a credit pack',
     'available' => 'Available',
     'on_hold' => 'on hold',
     'balance_label' => 'Available :available, on hold :on_hold',

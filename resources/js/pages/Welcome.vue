@@ -6,6 +6,7 @@ import TakesMark from '@/components/takes/TakesMark.vue';
 import { Button } from '@/components/ui/button';
 import { useCopy } from '@/composables/useCopy';
 import { dashboard, login, register } from '@/routes';
+import { store as tryDemo } from '@/routes/demo';
 
 type PricingExample = {
     label: string;
@@ -16,13 +17,13 @@ type PricingExample = {
 type Props = {
     /** Welcome credit for new accounts, server-formatted (D-019). */
     welcomeCredit: string;
-    /** "Try a demo account" (D-045); spec 4 enables it and passes the POST /demo URL. */
-    demo?: { enabled: boolean; action: string | null };
+    /** "Try a demo account" (D-045, POST /demo): on when DEMO_LOGIN_ENABLED. */
+    demo?: { enabled: boolean };
     pricingExamples: PricingExample[];
 };
 
 withDefaults(defineProps<Props>(), {
-    demo: () => ({ enabled: false, action: null }),
+    demo: () => ({ enabled: false }),
 });
 
 const page = usePage();
@@ -124,12 +125,12 @@ const tiles = [
                             </Link>
                         </Button>
                         <Button
-                            v-if="demo.enabled && demo.action"
+                            v-if="demo.enabled"
                             as-child
                             variant="outline"
                             size="lg"
                         >
-                            <Link :href="demo.action" method="post" as="button">
+                            <Link :href="tryDemo()" as="button">
                                 {{ t('landing.hero.demo') }}
                             </Link>
                         </Button>
