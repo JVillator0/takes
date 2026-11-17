@@ -140,8 +140,10 @@ const cancelRemix = (): void => {
 
 /**
  * Remix (spec 4 "Remix and reference images"): the parent's prompt, size
- * and quality, its references, and its own image as one more reference when
- * it is still available (persisted copy or a valid provider URL).
+ * and quality, its own image as the first reference when it is still
+ * available (persisted copy or a valid provider URL), then its references.
+ * At the reference limit the last of the parent's references is dropped,
+ * never the parent's image.
  */
 const remix = (take: TakeDetailData): void => {
     form.clearErrors();
@@ -149,8 +151,8 @@ const remix = (take: TakeDetailData): void => {
     form.size = take.size;
     form.quality = take.quality;
     form.reference_images = [
-        ...take.referenceImages,
         ...(take.remixReferenceUrl ? [take.remixReferenceUrl] : []),
+        ...take.referenceImages,
     ].slice(0, props.config.maxReferences);
     form.parent_take_id = take.id;
     remixingFrom.value = take.number;
