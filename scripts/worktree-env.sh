@@ -125,8 +125,11 @@ set_env_key .env DB_DATABASE "$db"
 set_env_key .env DB_USERNAME "$(whoami)"
 set_env_key .env DB_PASSWORD ""
 set_env_key .env VITE_PORT "$vite_port"
+# Reverb binds on REVERB_SERVER_PORT; REVERB_PORT is the port clients connect to.
+# Locally there is no proxy in front of Reverb, so both are the slot's port.
+set_env_key .env REVERB_SERVER_PORT "$reverb_port"
 set_env_key .env REVERB_PORT "$reverb_port"
-info "APP_URL=$app_url DB_DATABASE=$db DB_PORT=$PG_PORT VITE_PORT=$vite_port REVERB_PORT=$reverb_port"
+info "APP_URL=$app_url DB_DATABASE=$db DB_PORT=$PG_PORT VITE_PORT=$vite_port REVERB_SERVER_PORT=REVERB_PORT=$reverb_port"
 
 if [[ -z $(get_env_key .env APP_KEY) ]]; then
     if command -v php >/dev/null; then

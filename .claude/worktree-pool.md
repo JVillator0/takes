@@ -16,7 +16,7 @@ How up to five agents work in parallel without colliding on files, databases, po
 - Checkouts are siblings: `~/Documents/Work/promptedit/takes` and `takes-a` … `takes-e` (`git worktree add ../takes-<l> --detach`).
 - Postgres 17 (Homebrew) on port **5417**, role = the macOS user, no password. Port 5432 is another Postgres version on this machine; never point the app at it.
 - Valet serves every checkout over TLS (`valet link takes-<l> && valet secure takes-<l>`).
-- `REVERB_PORT` and `VITE_PORT` are written to `.env` now; Reverb itself arrives with spec 5. Start Vite with `npm run dev -- --port <vite> --strictPort`.
+- `VITE_PORT`, `REVERB_SERVER_PORT` (the port `reverb:start` binds) and `REVERB_PORT` (the port clients connect to) are written to `.env` now, both Reverb ports set to the slot's value. Reverb itself arrives with spec 5, which must keep `config/reverb.php` reading `REVERB_SERVER_PORT` so five `reverb:start` processes do not collide on 8080. Start Vite with `npm run dev -- --port <vite> --strictPort`.
 
 ## Scripts
 
