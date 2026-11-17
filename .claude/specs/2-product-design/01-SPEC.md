@@ -123,3 +123,119 @@ Specs 3-01, 3-03, 4, 5, 6 and 8 reference these tables and never restate strings
 | `billing.view_invoice` | purchase success toast | "View invoice" |
 | `billing.spent_this_month` | billing card label | "Spent this month" |
 | `billing.purchase_line` | invoice line / activity | "Takes credits (simulated purchase)" |
+
+UI chrome strings added with the UI foundation (PR #99). Keys are the full `lang/en/<file>.php` paths; `:name` is a server-filled placeholder. The estimate panel never states the margin (D-023): "You pay the exact amount when the take finishes." replaces the P04 sheet's "+ 25%" wording.
+
+| Key | Where | Copy |
+|---|---|---|
+| `takes.filter.label` | P04 grid filter | "Filter takes" |
+| `takes.filter.all` | P04 grid filter | "All" |
+| `takes.filter.done` | P04 grid filter | "Done" |
+| `takes.filter.failed` | P04 grid filter | "Failed" |
+| `takes.actions.prompt_copied` | P04 card, P06 drawer actions | "Prompt copied" |
+| `takes.actions.hide_comparison` | P04 card, P06 drawer actions | "Hide comparison" |
+| `takes.sizes.1024x1024` | P04 composer size | "Square" |
+| `takes.sizes.1536x1024` | P04 composer size | "Landscape" |
+| `takes.sizes.1024x1536` | P04 composer size | "Portrait" |
+| `takes.quality.low` | P04 composer quality | "Low" |
+| `takes.quality.medium` | P04 composer quality | "Medium" |
+| `takes.quality.high` | P04 composer quality | "High" |
+| `takes.card.title` | P04 take card | "Take #:id" |
+| `takes.card.open` | P04 take card | "Open take #:id" |
+| `takes.card.announcement` | P04 take card | "Take #:id: :status" |
+| `takes.card.no_image` | P04 take card | "No image" |
+| `takes.card.remix_of` | P04 take card | "Remix of #:id" |
+| `takes.card.exact_amount` | P04 take card | "Exact amount :amount" |
+| `takes.composer.title` | P04, P05, P10 composer | "New take" |
+| `takes.composer.prompt` | P04, P05, P10 composer | "Prompt" |
+| `takes.composer.prompt_placeholder` | P04, P05, P10 composer | "Describe your take…" |
+| `takes.composer.prompt_tip` | P04, P05, P10 composer | "Tip: mention light, lens and mood" |
+| `takes.composer.prompt_count` | P04, P05, P10 composer | ":count / :max" |
+| `takes.composer.prompt_too_long` | P04, P05, P10 composer | "Prompt is too long: :count / :max characters." |
+| `takes.composer.size` | P04, P05, P10 composer | "Size" |
+| `takes.composer.quality` | P04, P05, P10 composer | "Quality" |
+| `takes.composer.references` | P04, P05, P10 composer | "Reference images (optional, up to :max)" |
+| `takes.composer.reference_url` | P04, P05, P10 composer | "Reference image :number URL" |
+| `takes.composer.add_reference` | P04, P05, P10 composer | "Add reference URL" |
+| `takes.composer.remove_reference` | P04, P05, P10 composer | "Remove reference image :number" |
+| `takes.composer.reference_invalid` | P04, P05, P10 composer | "Reference images must be http(s) URLs." |
+| `takes.composer.remixing` | P04, P05, P10 composer | "Remixing #:id" |
+| `takes.composer.cancel_remix` | P04, P05, P10 composer | "Stop remixing #:id" |
+| `takes.composer.submit_with_max` | P04, P05, P10 composer | "Generate take · up to :amount" |
+| `takes.composer.submitting` | P04, P05, P10 composer | "Generating…" |
+| `takes.composer.shortcut` | P04, P05, P10 composer | "Press :keys to generate" |
+| `takes.estimate.title` | P04, P05-A estimate panel (no margin, D-023) | "Estimated price" |
+| `takes.estimate.range` | P04, P05-A estimate panel (no margin, D-023) | ":min – :max" |
+| `takes.estimate.updates` | P04, P05-A estimate panel (no margin, D-023) | "updates as you type" |
+| `takes.estimate.idle` | P04, P05-A estimate panel (no margin, D-023) | "Describe your take to see its price." |
+| `takes.estimate.loading` | P04, P05-A estimate panel (no margin, D-023) | "Updating the price…" |
+| `takes.estimate.pay_exact` | P04, P05-A estimate panel (no margin, D-023) | "You pay the exact amount when the take finishes." |
+| `takes.estimate.failed_free` | P04, P05-A estimate panel (no margin, D-023) | "Failed takes are free." |
+| `takes.estimate.hold_note` | P04, P05-A estimate panel (no margin, D-023) | "We hold up to :amount from your balance while it runs." |
+| `takes.estimate.insufficient` | P04, P05-A estimate panel (no margin, D-023) | "This take can cost up to :max. You have :available available." |
+| `takes.estimate.max_not_average` | P04, P05-A estimate panel (no margin, D-023) | "We check the maximum, not the average, so a take can never leave you below zero." |
+| `takes.estimate.error` | P04, P05-A estimate panel (no margin, D-023) | "We couldn't update the price. Keep typing or try again in a moment." |
+| `takes.scenarios.title` | P04 Try a scenario chips (D-044) | "Try a scenario" |
+| `takes.scenarios.add` | P04 Try a scenario chips (D-044) | "Add :keyword to the prompt" |
+| `takes.scenarios.fail` | P04 Try a scenario chips (D-044) | "Fails while rendering. You are not charged." |
+| `takes.scenarios.slow` | P04 Try a scenario chips (D-044) | "Takes 60 to 90 seconds instead of 5 to 30." |
+| `takes.scenarios.duplicate` | P04 Try a scenario chips (D-044) | "Every status update arrives twice. You are charged once." |
+| `takes.scenarios.blocked` | P04 Try a scenario chips (D-044) | "Declined by the content policy. You are not charged." |
+| `takes.drawer.timeline` | P06 take drawer | "Timeline" |
+| `takes.drawer.price` | P06 take drawer | "Price" |
+| `takes.drawer.versions` | P06 take drawer | "Versions" |
+| `takes.drawer.this_take` | P06 take drawer | "This take" |
+| `takes.drawer.parent` | P06 take drawer | "Parent #:id" |
+| `takes.drawer.loading` | P06 take drawer | "Loading take…" |
+| `takes.drawer.estimate_was` | P06 take drawer | "estimate was :range" |
+| `takes.drawer.hold_released` | P06 take drawer | "Up to :amount was held while it ran; the rest went back to your balance." |
+| `takes.drawer.hold_voided` | P06 take drawer | "Up to :amount was held while it ran. All of it went back to your balance." |
+| `takes.drawer.on_hold` | P06 take drawer | "on hold" |
+| `takes.drawer.charged` | P06 take drawer | "charged" |
+| `takes.drawer.not_charged` | P06 take drawer | "not charged" |
+| `takes.timeline.created` | P06 timeline | "Created · up to :amount held" |
+| `takes.timeline.queued` | P06 timeline | "Queued" |
+| `takes.timeline.processing` | P06 timeline | "Processing" |
+| `takes.timeline.done` | P06 timeline | "Done · charged :amount · rest of the hold released" |
+| `takes.timeline.failed` | P06 timeline | "Failed · not charged · hold released" |
+| `billing.available` | balance pill and Buy credits (P03, P04, P10) | "Available" |
+| `billing.on_hold` | balance pill and Buy credits (P03, P04, P10) | "on hold" |
+| `billing.balance_label` | balance pill and Buy credits (P03, P04, P10) | "Available :available, on hold :on_hold" |
+| `landing.meta_title` | P01 landing | "Describe it. Take it. Remix it." |
+| `landing.nav.label` | P01 landing | "Sections" |
+| `landing.nav.how_it_works` | P01 landing | "How it works" |
+| `landing.nav.pricing` | P01 landing | "Pricing" |
+| `landing.nav.sign_in` | P01 landing | "Sign in" |
+| `landing.nav.start_free` | P01 landing | "Start free" |
+| `landing.nav.open_app` | P01 landing | "Open Takes" |
+| `landing.hero.line_1` | P01 landing | "Describe it." |
+| `landing.hero.line_2` | P01 landing | "Take it." |
+| `landing.hero.line_3` | P01 landing | "Remix it." |
+| `landing.hero.lead` | P01 landing | "Generate images, iterate on them as versions, and always see the price before you press Generate." |
+| `landing.hero.start` | P01 landing | "Start with :amount free" |
+| `landing.hero.demo` | P01 landing | "Try a demo account" |
+| `landing.hero.no_card` | P01 landing | "No card. Credits are simulated for this demo." |
+| `landing.example.label` | P01 landing | "Example project with five takes" |
+| `landing.example.project` | P01 landing | "Lighthouse series" |
+| `landing.example.count` | P01 landing | ":count takes" |
+| `landing.example.take` | P01 landing | "take #:id" |
+| `landing.example.take_warmer` | P01 landing | "take #:id · warmer" |
+| `landing.example.take_portrait` | P01 landing | "take #:id · portrait" |
+| `landing.steps.title` | P01 landing | "How it works" |
+| `landing.steps.describe_title` | P01 landing | "Describe" |
+| `landing.steps.describe` | P01 landing | "Write a prompt, pick size and quality. The price range shows before you start." |
+| `landing.steps.take_title` | P01 landing | "Take" |
+| `landing.steps.take` | P01 landing | "Every generation is a take, saved in a project, with its exact cost." |
+| `landing.steps.remix_title` | P01 landing | "Remix" |
+| `landing.steps.remix` | P01 landing | "Branch any take, or describe a change (“warmer, portrait”) and review it before it runs." |
+| `landing.pricing.title` | P01 landing | "Clear pricing" |
+| `landing.pricing.body` | P01 landing | "Pay per take from prepaid credits. See the price range before you generate, the exact amount after." |
+| `landing.pricing.welcome` | P01 landing | "New accounts start with :amount of credits." |
+| `landing.pricing.credit_rate` | P01 landing | "1 credit = $1.00." |
+| `landing.pricing.caption` | P01 landing | "Example prices per take" |
+| `landing.pricing.example_take` | P01 landing | "Example take" |
+| `landing.pricing.price_range` | P01 landing | "Price range" |
+| `landing.pricing.square_medium_short` | P01 landing | "Square · medium · short prompt" |
+| `landing.pricing.landscape_high_two_refs` | P01 landing | "Landscape · high · 2 references" |
+| `landing.footer` | P01 landing | "Takes is a take-home project. Payments are simulated." |
+| `landing.shell.skip_to_content` | app shell skip link | "Skip to content" |

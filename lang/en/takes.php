@@ -7,10 +7,11 @@ declare(strict_types=1);
 | Takes copy (single source, D-057)
 |--------------------------------------------------------------------------
 |
-| Every sentence marked "2-01" is copied verbatim from the tables in
-| .claude/specs/2-product-design/01-SPEC.md. Change those strings in the
-| spec first, then here. Keys under `failure` match App\Enums\Takes\FailureCode.
-| Strings marked "P0x" come from the wireframe sheet of that name.
+| Every string here is listed in .claude/specs/2-product-design/01-SPEC.md:
+| the state, failure and billing tables, or the "Additional strings" table
+| (keys as written there). Change a string in the spec first, then here.
+| Keys under `failure` match App\Enums\Takes\FailureCode. A "P0x" note names
+| the wireframe sheet where the string appears.
 | Customers never see provider names, provider cost or the margin (D-023).
 | Denial reasons live in their own file (owned by spec 3-01); only reference them.
 |
@@ -100,7 +101,6 @@ return [
         'cancel' => 'Cancel',
         'compare_with_parent' => 'Compare with parent',
         'hide_comparison' => 'Hide comparison',
-        'close' => 'Close',
     ],
 
     /* Parameters (P04). Keys match App\Enums\Takes\TakeSize and TakeQuality. */
@@ -123,6 +123,7 @@ return [
         'announcement' => 'Take #:id: :status',
         'no_image' => 'No image',
         'remix_of' => 'Remix of #:id',
+        'exact_amount' => 'Exact amount :amount',
     ],
 
     /* Composer (P04, P05, P10). */
@@ -175,12 +176,12 @@ return [
 
     /* Take detail drawer (P06). */
     'drawer' => [
-        'prompt' => 'Prompt',
         'timeline' => 'Timeline',
         'price' => 'Price',
         'versions' => 'Versions',
         'this_take' => 'This take',
         'parent' => 'Parent #:id',
+        'loading' => 'Loading take…',
         'estimate_was' => 'estimate was :range',
         'hold_released' => 'Up to :amount was held while it ran; the rest went back to your balance.',
         'hold_voided' => 'Up to :amount was held while it ran. All of it went back to your balance.',

@@ -7,8 +7,8 @@ declare(strict_types=1);
 | Billing and credit copy (single source, D-057)
 |--------------------------------------------------------------------------
 |
-| Strings marked "2-01" are verbatim from the "Billing, take and AI strings"
-| and "Additional strings" tables in .claude/specs/2-product-design/01-SPEC.md.
+| Every string is listed in .claude/specs/2-product-design/01-SPEC.md (the
+| "Billing, take and AI strings" and "Additional strings" tables).
 | Amounts (:amount) are formatted on the server: 4 decimals on the pill and
 | toasts, exact on money pages (D-042). 1 credit = $1.00.
 |
