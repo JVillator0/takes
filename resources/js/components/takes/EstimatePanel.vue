@@ -14,17 +14,25 @@ type Props = {
     availableDisplay?: string | null;
     /** Denial sentence from the server (`denials.*`, owned by spec 3-01). */
     deniedMessage?: string | null;
+    /**
+     * Id of the denied/error message region, so the composer can point
+     * Generate's aria-describedby at it (one is generated when omitted).
+     */
+    messageId?: string;
     class?: string;
 };
 
 const props = withDefaults(defineProps<Props>(), {
     availableDisplay: null,
     deniedMessage: null,
+    messageId: undefined,
     class: '',
 });
 
 const { t } = useCopy();
 const titleId = useId();
+const fallbackMessageId = useId();
+const messageId = computed(() => props.messageId ?? fallbackMessageId);
 
 const range = computed(() =>
     props.estimate
@@ -85,38 +93,48 @@ const isDenied = computed(() => props.state === 'denied');
             </p>
         </div>
 
-        <div v-if="isDenied" class="mt-2 space-y-1.5 text-sm">
-            <p v-if="estimate && availableDisplay">
-                {{
-                    t('takes.estimate.insufficient', {
-                        max: estimate.max_display,
-                        available: availableDisplay,
-                    })
-                }}
-            </p>
+        <!--
+            Always rendered, so screen readers announce a denial or an error
+            when it appears (a region inserted together with its text is not
+            announced reliably).
+        -->
+        <div :id="messageId" aria-live="polite" aria-atomic="true">
+            <div v-if="isDenied" class="mt-2 space-y-1.5 text-sm">
+                <p v-if="estimate && availableDisplay">
+                    {{
+                        t('takes.estimate.insufficient', {
+                            max: estimate.max_display,
+                            available: availableDisplay,
+                        })
+                    }}
+                </p>
+                <p
+                    v-if="deniedMessage"
+                    class="flex gap-1.5 font-medium text-red-700 dark:text-red-300"
+                >
+                    <CircleAlert
+                        class="mt-0.5 size-4 shrink-0"
+                        aria-hidden="true"
+                    />
+                    {{ deniedMessage }}
+                </p>
+                <p class="text-xs text-muted-foreground">
+                    {{ t('takes.estimate.max_not_average') }}
+                </p>
+            </div>
+
             <p
-                v-if="deniedMessage"
-                class="flex gap-1.5 font-medium text-red-700 dark:text-red-300"
+                v-else-if="state === 'error'"
+                class="mt-2 text-sm text-red-700 dark:text-red-300"
             >
-                <CircleAlert
-                    class="mt-0.5 size-4 shrink-0"
-                    aria-hidden="true"
-                />
-                {{ deniedMessage }}
-            </p>
-            <p class="text-xs text-muted-foreground">
-                {{ t('takes.estimate.max_not_average') }}
+                {{ t('takes.estimate.error') }}
             </p>
         </div>
 
-        <p
-            v-else-if="state === 'error'"
-            class="mt-2 text-sm text-red-700 dark:text-red-300"
+        <div
+            v-if="estimate && !isDenied && state !== 'error'"
+            class="mt-1.5 space-y-1 text-sm"
         >
-            {{ t('takes.estimate.error') }}
-        </p>
-
-        <div v-else-if="estimate" class="mt-1.5 space-y-1 text-sm">
             <p>
                 {{ t('takes.estimate.pay_exact') }}
                 <strong class="font-semibold">

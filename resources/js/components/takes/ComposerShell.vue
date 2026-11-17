@@ -73,7 +73,7 @@ const emit = defineEmits<{
     cancelRemix: [];
 }>();
 
-defineSlots<{
+const slots = defineSlots<{
     'disabled-reason'?: () => unknown;
 }>();
 
@@ -84,6 +84,8 @@ const ids = {
     tip: useId(),
     promptError: useId(),
     reason: useId(),
+    estimateMessage: useId(),
+    banner: useId(),
 };
 
 const sizes: { value: TakeSize; icon: typeof Square }[] = [
@@ -146,6 +148,23 @@ const submitLabel = computed(() => {
               amount: props.estimate.max_display,
           })
         : t('takes.composer.submit');
+});
+
+/**
+ * Everything that explains a blocked Generate, so a screen reader hears why
+ * when it lands on the aria-disabled button.
+ */
+const submitDescribedBy = computed(() => {
+    const describedBy = [
+        props.serviceConfigured ? null : ids.banner,
+        props.estimateState === 'denied' || props.estimateState === 'error'
+            ? ids.estimateMessage
+            : null,
+        promptError.value ? ids.promptError : null,
+        props.disabledReason || slots['disabled-reason'] ? ids.reason : null,
+    ].filter((id): id is string => id !== null);
+
+    return describedBy.length > 0 ? describedBy.join(' ') : undefined;
 });
 
 const submit = (): void => {
@@ -216,7 +235,10 @@ const segmentClass =
             </span>
         </div>
 
-        <ServiceNotConfiguredBanner v-if="!serviceConfigured" />
+        <ServiceNotConfiguredBanner
+            v-if="!serviceConfigured"
+            :id="ids.banner"
+        />
 
         <div class="flex flex-col gap-1.5">
             <label
@@ -420,6 +442,7 @@ const segmentClass =
             :state="estimateState"
             :available-display="availableDisplay"
             :denied-message="deniedMessage"
+            :message-id="ids.estimateMessage"
         />
 
         <div class="flex flex-col gap-2">
@@ -428,11 +451,7 @@ const segmentClass =
                     type="submit"
                     size="lg"
                     :aria-disabled="!canSubmit"
-                    :aria-describedby="
-                        disabledReason || $slots['disabled-reason']
-                            ? ids.reason
-                            : undefined
-                    "
+                    :aria-describedby="submitDescribedBy"
                     :class="[
                         'min-w-0 flex-1 tabular-nums',
                         !canSubmit && 'cursor-not-allowed opacity-50',
