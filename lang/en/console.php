@@ -140,6 +140,7 @@ return [
         'unavailable_short' => 'Could not reach Pixelforge.',
         'find_takes' => 'Find takes',
         'throttled' => 'Pixelforge checks are limited to protect the shared account budget. Try again in :seconds s.',
+        'throttled_banner' => 'The admin Pixelforge request budget is spent for this minute; showing the last figures fetched.',
         'not_a_mismatch' => 'Find takes runs only for a Mismatch day of the current range.',
         'invalid_date' => 'Enter a date as YYYY-MM-DD.',
         'invalid_range' => 'Pick an ordered range of at most :days days.',

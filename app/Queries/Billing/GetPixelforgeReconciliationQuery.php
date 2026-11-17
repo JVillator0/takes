@@ -16,6 +16,7 @@ use App\Exceptions\Pixelforge\PixelforgeNotConfigured;
 use App\Models\Take;
 use App\Models\UsageRecord;
 use App\Services\Pixelforge\PixelforgeClient;
+use App\Support\Pixelforge\AdminRequestBudget;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 use InvalidArgumentException;
@@ -26,12 +27,22 @@ use InvalidArgumentException;
  * that day are still in flight, and today always is ("N in flight"), never Mismatch. When Pixelforge cannot be
  * reached each closed day falls back to its last good figures, marked unavailable. Today and later days are
  * Pending: never judged, never kept as last-good, and figures fetched before a day ended are never judged for it.
+ * Every /v1/usage call spends one request of the admin budget (AdminRequestBudget); when the budget is spent or
+ * a call failed in the last minute, the last good figures are served instead.
+ *
+ * Known limit: in-flight takes hold the day they were created, while billing uses the completion day; a take
+ * created just before midnight that is still in flight locally holds the earlier day, not the next.
  */
 final readonly class GetPixelforgeReconciliationQuery
 {
     public const int MAX_DAYS = 92;
 
     public const int CACHE_SECONDS = 300;
+
+    /** Set for a minute after a failed /v1/usage call; while set, the page serves the last good figures. */
+    public const string DOWN_KEY = 'admin:pixelforge-usage:down';
+
+    public const int DOWN_SECONDS = 60;
 
     /** How long a day's last good figures back the page when Pixelforge cannot be reached. */
     public const int LAST_GOOD_SECONDS = 30 * 24 * 3600;
@@ -49,7 +60,7 @@ final readonly class GetPixelforgeReconciliationQuery
 
         $ours = $this->ours($from, $until);
         $inFlight = $this->inFlight($from, $until);
-        [$theirs, $fetchedAt, $unavailable] = $this->theirs($from, $until, $refresh);
+        [$theirs, $fetchedAt, $unavailable, $throttled] = $this->theirs($from, $until, $refresh);
         $today = CarbonImmutable::now('UTC')->toDateString();
 
         $days = [];
@@ -86,7 +97,7 @@ final readonly class GetPixelforgeReconciliationQuery
         }
 
         // A total over a different set of days than ours would be misleading.
-        return new PixelforgeReconciliationDTO($days, $oursTotal, $missingTheirs ? null : $theirsTotal, $matched, $judged, $fetchedAt, $unavailable);
+        return new PixelforgeReconciliationDTO($days, $oursTotal, $missingTheirs ? null : $theirsTotal, $matched, $judged, $fetchedAt, $unavailable, $throttled);
     }
 
     /**
@@ -144,7 +155,7 @@ final readonly class GetPixelforgeReconciliationQuery
      * Reports badge can read a day's last check), plus a 30-day "last good" copy used when Pixelforge cannot be
      * reached. A day with neither is Unavailable.
      *
-     * @return array{0: array<string, UsageTotalsDTO>, 1: CarbonImmutable|null, 2: bool}
+     * @return array{0: array<string, UsageTotalsDTO>, 1: CarbonImmutable|null, 2: bool, 3: bool} figures, fetched at, unavailable, throttled
      */
     private function theirs(CarbonImmutable $from, CarbonImmutable $until, bool $refresh): array
     {
@@ -163,15 +174,30 @@ final readonly class GetPixelforgeReconciliationQuery
         $fresh = array_filter(array_combine($dates, array_map(fn (string $date): mixed => Cache::get(self::dayKey($date)), $dates)), self::isFinalOrOpen(...), ARRAY_FILTER_USE_BOTH);
 
         if (count($fresh) === count($dates)) {
-            return [...$this->decode($fresh), false];
+            return [...$this->decode($fresh), false, false];
+        }
+
+        $fallback = function () use ($dates, $fresh): array {
+            $last = array_filter(array_combine($dates, array_map(fn (string $date): mixed => Cache::get(self::lastKey($date)), $dates)), self::isFinalOrOpen(...), ARRAY_FILTER_USE_BOTH);
+
+            return $this->decode($fresh + $last);
+        };
+
+        // A failed fetch is remembered for a minute, so an outage is not retried on every round-trip.
+        if (Cache::has(self::DOWN_KEY)) {
+            return [...$fallback(), true, false];
+        }
+
+        if (! AdminRequestBudget::reserve(1)) {
+            return [...$fallback(), true, true];
         }
 
         try {
             $report = $this->client->getUsage($from, $until);
         } catch (PixelforgeException|PixelforgeNotConfigured) {
-            $last = array_filter(array_combine($dates, array_map(fn (string $date): mixed => Cache::get(self::lastKey($date)), $dates)), self::isFinalOrOpen(...), ARRAY_FILTER_USE_BOTH);
+            Cache::put(self::DOWN_KEY, true, self::DOWN_SECONDS);
 
-            return [...$this->decode($last), true];
+            return [...$fallback(), true, false];
         }
 
         $fetchedAt = CarbonImmutable::now()->toIso8601String();
@@ -203,7 +229,7 @@ final readonly class GetPixelforgeReconciliationQuery
             }
         }
 
-        return [...$this->decode($fetched), false];
+        return [...$this->decode($fetched), false, false];
     }
 
     /**

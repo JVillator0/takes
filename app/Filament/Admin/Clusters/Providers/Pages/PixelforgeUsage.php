@@ -7,11 +7,13 @@ namespace App\Filament\Admin\Clusters\Providers\Pages;
 use App\DTOs\Billing\PixelforgeReconciliationDTO;
 use App\DTOs\Billing\ReconciliationGenerationDTO;
 use App\Enums\Billing\ReconciliationStatus;
+use App\Exceptions\Pixelforge\AdminRequestBudgetExhaustedException;
 use App\Exceptions\Pixelforge\PixelforgeException;
 use App\Exceptions\Pixelforge\PixelforgeNotConfigured;
 use App\Filament\Admin\Clusters\Providers\ProvidersCluster;
 use App\Queries\Billing\GetPixelforgeReconciliationQuery;
 use App\Queries\Billing\ListPixelforgeDayDiscrepanciesQuery;
+use App\Support\Pixelforge\AdminRequestBudget;
 use BackedEnum;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Carbon\CarbonImmutable;
@@ -19,8 +21,6 @@ use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\RateLimiter;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 
@@ -39,10 +39,6 @@ final class PixelforgeUsage extends Page
     use HasPageShield;
 
     public const int DEFAULT_DAYS = 14;
-
-    public const string PROVIDER_CHECKS_KEY = 'admin:pixelforge-checks';
-
-    public const int PROVIDER_CHECKS_PER_MINUTE = 6;
 
     private const string DATE_PATTERN = '/^\d{4}-\d{2}-\d{2}$/';
 
@@ -152,12 +148,12 @@ final class PixelforgeUsage extends Page
                     return;
                 }
 
-                if (! Cache::has(ListPixelforgeDayDiscrepanciesQuery::cacheKey($date)) && ! self::spendProviderCheck()) {
-                    return;
-                }
-
                 try {
                     $result = app(ListPixelforgeDayDiscrepanciesQuery::class)->execute(CarbonImmutable::parse($date, 'UTC'));
+                } catch (AdminRequestBudgetExhaustedException) {
+                    self::notifyThrottled();
+
+                    return;
                 } catch (PixelforgeException|PixelforgeNotConfigured) {
                     Notification::make()->danger()->title(__('console.pixelforge.unavailable_short'))->send();
 
@@ -184,7 +180,10 @@ final class PixelforgeUsage extends Page
                 ->label(__('console.pixelforge.refresh'))
                 ->icon(Heroicon::OutlinedArrowPath)
                 ->action(function (): void {
-                    if (! self::spendProviderCheck()) {
+                    // Refresh spends one request of the admin budget (taken when the report refetches).
+                    if (AdminRequestBudget::remaining() < 1) {
+                        self::notifyThrottled();
+
                         return;
                     }
 
@@ -210,21 +209,11 @@ final class PixelforgeUsage extends Page
         return false;
     }
 
-    /**
-     * Find takes (uncached) and Refresh call Pixelforge on the account-wide 60 rpm budget the customers' takes
-     * share, so every admin together gets a few per minute (the auditor's login is public).
-     */
-    private static function spendProviderCheck(): bool
+    private static function notifyThrottled(): void
     {
-        if (RateLimiter::attempt(self::PROVIDER_CHECKS_KEY, self::PROVIDER_CHECKS_PER_MINUTE, fn (): bool => true)) {
-            return true;
-        }
-
         Notification::make()->warning()
-            ->title(__('console.pixelforge.throttled', ['seconds' => RateLimiter::availableIn(self::PROVIDER_CHECKS_KEY)]))
+            ->title(__('console.pixelforge.throttled', ['seconds' => AdminRequestBudget::availableIn()]))
             ->send();
-
-        return false;
     }
 
     private static function isDate(string $value): bool

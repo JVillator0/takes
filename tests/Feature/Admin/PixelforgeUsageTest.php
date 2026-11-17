@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 use App\Enums\Auth\AdminRole;
 use App\Enums\Billing\ReconciliationStatus;
+use App\Exceptions\Pixelforge\AdminRequestBudgetExhaustedException;
 use App\Filament\Admin\Clusters\Providers\Pages\PixelforgeUsage;
 use App\Models\Take;
 use App\Models\UsageRecord;
 use App\Models\User;
 use App\Queries\Billing\GetPixelforgeReconciliationQuery;
 use App\Queries\Billing\ListPixelforgeDayDiscrepanciesQuery;
+use App\Support\Pixelforge\AdminRequestBudget;
 use Carbon\CarbonImmutable;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
@@ -360,27 +362,75 @@ it('lists our settled usage that Pixelforge did not report for the day', functio
         ->toBe([['gen_not_listed', $extra->id, null, FIXTURE_COST_NANOS]]);
 });
 
-it('caches Find takes per day and throttles provider checks for everyone', function (): void {
+it('caches Find takes per day as plain data in a serializing store', function (): void {
+    config(['cache.default' => 'database']);
     settledFixtureTake('2026-11-15', 'gen_a');
-    Http::fake([
-        'pixelforge.test/v1/usage*' => Http::response(usagePayload('2026-11-04', '2026-11-17', [
-            '2026-11-15' => [2, 24, 1530, 12900, 6368, '0.611020000'],
-        ])),
-        'pixelforge.test/v1/generations*' => Http::response(['object' => 'list', 'data' => [], 'has_more' => false, 'next_cursor' => null]),
-    ]);
-    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
+    Http::fake(['pixelforge.test/v1/generations*' => Http::response(['object' => 'list', 'data' => [
+        PixelforgeFixture::generation('succeeded', ['id' => 'gen_b', 'created_at' => '2026-11-15T10:00:00Z', 'completed_at' => '2026-11-15T10:00:00Z']),
+    ], 'has_more' => false, 'next_cursor' => null])]);
+    $query = app(ListPixelforgeDayDiscrepanciesQuery::class);
 
-    $page = Livewire::test(PixelforgeUsage::class)
-        ->callAction('findTakes', arguments: ['date' => '2026-11-15'])
-        ->callAction('findTakes', arguments: ['date' => '2026-11-15']);
-    Http::assertSentCount(2); // one usage report, one generations page
+    $first = $query->execute(CarbonImmutable::parse('2026-11-15'));
+    $second = $query->execute(CarbonImmutable::parse('2026-11-15'));
 
-    foreach (range(1, PixelforgeUsage::PROVIDER_CHECKS_PER_MINUTE) as $ignored) {
-        RateLimiter::hit(PixelforgeUsage::PROVIDER_CHECKS_KEY);
-    }
+    expect(Cache::get(ListPixelforgeDayDiscrepanciesQuery::cacheKey('2026-11-15')))->toBeArray()
+        ->and($second->toArray())->toBe($first->toArray())
+        ->and($second->theirsNotOurs[0]->theirCost?->toInt())->toBe(FIXTURE_COST_NANOS);
+    Http::assertSentCount(1);
+});
 
-    $page->callAction('refresh')->assertNotified();
+it('spends one admin budget per Pixelforge request: Find takes reserves its page cap and refunds the rest', function (): void {
+    Http::fake(['pixelforge.test/v1/generations*' => Http::response(['object' => 'list', 'data' => [], 'has_more' => false, 'next_cursor' => null])]);
+
+    app(ListPixelforgeDayDiscrepanciesQuery::class)->execute(CarbonImmutable::parse('2026-11-15'));
+    expect(RateLimiter::attempts(AdminRequestBudget::KEY))->toBe(1);
+
+    RateLimiter::increment(AdminRequestBudget::KEY, 60, AdminRequestBudget::PER_MINUTE - ListPixelforgeDayDiscrepanciesQuery::MAX_PAGES);
+
+    expect(fn () => app(ListPixelforgeDayDiscrepanciesQuery::class)->execute(CarbonImmutable::parse('2026-11-14')))
+        ->toThrow(AdminRequestBudgetExhaustedException::class);
+    Http::assertSentCount(1);
+});
+
+it('serves the last good figures when the budget is spent, and does not retry a failed fetch for a minute', function (): void {
+    $query = app(GetPixelforgeReconciliationQuery::class);
+    $from = CarbonImmutable::parse('2026-11-15');
+    $to = CarbonImmutable::parse('2026-11-16');
+    Http::fakeSequence('pixelforge.test/v1/usage*')
+        ->push(usagePayload('2026-11-15', '2026-11-16', []))
+        ->push(['error' => ['type' => 'api_error', 'code' => 'internal_error', 'message' => 'down']], 503)
+        ->push(usagePayload('2026-11-15', '2026-11-16', []));
+
+    $query->execute($from, $to);
+    RateLimiter::increment(AdminRequestBudget::KEY, 60, AdminRequestBudget::PER_MINUTE);
+    $throttled = $query->execute($from, $to, refresh: true);
+
+    expect([$throttled->throttled, $throttled->unavailable, $throttled->days[0]->status])->toBe([true, true, ReconciliationStatus::Match]);
+    Http::assertSentCount(1);
+
+    RateLimiter::clear(AdminRequestBudget::KEY);
+    $query->execute($from, $to, refresh: true); // 503, remembered for a minute
+    $query->execute($from, $to, refresh: true); // served from last-good, no call
     Http::assertSentCount(2);
+
+    $this->travel(61)->seconds();
+    expect($query->execute($from, $to, refresh: true)->unavailable)->toBeFalse();
+    Http::assertSentCount(3);
+});
+
+it('notifies instead of refreshing or finding when the admin budget is spent', function (): void {
+    settledFixtureTake('2026-11-15', 'gen_a');
+    Http::fake(['pixelforge.test/v1/usage*' => Http::response(usagePayload('2026-11-04', '2026-11-17', [
+        '2026-11-15' => [2, 24, 1530, 12900, 6368, '0.611020000'],
+    ]))]);
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
+    $page = Livewire::test(PixelforgeUsage::class);
+    RateLimiter::increment(AdminRequestBudget::KEY, 60, AdminRequestBudget::PER_MINUTE);
+
+    $page->callAction('refresh')->assertNotified()
+        ->callAction('findTakes', arguments: ['date' => '2026-11-15'])->assertNotified()
+        ->assertSet('findResult', null);
+    Http::assertSentCount(1);
 });
 
 it('locks the applied range and the drill-down result against client writes, and errors per field', function (): void {

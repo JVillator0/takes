@@ -25,6 +25,10 @@
         </label>
     </div>
 
+    @if ($report->throttled)
+        <p class="text-sm text-warning-700 dark:text-warning-300" data-testid="pixelforge-throttled">{{ __('console.pixelforge.throttled_banner') }}</p>
+    @endif
+
     @if ($report->unavailable)
         <div class="rounded-lg bg-warning-50 p-3 text-sm text-warning-800 dark:bg-warning-500/10 dark:text-warning-300" data-testid="pixelforge-unavailable">
             {{ $report->fetchedAt ? __('console.pixelforge.unavailable', ['time' => $report->fetchedAt->utc()->format($report->fetchedAt->utc()->isToday() ? 'H:i' : 'Y-m-d H:i')]) : __('console.pixelforge.unavailable_never') }}

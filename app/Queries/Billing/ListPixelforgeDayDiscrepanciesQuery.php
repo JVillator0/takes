@@ -10,11 +10,13 @@ use App\DTOs\Pixelforge\GenerationSnapshotDTO;
 use App\Enums\Billing\Provider;
 use App\Enums\Billing\UsageStatus;
 use App\Enums\Takes\TakeStatus;
+use App\Exceptions\Pixelforge\AdminRequestBudgetExhaustedException;
 use App\Models\Take;
 use App\Models\UsageRecord;
 use App\Services\Pixelforge\PixelforgeClient;
 use App\Support\Money\Nanodollars;
 use App\Support\Money\TokenCost;
+use App\Support\Pixelforge\AdminRequestBudget;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 use Psr\Log\NullLogger;
@@ -23,12 +25,14 @@ use Psr\Log\NullLogger;
  * A04 **Find takes** (D-034, D-058): pages `GET /v1/generations?status=succeeded`, keeps the generations Pixelforge
  * completed on the day (UTC), and diffs them against our takes by `pixelforge_id` (or `metadata.app_take_id`).
  * Our settled usage on the day that Pixelforge did not list also lands in Amount differs (their cost unknown).
- * Runs only on an explicit click, never on page load; each day's result is cached 5 minutes.
+ * Runs only on an explicit click, never on page load; each day's result is cached 5 minutes as a plain array.
+ * Each run reserves MAX_PAGES requests of the admin budget and refunds the pages it did not read; with no room
+ * it throws AdminRequestBudgetExhaustedException and calls nothing.
  */
 final readonly class ListPixelforgeDayDiscrepanciesQuery
 {
-    /** Provider pages read at most (100 generations each). */
-    public const int MAX_PAGES = 20;
+    /** Provider pages read at most (100 generations each): half the admin budget of 20 requests a minute. */
+    public const int MAX_PAGES = 10;
 
     /** A day's result is reused this long, so repeated clicks do not spend the shared 60 rpm budget. */
     public const int CACHE_SECONDS = 300;
@@ -51,20 +55,33 @@ final readonly class ListPixelforgeDayDiscrepanciesQuery
         $date = $day->utc()->toDateString();
         $cached = Cache::get(self::cacheKey($date));
 
-        if ($cached instanceof FindTakesResultDTO) {
-            return $cached;
+        if (is_array($cached)) {
+            /** @var array{date: string, truncated: bool, theirs_not_ours: list<array{generation_id: string, take_id: string|null, their_cost_nanos: int|null, our_cost_nanos: int|null}>, ours_not_settled: list<array{generation_id: string, take_id: string|null, their_cost_nanos: int|null, our_cost_nanos: int|null}>, amount_differs: list<array{generation_id: string, take_id: string|null, their_cost_nanos: int|null, our_cost_nanos: int|null}>, orphan_success: list<array{generation_id: string, take_id: string|null, their_cost_nanos: int|null, our_cost_nanos: int|null}>} $cached */
+            return FindTakesResultDTO::fromArray($cached);
         }
 
-        $result = $this->discrepancies($day->utc()->startOfDay());
-        Cache::put(self::cacheKey($date), $result, self::CACHE_SECONDS);
+        // Reserve the page cap up front from the admin budget; refund what was not read.
+        if (! AdminRequestBudget::reserve(self::MAX_PAGES)) {
+            throw new AdminRequestBudgetExhaustedException('No room in the admin Pixelforge budget for Find takes.');
+        }
+
+        $pagesRead = 0;
+
+        try {
+            $result = $this->discrepancies($day->utc()->startOfDay(), $pagesRead);
+        } finally {
+            AdminRequestBudget::refund(self::MAX_PAGES - $pagesRead);
+        }
+
+        Cache::put(self::cacheKey($date), $result->toArray(), self::CACHE_SECONDS);
 
         return $result;
     }
 
-    private function discrepancies(CarbonImmutable $dayStart): FindTakesResultDTO
+    private function discrepancies(CarbonImmutable $dayStart, int &$pagesRead): FindTakesResultDTO
     {
         $date = $dayStart->toDateString();
-        [$generations, $truncated] = $this->generationsCompletedOn($dayStart);
+        [$generations, $truncated] = $this->generationsCompletedOn($dayStart, $pagesRead);
 
         $takes = Take::query()
             ->with('usageRecord')
@@ -158,7 +175,7 @@ final readonly class ListPixelforgeDayDiscrepanciesQuery
      *
      * @return array{0: list<GenerationSnapshotDTO>, 1: bool}
      */
-    private function generationsCompletedOn(CarbonImmutable $dayStart): array
+    private function generationsCompletedOn(CarbonImmutable $dayStart, int &$pagesRead): array
     {
         $date = $dayStart->toDateString();
         $stopBefore = $dayStart->subDay();
@@ -166,6 +183,7 @@ final readonly class ListPixelforgeDayDiscrepanciesQuery
         $cursor = null;
 
         for ($page = 0; $page < self::MAX_PAGES; $page++) {
+            $pagesRead++;
             $result = $this->client->listGenerations('succeeded', $cursor);
 
             foreach ($result->generations as $generation) {
