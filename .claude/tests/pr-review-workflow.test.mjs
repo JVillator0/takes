@@ -297,7 +297,9 @@ test('MERGEABLE merge step falls back to a direct squash merge and decides from 
   const { calls } = await run({ ctx: context(['routes/web.php']), judge: judgeResult() })
   const prompt = calls.find((c) => c.label === 'publish verdict').prompt
   assert.match(prompt, /--squash --auto --delete-branch --match-head-commit a{40}/)
-  assert.match(prompt, /fails with "clean status"/)
+  assert.match(prompt, /enablePullRequestAutoMerge/)
+  assert.match(prompt, /"clean status"/)
+  assert.match(prompt, /Protected branch rules not configured/)
   assert.match(prompt, /gh pr merge 5 -R JVillator0\/takes --squash --delete-branch --match-head-commit a{40}/)
   assert.match(prompt, /could not determine current branch/)
   assert.match(prompt, /--json state,autoMergeRequest/)
