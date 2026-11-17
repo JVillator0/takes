@@ -1,6 +1,6 @@
-import { HttpResponseError } from '@inertiajs/core';
-import { useHttp } from '@inertiajs/vue3';
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { HttpCancelledError, HttpResponseError } from '@inertiajs/core';
+import { useHttp, usePage } from '@inertiajs/vue3';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { Ref } from 'vue';
 import {
     apply as applyRoute,
@@ -9,7 +9,9 @@ import {
     show as showRoute,
     store as storeRoute,
 } from '@/actions/App/Http/Controllers/Suggestions/SuggestionController';
+import { useCopy } from '@/composables/useCopy';
 import type {
+    SuggestionApplyResult,
     SuggestionData,
     SuggestionQuote,
     SuggestionRejection,
@@ -18,10 +20,18 @@ import type {
 /** While a replayed request is still running on the server, check again this often. */
 const PENDING_POLL_MS = 2000;
 
+/**
+ * At most this many checks (about a minute, past the 20 s call timeout).
+ * After that the server expires the suggestion and frees its hold anyway.
+ */
+const PENDING_POLL_LIMIT = 30;
+
 /** Matches GetSuggestionQuoteQuery::MAX_INSTRUCTION_CHARACTERS (validated on the server). */
 export const MAX_INSTRUCTION_CHARACTERS = 500;
 
 export type DescribeChangeStep = 'ask' | 'thinking' | 'review' | 'done';
+
+export type QuoteState = 'loading' | 'ready' | 'failed';
 
 const isRejection = (value: unknown): value is SuggestionRejection =>
     typeof value === 'object' &&
@@ -29,7 +39,7 @@ const isRejection = (value: unknown): value is SuggestionRejection =>
     typeof (value as Record<string, unknown>).reason === 'string' &&
     typeof (value as Record<string, unknown>).message === 'string';
 
-/** The server's denial or rejection (DenialReason code + 2-01 copy), if the error carries one. */
+/** The server's denial or rejection (DenialReason code + 2-01 copy), if the error body carries one. */
 const rejectionFrom = (error: unknown): SuggestionRejection | null => {
     if (!(error instanceof HttpResponseError)) {
         return null;
@@ -49,8 +59,11 @@ const rejectionFrom = (error: unknown): SuggestionRejection | null => {
  * per draft on mount and again after a finished request, and reused on every
  * retry of the same draft, so a double click never pays twice (D-033, F-08).
  * Money and copy come formatted from the server; nothing here computes an amount.
+ * Every failed request ends in a visible, announced 2-01 sentence (F-19).
  */
 export function useDescribeChange(takeId: Ref<string>) {
+    const { t } = useCopy();
+    const page = usePage();
     const form = useHttp<
         { instruction: string; request_key: string },
         SuggestionData
@@ -61,14 +74,21 @@ export function useDescribeChange(takeId: Ref<string>) {
     const http = useHttp();
 
     const quote = ref<SuggestionQuote | null>(null);
+    const quoteState = ref<QuoteState>('loading');
     const suggestion = ref<SuggestionData | null>(null);
     const rejection = ref<SuggestionRejection | null>(null);
     const appliedMessage = ref<string | null>(null);
     const busy = ref(false);
+    /** The pending poll gave up (limit or error): the panel leaves Thinking. */
+    const pollFailed = ref(false);
     let pollTimer: number | undefined;
+    let pollAttempts = 0;
 
     const step = computed<DescribeChangeStep>(() => {
-        if (form.processing || suggestion.value?.status === 'pending') {
+        if (
+            form.processing ||
+            (suggestion.value?.status === 'pending' && !pollFailed.value)
+        ) {
             return 'thinking';
         }
 
@@ -86,45 +106,74 @@ export function useDescribeChange(takeId: Ref<string>) {
         return 'ask';
     });
 
+    /** The 2-01 fallback for an error without a server sentence (5xx, 419, network). */
+    const unavailable = (): SuggestionRejection => ({
+        reason: 'unavailable',
+        message: t('suggestions.unavailable'),
+    });
+
+    const fail = (error: unknown): void => {
+        if (error instanceof HttpCancelledError) {
+            return;
+        }
+
+        rejection.value = rejectionFrom(error) ?? unavailable();
+    };
+
     const stopPolling = (): void => {
         window.clearTimeout(pollTimer);
         pollTimer = undefined;
     };
+
+    const schedulePoll = (): void => {
+        stopPolling();
+
+        // Paused while the tab is hidden; visibilitychange resumes it.
+        if (document.visibilityState === 'hidden') {
+            return;
+        }
+
+        if (pollAttempts >= PENDING_POLL_LIMIT) {
+            pollFailed.value = true;
+            rejection.value = unavailable();
+
+            return;
+        }
+
+        pollAttempts++;
+        pollTimer = window.setTimeout(() => void refresh(), PENDING_POLL_MS);
+    };
+
+    async function loadQuote(): Promise<void> {
+        quoteState.value = 'loading';
+
+        try {
+            quote.value = (await http.get(
+                quoteRoute.url(takeId.value),
+            )) as SuggestionQuote;
+            quoteState.value = 'ready';
+        } catch {
+            quote.value = null;
+            quoteState.value = 'failed';
+        }
+    }
 
     const receive = (data: SuggestionData): void => {
         suggestion.value = data;
         stopPolling();
 
         if (data.status === 'pending') {
-            pollTimer = window.setTimeout(
-                () => void refresh(),
-                PENDING_POLL_MS,
-            );
+            schedulePoll();
 
             return;
         }
 
-        // The request finished: the next draft gets a new key.
+        // The request finished: the next draft gets a new key and a fresh
+        // quote (the balance, the daily count or the budget changed).
+        pollAttempts = 0;
         form.request_key = crypto.randomUUID();
+        void loadQuote();
     };
-
-    const fail = (error: unknown): void => {
-        rejection.value = rejectionFrom(error);
-
-        if (rejection.value === null && !(error instanceof HttpResponseError)) {
-            throw error;
-        }
-    };
-
-    async function loadQuote(): Promise<void> {
-        try {
-            quote.value = (await http.get(
-                quoteRoute.url(takeId.value),
-            )) as SuggestionQuote;
-        } catch {
-            quote.value = null;
-        }
-    }
 
     async function refresh(): Promise<void> {
         if (!suggestion.value) {
@@ -138,6 +187,8 @@ export function useDescribeChange(takeId: Ref<string>) {
                 )) as SuggestionData,
             );
         } catch (error) {
+            stopPolling();
+            pollFailed.value = true;
             fail(error);
         }
     }
@@ -145,12 +196,18 @@ export function useDescribeChange(takeId: Ref<string>) {
     async function suggest(): Promise<void> {
         rejection.value = null;
         appliedMessage.value = null;
+        pollFailed.value = false;
+        pollAttempts = 0;
 
         try {
             const data = await form.post(storeRoute.url(takeId.value));
 
             if (data) {
                 receive(data);
+            } else if (!form.hasErrors) {
+                // useHttp resolves a 422 to undefined; one without field
+                // errors still needs a sentence.
+                rejection.value = unavailable();
             }
         } catch (error) {
             fail(error);
@@ -168,15 +225,13 @@ export function useDescribeChange(takeId: Ref<string>) {
         try {
             const result = (await http.post(
                 applyRoute.url(suggestion.value.id),
-            )) as { takeId: string; message: string };
+            )) as SuggestionApplyResult;
             appliedMessage.value = result.message;
             suggestion.value = {
                 ...suggestion.value,
                 status: 'applied',
                 resultingTakeId: result.takeId,
             };
-
-            return;
         } catch (error) {
             fail(error);
         } finally {
@@ -205,12 +260,15 @@ export function useDescribeChange(takeId: Ref<string>) {
         }
     }
 
-    /** Back to the ask step with the same instruction (failed or discarded). */
+    /** Back to the ask step with the same instruction, and a fresh quote. */
     function startOver(): void {
         stopPolling();
+        pollFailed.value = false;
+        pollAttempts = 0;
         suggestion.value = null;
         rejection.value = null;
         appliedMessage.value = null;
+        void loadQuote();
     }
 
     /** Chips only fill the field; nothing is sent (spec 8 step 1). */
@@ -218,22 +276,50 @@ export function useDescribeChange(takeId: Ref<string>) {
         form.instruction = text;
     }
 
+    const onVisibilityChange = (): void => {
+        if (
+            document.visibilityState === 'visible' &&
+            suggestion.value?.status === 'pending' &&
+            !pollFailed.value &&
+            pollTimer === undefined
+        ) {
+            void refresh();
+        }
+    };
+
     watch(takeId, () => {
         startOver();
         form.instruction = '';
         form.request_key = crypto.randomUUID();
-        void loadQuote();
     });
 
-    onBeforeUnmount(stopPolling);
+    // A purchase (or any balance change) can lift an insufficient_credits denial.
+    watch(
+        () => page.props.auth?.customer?.available_exact,
+        (now, before) => {
+            if (before !== undefined && now !== before) {
+                void loadQuote();
+            }
+        },
+    );
+
+    onMounted(() =>
+        document.addEventListener('visibilitychange', onVisibilityChange),
+    );
+    onBeforeUnmount(() => {
+        stopPolling();
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+    });
 
     return {
         form,
         quote,
+        quoteState,
         suggestion,
         rejection,
         appliedMessage,
         busy,
+        pollFailed,
         step,
         loadQuote,
         suggest,

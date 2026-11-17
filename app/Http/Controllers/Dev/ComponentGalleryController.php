@@ -108,6 +108,7 @@ final class ComponentGalleryController extends Controller
         return [
             'quote' => ['quote' => __('suggestions.quote', ['amount' => '$0.0012']), 'denial' => null],
             'paused' => ['quote' => __('suggestions.quote', ['amount' => '$0.0012']), 'denial' => ['reason' => 'ai_paused', 'message' => __('denials.ai_paused')]],
+            'noCredits' => ['quote' => __('suggestions.quote', ['amount' => '$0.0012']), 'denial' => ['reason' => 'insufficient_credits', 'message' => __('denials.insufficient_credits')]],
             'proposed' => $proposed,
             'unaffordable' => [...$proposed, 'newTake' => [...$proposed['newTake'], 'canAfford' => false]],
             'failed' => [

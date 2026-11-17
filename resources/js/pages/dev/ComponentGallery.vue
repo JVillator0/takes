@@ -39,6 +39,7 @@ type Props = {
     describeChange: {
         quote: SuggestionQuote;
         paused: SuggestionQuote;
+        noCredits: SuggestionQuote;
         proposed: SuggestionData;
         unaffordable: SuggestionData;
         failed: SuggestionData;
@@ -502,6 +503,15 @@ const caption = 'text-xs font-medium text-muted-foreground';
                         <DescribeChangePanel
                             take-id="01JGALLERYTAKE000000000010"
                             :initial-quote="describeChange.paused"
+                        />
+                    </div>
+                    <div class="flex flex-col gap-2 rounded-xl border p-4">
+                        <span class="text-xs text-muted-foreground"
+                            >Not enough credits (insufficient_credits)</span
+                        >
+                        <DescribeChangePanel
+                            take-id="01JGALLERYTAKE000000000010"
+                            :initial-quote="describeChange.noCredits"
                         />
                     </div>
                 </div>

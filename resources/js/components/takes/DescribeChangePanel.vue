@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Sparkles } from '@lucide/vue';
-import { computed, onMounted, toRef, useId } from 'vue';
+import { computed, nextTick, onMounted, ref, toRef, useId, watch } from 'vue';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
@@ -40,10 +40,12 @@ const ids = {
 const {
     form,
     quote,
+    quoteState,
     suggestion,
     rejection,
     appliedMessage,
     busy,
+    pollFailed,
     step,
     loadQuote,
     suggest,
@@ -65,12 +67,24 @@ const instructionError = computed(() => form.errors.instruction ?? null);
 const blocked = computed(
     () => quote.value?.denial !== null && quote.value?.denial !== undefined,
 );
+/** Price before action (F-15): no Suggest until the hold price is on screen. */
 const canSuggest = computed(
     () =>
         form.instruction.trim() !== '' &&
         !form.processing &&
+        quoteState.value === 'ready' &&
+        quote.value !== null &&
         !blocked.value &&
         step.value === 'ask',
+);
+const needsCredits = computed(
+    () =>
+        rejection.value?.reason === 'insufficient_credits' ||
+        quote.value?.denial?.reason === 'insufficient_credits',
+);
+/** The sentence above Suggest: the request's rejection first, then the quote's denial. */
+const notice = computed(
+    () => rejection.value?.message ?? quote.value?.denial?.message ?? null,
 );
 
 /** One polite sentence per state change (F-19). */
@@ -96,16 +110,29 @@ const announcement = computed(() => {
     }
 });
 
-onMounted(() => {
-    if (props.initialSuggestion) {
-        suggestion.value = props.initialSuggestion;
-    }
+// Fixtures are applied before the step watcher exists, so a first render
+// never moves focus.
+if (props.initialSuggestion) {
+    suggestion.value = props.initialSuggestion;
+}
 
-    if (props.initialQuote) {
-        quote.value = props.initialQuote;
-    } else {
+if (props.initialQuote) {
+    quote.value = props.initialQuote;
+    quoteState.value = 'ready';
+}
+
+onMounted(() => {
+    if (!props.initialQuote) {
         void loadQuote();
     }
+});
+
+/** Each step's heading; focus moves there when the step changes (F-20). */
+const stepHeading = ref<HTMLElement | null>(null);
+
+watch(step, async () => {
+    await nextTick();
+    stepHeading.value?.focus();
 });
 
 const tryAgain = (): void => startOver();
@@ -142,6 +169,9 @@ const priceBox = 'rounded-md border border-dashed px-3 py-2.5 text-sm';
             class="flex flex-col gap-3"
             @submit.prevent="suggest"
         >
+            <h3 ref="stepHeading" tabindex="-1" class="sr-only">
+                {{ t('takes.actions.describe_change') }}
+            </h3>
             <label :for="ids.instruction" :class="sectionLabel">
                 {{ t('suggestions.label') }}
             </label>
@@ -199,19 +229,23 @@ const priceBox = 'rounded-md border border-dashed px-3 py-2.5 text-sm';
                 <template v-else-if="quote">
                     <p>{{ quote.quote }}</p>
                 </template>
+                <template v-else-if="quoteState === 'failed'">
+                    <p>{{ t('suggestions.unavailable') }}</p>
+                </template>
+                <Skeleton v-else class="h-4 w-1/2" />
                 <p class="text-xs text-muted-foreground">
                     {{ t('suggestions.quote_note') }}
                 </p>
             </div>
 
             <p
-                v-if="quote?.denial || rejection"
+                v-if="notice"
                 class="rounded-md border border-amber-500/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/60 dark:text-amber-200"
             >
-                {{ rejection?.message ?? quote?.denial?.message }}
+                {{ notice }}
             </p>
             <Button
-                v-if="rejection?.reason === 'insufficient_credits'"
+                v-if="needsCredits"
                 type="button"
                 variant="outline"
                 @click="emit('buyCredits')"
@@ -236,10 +270,12 @@ const priceBox = 'rounded-md border border-dashed px-3 py-2.5 text-sm';
 
             <!-- Failed: not charged (2-01). -->
             <div
-                v-if="suggestion?.status === 'failed'"
+                v-if="suggestion?.status === 'failed' || pollFailed"
                 class="flex flex-col gap-2 rounded-md border border-red-600/40 px-3 py-2.5 text-sm text-red-800 dark:border-red-400/40 dark:text-red-200"
             >
-                <p>{{ suggestion.message }}</p>
+                <p v-if="suggestion?.status === 'failed'">
+                    {{ suggestion.message }}
+                </p>
                 <Button
                     type="button"
                     variant="outline"
@@ -257,7 +293,13 @@ const priceBox = 'rounded-md border border-dashed px-3 py-2.5 text-sm';
             v-else-if="step === 'review' && suggestion?.diff"
             class="flex flex-col gap-4"
         >
-            <h3 :class="sectionLabel">{{ t('suggestions.review') }}</h3>
+            <h3
+                ref="stepHeading"
+                tabindex="-1"
+                :class="[sectionLabel, 'outline-none']"
+            >
+                {{ t('suggestions.review') }}
+            </h3>
 
             <div class="flex flex-col gap-1.5">
                 <span class="text-sm font-medium">
@@ -278,7 +320,7 @@ const priceBox = 'rounded-md border border-dashed px-3 py-2.5 text-sm';
                         >
                         <ins
                             v-else-if="segment.type === 'added'"
-                            class="bg-emerald-100 text-emerald-900 no-underline dark:bg-emerald-950/60 dark:text-emerald-200"
+                            class="bg-emerald-100 text-emerald-900 underline decoration-emerald-700 underline-offset-2 dark:bg-emerald-950/60 dark:text-emerald-200"
                             >{{ segment.text }}</ins
                         >
                         <span v-else>{{ segment.text }}</span>
@@ -318,9 +360,11 @@ const priceBox = 'rounded-md border border-dashed px-3 py-2.5 text-sm';
                                     : ''
                             "
                         >
-                            <ins v-if="row.changed" class="no-underline">{{
-                                row.after
-                            }}</ins>
+                            <ins
+                                v-if="row.changed"
+                                class="underline decoration-emerald-700 underline-offset-2"
+                                >{{ row.after }}</ins
+                            >
                             <template v-else>{{ row.after }}</template>
                         </td>
                     </tr>
@@ -373,7 +417,9 @@ const priceBox = 'rounded-md border border-dashed px-3 py-2.5 text-sm';
                 </Button>
                 <Button
                     v-else-if="
-                        suggestion.newTake && !suggestion.newTake.canAfford
+                        suggestion.newTake &&
+                        !suggestion.newTake.canAfford &&
+                        !suggestion.noChange
                     "
                     type="button"
                     size="lg"
@@ -395,7 +441,7 @@ const priceBox = 'rounded-md border border-dashed px-3 py-2.5 text-sm';
 
         <!-- Step 3 · done (applied or discarded). -->
         <div v-else class="flex flex-col gap-3">
-            <p class="text-sm">
+            <p ref="stepHeading" tabindex="-1" class="text-sm outline-none">
                 {{
                     appliedMessage ??
                     (suggestion?.status === 'discarded'

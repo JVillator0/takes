@@ -58,3 +58,9 @@ export type SuggestionRejection = {
     reason: string;
     message: string;
 };
+
+/** `POST /suggestions/{suggestion}/apply`: the new take and the 2-01 result line. */
+export type SuggestionApplyResult = {
+    takeId: string;
+    message: string;
+};
