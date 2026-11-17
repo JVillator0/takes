@@ -133,3 +133,5 @@ M2 Product design has no issues: it is closed, its output is `.claude/specs/2-pr
 | 10.1 | [#81](https://github.com/JVillator0/takes/issues/81) | Submission README with the evidence table | main | M | Required |
 | 10.2 | [#82](https://github.com/JVillator0/takes/issues/82) | Final billing:verify data review | main | S | Required |
 | 10.3 | [#83](https://github.com/JVillator0/takes/issues/83) | Release freeze and submission checklist | main | S | Required |
+| 10.4 | [#95](https://github.com/JVillator0/takes/issues/95) | QA agent definition and spec-derived test plan | main | S | Required |
+| 10.5 | [#96](https://github.com/JVillator0/takes/issues/96) | QA run on production, qa issues and report | main | M | Required |

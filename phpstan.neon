@@ -3,11 +3,19 @@ includes:
     - vendor/nesbot/carbon/extension.neon
 
 parameters:
+    level: 8
+
+    # Result cache per checkout, so the five pool worktrees do not invalidate each other's cache.
+    tmpDir: storage/framework/cache/phpstan
+
     paths:
         - app/
         - bootstrap/app.php
         - config/
         - database/
         - routes/
+        - tests/Support/
 
-    level: 7
+    treatPhpDocTypesAsCertain: false
+    reportUnmatchedIgnoredErrors: true
+    checkMissingCallableSignature: true
