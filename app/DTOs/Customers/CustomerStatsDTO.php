@@ -8,7 +8,9 @@ use App\Support\Money\Nanodollars;
 
 /**
  * Header stats of Customers (A09, spec 7 Definitions): how many customers, how many were active today (UTC), the
- * outstanding credits (Σ balance, the liability; held money is still the customer's) and the active holds (Σ held).
+ * outstanding credits (Σ balance, the liability; held money is still the customer's), the active holds (Σ held,
+ * with the count of open usage records) and the average settled spend per customer who spent in the last 30
+ * UTC days (floored to the nanodollar; null when nobody spent).
  */
 final readonly class CustomerStatsDTO
 {
@@ -17,18 +19,24 @@ final readonly class CustomerStatsDTO
         public int $activeToday,
         public Nanodollars $outstandingCredits,
         public Nanodollars $activeHolds,
+        public int $openUsageRecords,
+        public ?Nanodollars $averageSpend,
     ) {}
 
     /**
-     * @param  array{customers: int, active_today: int, outstanding_nanos: int|string|null, holds_nanos: int|string|null}  $data
+     * @param  array{customers: int, active_today: int, outstanding_nanos: int|string|null, holds_nanos: int|string|null, open_usage_records: int, spend_nanos: int|string|null, spending_customers: int}  $data
      */
     public static function fromArray(array $data): self
     {
+        $spend = Nanodollars::fromInt($data['spend_nanos'] ?? 0);
+
         return new self(
             $data['customers'],
             $data['active_today'],
             Nanodollars::fromInt($data['outstanding_nanos'] ?? 0),
             Nanodollars::fromInt($data['holds_nanos'] ?? 0),
+            $data['open_usage_records'],
+            $data['spending_customers'] === 0 ? null : Nanodollars::fromInt(intdiv($spend->toInt(), $data['spending_customers'])),
         );
     }
 }

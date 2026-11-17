@@ -14,7 +14,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 
 /**
- * A05 "Takes" tab: the customer's takes, newest first (the full take view is Studio › Takes, A06).
+ * A05 "Takes" tab: the customer's takes, newest first (the full take view is Studio › Takes, A06). Part of the
+ * customer's page, so it needs only the customer permission.
  */
 final class TakesRelationManager extends RelationManager
 {
@@ -29,7 +30,7 @@ final class TakesRelationManager extends RelationManager
     {
         $admin = Filament::auth()->user();
 
-        return $admin instanceof User && $admin->can('ViewAny:Take');
+        return $admin instanceof User && $admin->can('ViewAny:Customer');
     }
 
     public function isReadOnly(): bool
@@ -46,7 +47,7 @@ final class TakesRelationManager extends RelationManager
                 TextColumn::make('status')->label(__('console.customers.takes_tab.status'))->badge()
                     ->formatStateUsing(fn (TakeStatus $state): string => $state->label())
                     ->color(fn (TakeStatus $state): string => $state->color()),
-                TextColumn::make('prompt')->limit(60),
+                TextColumn::make('prompt')->label(__('console.customers.takes_tab.prompt'))->limit(60),
                 TextColumn::make('created_at')->label(__('console.customers.takes_tab.created'))->dateTime('Y-m-d H:i:s'),
             ])
             ->defaultSort('created_at', 'desc');

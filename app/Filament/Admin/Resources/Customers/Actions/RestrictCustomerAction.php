@@ -11,6 +11,7 @@ use App\Models\Customer;
 use App\Models\User;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Filament\Support\Icons\Heroicon;
@@ -32,7 +33,10 @@ final class RestrictCustomerAction
             ->requiresConfirmation()
             ->modalHeading(fn (Customer $record): string => self::isRestricted($record) ? __('console.customers.restrict.unrestrict_heading') : __('console.customers.restrict.heading'))
             ->modalDescription(fn (Customer $record): string => self::isRestricted($record) ? __('console.customers.restrict.unrestrict_description') : __('console.customers.restrict.description'))
+            // The direction is fixed when the modal opens, so a concurrent change by another operator cannot flip it.
+            ->fillForm(fn (Customer $record): array => ['restrict' => ! self::isRestricted($record)])
             ->schema([
+                Hidden::make('restrict')->required(),
                 Textarea::make('reason')->label(__('console.customers.restrict.reason'))->required()->maxLength(500),
             ])
             ->action(function (Customer $record, array $data): void {
@@ -42,11 +46,15 @@ final class RestrictCustomerAction
                     return;
                 }
 
-                $restrict = ! self::isRestricted($record);
-                app(RestrictCustomer::class)->execute($admin, $record, $restrict, (string) $data['reason']);
+                $restrict = filter_var($data['restrict'] ?? false, FILTER_VALIDATE_BOOLEAN);
+                $changed = app(RestrictCustomer::class)->execute($admin, $record, $restrict, (string) $data['reason']);
 
                 Notification::make()->success()
-                    ->title($restrict ? __('console.customers.restrict.restricted') : __('console.customers.restrict.unrestricted'))
+                    ->title(match (true) {
+                        ! $changed => __('console.customers.restrict.unchanged'),
+                        $restrict => __('console.customers.restrict.restricted'),
+                        default => __('console.customers.restrict.unrestricted'),
+                    })
                     ->send();
             });
     }

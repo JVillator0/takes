@@ -6,6 +6,7 @@ namespace App\Filament\Admin\Resources\Customers\RelationManagers;
 
 use App\Enums\Billing\LedgerEntryType;
 use App\Filament\Admin\Support\Money;
+use App\Models\LedgerEntry;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Filament\Resources\RelationManagers\RelationManager;
@@ -44,8 +45,10 @@ final class LedgerEntriesRelationManager extends RelationManager
             ->columns([
                 TextColumn::make('created_at')->label(__('console.customers.ledger.when'))->dateTime('Y-m-d H:i:s'),
                 TextColumn::make('type')->label(__('console.customers.ledger.type'))->badge()
-                    ->formatStateUsing(fn (LedgerEntryType $state): string => $state->value)
-                    ->color(fn (LedgerEntryType $state): string => $state === LedgerEntryType::Charge ? 'gray' : 'success'),
+                    // An adjustment is a credit or a debit; its colour follows the sign.
+                    ->color(fn (LedgerEntry $record): string => $record->type === LedgerEntryType::Adjustment
+                        ? ($record->amount_nanos < 0 ? 'danger' : 'success')
+                        : $record->type->getColor()),
                 TextColumn::make('amount_nanos')->label(__('console.customers.ledger.amount_nanos'))
                     ->formatStateUsing(fn (int $state): string => Money::nanos($state))->alignEnd()->fontFamily('mono'),
                 TextColumn::make('amount')->label(__('console.customers.ledger.amount'))

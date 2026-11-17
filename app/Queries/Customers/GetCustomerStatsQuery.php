@@ -5,16 +5,22 @@ declare(strict_types=1);
 namespace App\Queries\Customers;
 
 use App\DTOs\Customers\CustomerStatsDTO;
+use App\Enums\Billing\UsageStatus;
 use App\Models\Customer;
+use App\Models\UsageRecord;
 use Carbon\CarbonImmutable;
 
 /**
- * One aggregate over `customers` for the Customers header (A09).
+ * The Customers header (A09): one aggregate over `customers` and one over `usage_records`.
  */
 final readonly class GetCustomerStatsQuery
 {
+    public const int SPEND_DAYS = 30;
+
     public function execute(): CustomerStatsDTO
     {
+        $since = CarbonImmutable::now('UTC')->subDays(self::SPEND_DAYS - 1)->toDateString();
+
         $row = Customer::query()
             ->toBase()
             ->selectRaw('count(*) as customers')
@@ -23,11 +29,21 @@ final readonly class GetCustomerStatsQuery
             ->selectRaw('coalesce(sum(held_nanos), 0) as holds_nanos')
             ->first();
 
+        $usage = UsageRecord::query()
+            ->toBase()
+            ->selectRaw('count(*) filter (where status = ?) as open_usage_records', [UsageStatus::Open->value])
+            ->selectRaw('coalesce(sum(charge_nanos) filter (where status = ? and billing_date >= ?), 0) as spend_nanos', [UsageStatus::Settled->value, $since])
+            ->selectRaw('count(distinct customer_id) filter (where status = ? and billing_date >= ?) as spending_customers', [UsageStatus::Settled->value, $since])
+            ->first();
+
         return CustomerStatsDTO::fromArray([
             'customers' => (int) ($row->customers ?? 0),
             'active_today' => (int) ($row->active_today ?? 0),
             'outstanding_nanos' => $row->outstanding_nanos ?? 0,
             'holds_nanos' => $row->holds_nanos ?? 0,
+            'open_usage_records' => (int) ($usage->open_usage_records ?? 0),
+            'spend_nanos' => $usage->spend_nanos ?? 0,
+            'spending_customers' => (int) ($usage->spending_customers ?? 0),
         ]);
     }
 }

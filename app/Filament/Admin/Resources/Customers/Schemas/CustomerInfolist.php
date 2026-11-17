@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Filament\Admin\Resources\Customers\Schemas;
 
+use App\Enums\Auth\CustomerRole;
 use App\Filament\Admin\Resources\Customers\Tables\CustomersTable;
 use App\Filament\Admin\Support\Money;
 use App\Models\Customer;
@@ -39,7 +40,9 @@ final class CustomerInfolist
                             'failed' => (int) $record->getAttribute('failed_takes_count'),
                         ]))->size('lg')->weight('bold'),
                     TextEntry::make('email')->label(__('console.customers.customer')),
-                    TextEntry::make('roles.name')->label(__('console.customers.role'))->badge(),
+                    TextEntry::make('roles.name')->label(__('console.customers.role'))->badge()
+                        ->formatStateUsing(fn (string $state): string => CustomerRole::tryFrom($state)?->getLabel() ?? $state)
+                        ->color(fn (string $state): string => CustomerRole::tryFrom($state)?->getColor() ?? 'gray'),
                     TextEntry::make('balance_nanos')->label(__('console.customers.balance'))
                         ->formatStateUsing(fn (int $state): string => Money::exact($state).' ('.Money::nanos($state).')'),
                     TextEntry::make('last_active_at')->label(__('console.customers.last_active'))->dateTime('Y-m-d H:i:s \U\T\C')->placeholder(__('console.customers.never')),

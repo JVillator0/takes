@@ -13,8 +13,9 @@ use InvalidArgumentException;
 
 /**
  * Customers › **Restrict / Unrestrict** (A08, spec 7): switches the customer between the `restricted` and
- * `customer` roles (a permission change, never a balance one, D-015) with a required reason, audited. The shared
- * demo logins keep their own roles (D-072) and are refused.
+ * `customer` roles (a permission change, never a balance one, D-015) with a required reason, audited. The
+ * direction is the caller's intent (fixed when the modal opened); under the customer lock, a customer that already
+ * holds the target role is left alone with no audit entry. The shared demo logins keep their roles (D-072).
  */
 final readonly class RestrictCustomerAction
 {
@@ -27,7 +28,11 @@ final readonly class RestrictCustomerAction
         private RecordAdminActivityAction $recordActivity,
     ) {}
 
-    public function execute(User $admin, Customer $customer, bool $restrict, string $reason): Customer
+    /**
+     * @return bool whether the role changed; false (no write, no audit) when the customer already holds the target
+     *              role, e.g. another operator acted first while this modal was open
+     */
+    public function execute(User $admin, Customer $customer, bool $restrict, string $reason): bool
     {
         $reason = trim($reason);
 
@@ -39,8 +44,17 @@ final readonly class RestrictCustomerAction
             throw new InvalidArgumentException('A shared demo login keeps its own role.');
         }
 
-        return DB::transaction(function () use ($admin, $customer, $restrict, $reason): Customer {
-            $this->assignRole->execute($customer, $restrict ? CustomerRole::Restricted : CustomerRole::Customer);
+        return DB::transaction(function () use ($admin, $customer, $restrict, $reason): bool {
+            // Serialize concurrent restricts of one customer; the role is read again under the lock.
+            Customer::query()->lockForUpdate()->findOrFail($customer->id);
+            $customer->unsetRelation('roles');
+            $target = $restrict ? CustomerRole::Restricted : CustomerRole::Customer;
+
+            if ($customer->getRoleNames()->all() === [$target->value]) {
+                return false;
+            }
+
+            $this->assignRole->execute($customer, $target);
 
             $this->recordActivity->execute($admin, $restrict ? self::RESTRICTED : self::UNRESTRICTED, $customer, [
                 'resource' => $customer->getTable(),
@@ -48,7 +62,7 @@ final readonly class RestrictCustomerAction
                 'reason' => $reason,
             ]);
 
-            return $customer;
+            return true;
         });
     }
 }

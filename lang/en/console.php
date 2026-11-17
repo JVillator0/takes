@@ -23,6 +23,20 @@ return [
         'title' => 'Dashboard',
     ],
 
+    'enums' => [
+        'ledger_entry_type' => [
+            'purchase' => 'Purchase',
+            'promo_grant' => 'Promo grant',
+            'charge' => 'Charge',
+            'adjustment' => 'Adjustment',
+        ],
+        'customer_role' => [
+            'customer' => 'Customer',
+            'restricted' => 'Restricted',
+            'showcase' => 'Showcase (read-only)',
+        ],
+    ],
+
     'customers' => [
         'single' => 'Customer',
         'plural' => 'Customers',
@@ -43,6 +57,8 @@ return [
             'active_today' => 'Active today',
             'outstanding' => 'Outstanding credits (liability)',
             'holds' => 'Active holds',
+            'holds_count' => ':count open usage records',
+            'avg_spend' => 'Avg spend / active customer (30 d)',
         ],
         'filters' => [
             'role' => 'Role',
@@ -53,11 +69,11 @@ return [
         'adjust' => [
             'label' => 'Adjust credits',
             'amount' => 'Amount (USD, + or −)',
-            'amount_help' => 'Up to 9 decimals, e.g. +2.00 or -0.50.',
+            'amount_help' => 'Up to $999,999 with at most 9 decimals, e.g. +2.00 or -0.50.',
             'reason' => 'Reason (required, audited)',
             'submit' => 'Apply adjustment',
             'done' => 'Adjusted by :amount. New balance :balance.',
-            'invalid_amount' => 'Enter a non-zero USD amount with at most 9 decimals.',
+            'invalid_amount' => 'Enter a non-zero USD amount up to $999,999 with at most 9 decimals.',
             'insufficient' => 'Only :available is available; held credit cannot be taken back.',
         ],
         'restrict' => [
@@ -70,6 +86,7 @@ return [
             'reason' => 'Reason (required, audited)',
             'restricted' => 'Customer restricted.',
             'unrestricted' => 'Customer unrestricted.',
+            'unchanged' => 'No change: the customer already has that role.',
         ],
         'ledger' => [
             'title' => 'Ledger',
@@ -83,7 +100,8 @@ return [
             'title' => 'Takes',
             'take' => 'Take',
             'status' => 'Status',
-            'created' => 'Created',
+            'prompt' => 'Prompt',
+            'created' => 'Created (UTC)',
         ],
     ],
 

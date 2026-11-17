@@ -24,7 +24,8 @@ use Filament\Support\Icons\Heroicon;
  */
 final class AdjustCreditsAction
 {
-    public const string AMOUNT_PATTERN = '/^[+-]?\d+(\.\d{1,9})?$/';
+    /** At most $999,999.999999999, so the amount always fits in nanodollars. */
+    public const string AMOUNT_PATTERN = '/^[+-]?\d{1,6}(\.\d{1,9})?$/';
 
     public static function make(): Action
     {
@@ -74,7 +75,7 @@ final class AdjustCreditsAction
                 Notification::make()->success()
                     ->title(__('console.customers.adjust.done', [
                         'amount' => $amount->formatExact(),
-                        'balance' => $record->refresh()->balance()->formatExact(),
+                        'balance' => $record->balance()->formatExact(),
                     ]))
                     ->send();
             });

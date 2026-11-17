@@ -10,6 +10,8 @@ use App\Enums\Auth\DemoAccount;
 use App\Enums\Billing\LedgerEntryType;
 use App\Filament\Admin\Resources\Customers\Pages\ListCustomers;
 use App\Filament\Admin\Resources\Customers\Pages\ViewCustomer;
+use App\Filament\Admin\Resources\Customers\RelationManagers\LedgerEntriesRelationManager;
+use App\Filament\Admin\Resources\Customers\RelationManagers\TakesRelationManager;
 use App\Models\Customer;
 use App\Models\LedgerEntry;
 use App\Models\Take;
@@ -94,7 +96,9 @@ it('adjusts credits through one ledger adjustment with the admin, the reason and
     Livewire::test(ViewCustomer::class, ['record' => $ana->id])
         ->callAction('adjustCredits', ['amount' => '+2.00', 'reason' => 'Refund for broken reference image, ticket #12'])
         ->assertHasNoFormErrors()
-        ->assertNotified();
+        ->assertNotified('Adjusted by $2.00. New balance $12.00.')
+        // The query aggregates survive the adjustment (no refresh of the record).
+        ->assertSee('$0.0740375');
 
     $entry = LedgerEntry::query()->where('type', LedgerEntryType::Adjustment)->sole();
     $audit = Activity::query()->where('event', AdjustCustomerCreditsAction::EVENT)->sole();
@@ -123,6 +127,20 @@ it('requires a reason and a non-zero amount with at most 9 decimals', function (
     'zero' => [['amount' => '0.00', 'reason' => 'x'], 'amount'],
     'not a number' => [['amount' => 'two', 'reason' => 'x'], 'amount'],
     'ten decimals' => [['amount' => '0.0000000001', 'reason' => 'x'], 'amount'],
+    'beyond the nanodollar range' => [['amount' => '99999999999', 'reason' => 'x'], 'amount'],
+]);
+
+it('accepts a negative adjustment down to exactly zero available and refuses one nanodollar more', function (string $amount, ?int $balance): void {
+    $ana = fundedCustomer();
+    $this->actingAs(operator());
+
+    Livewire::test(ViewCustomer::class, ['record' => $ana->id])->callAction('adjustCredits', ['amount' => $amount, 'reason' => 'boundary']);
+
+    expect($ana->refresh()->balance_nanos)->toBe($balance ?? 10_000_000_000);
+})->with([
+    'minus one dollar' => ['-1.00', 9_000_000_000],
+    'exactly the available credit' => ['-9.686', 314_000_000],
+    'one nanodollar more' => ['-9.686000001', null],
 ]);
 
 it('refuses a negative adjustment that would take held credit', function (): void {
@@ -135,6 +153,46 @@ it('refuses a negative adjustment that would take held credit', function (): voi
 
     expect($ana->refresh()->balance_nanos)->toBe(10_000_000_000)
         ->and(LedgerEntry::query()->where('type', LedgerEntryType::Adjustment)->exists())->toBeFalse();
+});
+
+it('fixes the restrict direction when the modal opens and does nothing if another operator already did it', function (): void {
+    $ana = fundedCustomer();
+    $first = operator();
+    $this->actingAs($first);
+    $page = Livewire::test(ViewCustomer::class, ['record' => $ana->id])->mountAction('restrict');
+
+    app(RestrictCustomerAction::class)->execute(operator(), $ana, true, 'second operator acted first');
+
+    $page->fillForm(['reason' => 'abuse report #7'])->callMountedAction()->assertNotified('No change: the customer already has that role.');
+
+    expect($ana->refresh()->getRoleNames()->all())->toBe([CustomerRole::Restricted->value])
+        ->and(Activity::query()->where('event', RestrictCustomerAction::RESTRICTED)->count())->toBe(1)
+        ->and(Activity::query()->where('event', RestrictCustomerAction::UNRESTRICTED)->exists())->toBeFalse();
+});
+
+it('shows the auditor the customer page with both tabs and no header write action', function (): void {
+    $ana = fundedCustomer();
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
+
+    Livewire::test(ViewCustomer::class, ['record' => $ana->id])
+        ->assertOk()
+        ->assertActionHidden('adjustCredits')
+        ->assertActionHidden('restrict')
+        ->assertSee('Ledger')
+        ->assertSee('Takes');
+
+    Livewire::test(LedgerEntriesRelationManager::class, ['ownerRecord' => $ana, 'pageClass' => ViewCustomer::class])
+        ->assertOk()
+        ->assertSee('Promo grant')
+        ->assertSee('10,000,000,000');
+    Livewire::test(TakesRelationManager::class, ['ownerRecord' => $ana, 'pageClass' => ViewCustomer::class])->assertOk();
+});
+
+it('keeps the customer stats off the dashboard', function (): void {
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create())
+        ->get('/admin')
+        ->assertOk()
+        ->assertDontSee('Outstanding credits (liability)');
 });
 
 it('restricts and unrestricts a customer with a reason, audited', function (): void {
@@ -201,6 +259,11 @@ it('sums outstanding credits and active holds for the header stats', function ()
 
     $stats = app(GetCustomerStatsQuery::class)->execute();
 
+    UsageRecord::factory()->create(['customer_id' => Customer::query()->value('id')]);
+
     expect([$stats->customers, $stats->activeToday, $stats->outstandingCredits->toInt(), $stats->activeHolds->toInt()])
-        ->toBe([2, 1, 20_000_000_000, 628_000_000]);
+        ->toBe([2, 1, 20_000_000_000, 628_000_000])
+        // Two customers each spent 74,037,500 in the window.
+        ->and($stats->averageSpend?->toInt())->toBe(74_037_500)
+        ->and(app(GetCustomerStatsQuery::class)->execute()->openUsageRecords)->toBe(1);
 });

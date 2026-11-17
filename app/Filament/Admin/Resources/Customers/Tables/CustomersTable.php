@@ -38,7 +38,8 @@ final class CustomersTable
                     ->description(fn (Customer $record): string => $record->email)
                     ->searchable(['name', 'email']),
                 TextColumn::make('roles.name')->label(__('console.customers.role'))->badge()
-                    ->color(fn (string $state): string => $state === CustomerRole::Restricted->value ? 'danger' : 'success'),
+                    ->formatStateUsing(fn (string $state): string => CustomerRole::tryFrom($state)?->getLabel() ?? $state)
+                    ->color(fn (string $state): string => CustomerRole::tryFrom($state)?->getColor() ?? 'gray'),
                 TextColumn::make('available')
                     ->label(__('console.customers.available'))
                     ->state(fn (Customer $record): string => $record->available()->formatExact())
@@ -59,7 +60,7 @@ final class CustomersTable
             ])
             ->filters([
                 SelectFilter::make('role')->label(__('console.customers.filters.role'))
-                    ->options(collect(CustomerRole::cases())->mapWithKeys(fn (CustomerRole $role): array => [$role->value => $role->value])->all())
+                    ->options(collect(CustomerRole::cases())->mapWithKeys(fn (CustomerRole $role): array => [$role->value => $role->getLabel()])->all())
                     ->query(fn (Builder $query, array $data): Builder => filled($data['value'] ?? null)
                         ? $query->whereHas('roles', fn (Builder $roles): Builder => $roles->where('name', $data['value']))
                         : $query),
