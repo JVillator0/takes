@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import type { Errors } from '@inertiajs/core';
 import { Form, Head } from '@inertiajs/vue3';
+import { ref } from 'vue';
 import InputError from '@/components/InputError.vue';
 import PasswordInput from '@/components/PasswordInput.vue';
 import TextLink from '@/components/TextLink.vue';
@@ -32,6 +34,13 @@ defineProps<{
     canResetPassword: boolean;
     demoPanel: DemoPanel | null;
 }>();
+
+// Announces a failed or throttled demo sign-in (Fortify reports both under `email`).
+const demoStatus = ref('');
+
+function onDemoLoginError(errors: Errors): void {
+    demoStatus.value = errors.email ?? '';
+}
 </script>
 
 <template>
@@ -137,8 +146,10 @@ defineProps<{
             <li v-for="login in demoPanel.logins" :key="login.key">
                 <Form
                     v-bind="store.form()"
-                    v-slot="{ processing }"
+                    v-slot="{ errors, processing }"
                     :data-test="`demo-login-${login.key}`"
+                    @start="demoStatus = ''"
+                    @error="onDemoLoginError"
                 >
                     <input type="hidden" name="email" :value="login.email" />
                     <input
@@ -154,9 +165,14 @@ defineProps<{
                     >
                         {{ login.label }}
                     </Button>
+                    <InputError class="mt-1" :message="errors.email" />
                 </Form>
             </li>
         </ul>
+
+        <p role="status" aria-live="polite" class="sr-only">
+            {{ demoStatus }}
+        </p>
 
         <p class="mt-3 text-xs text-muted-foreground">
             {{ demoPanel.adminHint }}
