@@ -6,7 +6,15 @@ import {
     useEcho,
 } from '@laravel/echo-vue';
 import { useDocumentVisibility } from '@vueuse/core';
-import { computed, onScopeDispose, ref, shallowRef, toValue, watch } from 'vue';
+import {
+    computed,
+    onMounted,
+    onScopeDispose,
+    ref,
+    shallowRef,
+    toValue,
+    watch,
+} from 'vue';
 import type { ComputedRef, MaybeRefOrGetter, Ref, ShallowRef } from 'vue';
 import type { LiveConnectionState, TakeLiveUpdate } from '@/types/live';
 import type { BalanceSummary } from '@/types/takes';
@@ -84,7 +92,8 @@ export function useTakeUpdates(
         cancelPendingReload();
 
         if (!disposed) {
-            router.reload({ only });
+            // A background refresh must not wipe validation errors on the page.
+            router.reload({ only, preserveErrors: true });
         }
     };
 
@@ -116,25 +125,41 @@ export function useTakeUpdates(
             },
         );
 
-        const privateChannel = channel();
+        const subscription = channel().subscription;
 
-        // A channel kept alive by the previous page is already subscribed.
-        subscribed.value = privateChannel.subscription.subscribed;
+        const onSubscribed = (): void => {
+            if (disposed) {
+                return;
+            }
 
-        privateChannel
-            .subscribed(() => {
-                if (disposed) {
-                    return;
-                }
+            subscribed.value = true;
+            reload();
+        };
+        const onSubscriptionError = (): void => {
+            if (!disposed) {
+                subscribed.value = false;
+            }
+        };
 
-                subscribed.value = true;
-                reload();
-            })
-            .error(() => {
-                if (!disposed) {
-                    subscribed.value = false;
-                }
-            });
+        // Bound on the shared Pusher channel by name, so the handlers (and
+        // this page's closure) are removed when the page goes away.
+        subscription.bind('pusher:subscription_succeeded', onSubscribed);
+        subscription.bind('pusher:subscription_error', onSubscriptionError);
+
+        onScopeDispose(() => {
+            subscription.unbind('pusher:subscription_succeeded', onSubscribed);
+            subscription.unbind(
+                'pusher:subscription_error',
+                onSubscriptionError,
+            );
+        });
+
+        // A channel kept alive by the previous page is already subscribed and
+        // will not announce it again: catch up once, now that this page is up.
+        if (subscription.subscribed) {
+            subscribed.value = true;
+            onMounted(reload);
+        }
 
         // A dropped socket drops the subscription; the next
         // `subscription_succeeded` marks it live again and reloads.
