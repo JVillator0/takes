@@ -7,6 +7,7 @@ namespace Tests\Support;
 use App\Models\Take;
 use Illuminate\Testing\TestResponse;
 use Symfony\Component\HttpFoundation\Response;
+use Tests\TestCase;
 
 /**
  * Signed Pixelforge webhook deliveries for tests (spec 5, W-17): pool
@@ -98,7 +99,7 @@ final class PixelforgeWebhook
      * @param  array<string, mixed>|string  $event  an event array, or a raw body sent as is
      * @return TestResponse<Response>
      */
-    public static function post(array|string $event, ?string $signature = 'sign', int $attempt = 1): TestResponse
+    public static function post(TestCase $test, array|string $event, ?string $signature = 'sign', int $attempt = 1): TestResponse
     {
         $body = is_string($event) ? $event : self::body($event);
 
@@ -117,6 +118,6 @@ final class PixelforgeWebhook
             $server['HTTP_PIXELFORGE_SIGNATURE'] = $signature === 'sign' ? self::signature($body) : $signature;
         }
 
-        return test()->call('POST', self::URL, server: $server, content: $body);
+        return $test->call('POST', self::URL, server: $server, content: $body);
     }
 }

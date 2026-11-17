@@ -31,20 +31,20 @@ function expectRejected(TestResponse $response, string $reason): void
 }
 
 it('rejects a delivery without the signature header', function (): void {
-    expectRejected(PixelforgeWebhook::post(PixelforgeWebhook::event('ping'), signature: null), 'header_missing');
+    expectRejected(PixelforgeWebhook::post($this, PixelforgeWebhook::event('ping'), signature: null), 'header_missing');
 });
 
 it('rejects a signature made with another secret', function (): void {
     $body = PixelforgeWebhook::body(PixelforgeWebhook::event());
 
-    expectRejected(PixelforgeWebhook::post($body, PixelforgeWebhook::signature($body, secret: 'whsec_someone_else')), 'mismatch');
+    expectRejected(PixelforgeWebhook::post($this, $body, PixelforgeWebhook::signature($body, secret: 'whsec_someone_else')), 'mismatch');
 });
 
 it('rejects a tampered body signed before the change', function (): void {
     $body = PixelforgeWebhook::body(PixelforgeWebhook::event());
     $signature = PixelforgeWebhook::signature($body);
 
-    expectRejected(PixelforgeWebhook::post(str_replace('succeeded', 'failed', $body), $signature), 'mismatch');
+    expectRejected(PixelforgeWebhook::post($this, str_replace('succeeded', 'failed', $body), $signature), 'mismatch');
 });
 
 it('rejects a body re-encoded after signing', function (): void {
@@ -54,31 +54,31 @@ it('rejects a body re-encoded after signing', function (): void {
     // Same JSON value, different bytes: only the raw body counts.
     $reencoded = json_encode(json_decode($body, true), JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT);
 
-    expectRejected(PixelforgeWebhook::post($reencoded, $signature), 'mismatch');
+    expectRejected(PixelforgeWebhook::post($this, $reencoded, $signature), 'mismatch');
 });
 
 it('rejects a stale timestamp', function (): void {
     $body = PixelforgeWebhook::body(PixelforgeWebhook::event());
 
-    expectRejected(PixelforgeWebhook::post($body, PixelforgeWebhook::signature($body, now()->getTimestamp() - 301)), 'stale');
+    expectRejected(PixelforgeWebhook::post($this, $body, PixelforgeWebhook::signature($body, now()->getTimestamp() - 301)), 'stale');
 });
 
 it('rejects a timestamp from the future beyond the tolerance', function (): void {
     $body = PixelforgeWebhook::body(PixelforgeWebhook::event());
 
-    expectRejected(PixelforgeWebhook::post($body, PixelforgeWebhook::signature($body, now()->getTimestamp() + 301)), 'stale');
+    expectRejected(PixelforgeWebhook::post($this, $body, PixelforgeWebhook::signature($body, now()->getTimestamp() + 301)), 'stale');
 });
 
 it('rejects a header without v1', function (): void {
     $body = PixelforgeWebhook::body(PixelforgeWebhook::event());
 
-    expectRejected(PixelforgeWebhook::post($body, 't='.now()->getTimestamp()), 'signature_missing');
+    expectRejected(PixelforgeWebhook::post($this, $body, 't='.now()->getTimestamp()), 'signature_missing');
 });
 
 it('rejects an empty v1', function (): void {
     $body = PixelforgeWebhook::body(PixelforgeWebhook::event());
 
-    expectRejected(PixelforgeWebhook::post($body, 't='.now()->getTimestamp().',v1='), 'signature_missing');
+    expectRejected(PixelforgeWebhook::post($this, $body, 't='.now()->getTimestamp().',v1='), 'signature_missing');
 });
 
 it('rejects a non-numeric timestamp', function (string $timestamp): void {
@@ -86,20 +86,20 @@ it('rejects a non-numeric timestamp', function (string $timestamp): void {
     $valid = PixelforgeWebhook::signature($body);
     $v1 = substr($valid, strpos($valid, 'v1='));
 
-    expectRejected(PixelforgeWebhook::post($body, "t={$timestamp},{$v1}"), 'invalid_timestamp');
+    expectRejected(PixelforgeWebhook::post($this, $body, "t={$timestamp},{$v1}"), 'invalid_timestamp');
 })->with(['abc', '-5', '0', '12.5', '']);
 
 it('rejects everything while no signing secret is configured', function (): void {
     config(['pixelforge.webhook_secret' => null]);
     $body = PixelforgeWebhook::body(PixelforgeWebhook::event('ping'));
 
-    expectRejected(PixelforgeWebhook::post($body, PixelforgeWebhook::signature($body)), 'secret_missing');
+    expectRejected(PixelforgeWebhook::post($this, $body, PixelforgeWebhook::signature($body)), 'secret_missing');
 });
 
 it('accepts a timestamp at the edge of the tolerance', function (): void {
     $body = PixelforgeWebhook::body(PixelforgeWebhook::event('ping'));
 
-    PixelforgeWebhook::post($body, PixelforgeWebhook::signature($body, now()->getTimestamp() - 300))
+    PixelforgeWebhook::post($this, $body, PixelforgeWebhook::signature($body, now()->getTimestamp() - 300))
         ->assertOk()
         ->assertExactJson(['status' => 'ping']);
 });
@@ -109,7 +109,7 @@ it('accepts two v1 values when the second one is valid', function (): void {
     $valid = PixelforgeWebhook::signature($body);
     $t = now()->getTimestamp();
 
-    PixelforgeWebhook::post($body, "t={$t},v1=".str_repeat('0', 64).','.substr($valid, strpos($valid, 'v1=')))
+    PixelforgeWebhook::post($this, $body, "t={$t},v1=".str_repeat('0', 64).','.substr($valid, strpos($valid, 'v1=')))
         ->assertOk()
         ->assertExactJson(['status' => 'ping']);
 
