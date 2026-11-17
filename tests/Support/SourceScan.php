@@ -370,7 +370,9 @@ final class SourceScan
      * (`'status' => TakeStatus::Failed`, `->status = 'failed'`); in a file
      * that references App\Models\Take, a status written with any other value
      * (`'status' => $snapshot->status`), unless it is another model's status
-     * enum (UsageStatus, SuggestionStatus, PurchaseStatus). Models get the
+     * enum (UsageStatus, SuggestionStatus, PurchaseStatus) or the read of a
+     * status as an array element (`'status' => $take->status->value,`, how an
+     * API resource serializes it; nothing is saved). Models get the
      * case/string check only, after their declared `$attributes` defaults
      * (`'status' => 'pending'`) are set aside: a default is not a write.
      *
@@ -385,7 +387,7 @@ final class SourceScan
         // Possessive: the value lookahead below must not backtrack into the spaces.
         $write = '(?:[\'"]status[\'"]\s*=>|->status\s*=(?!=))\s*+';
         $takeValue = '/'.$write.'(?:\\\\?(?:App\\\\Enums\\\\Takes\\\\)?TakeStatus::(?!class\b)|[\'"](?:'.$statuses.')[\'"])/';
-        $anyValue = '/'.$write.'(?!(?:\\\\?App\\\\Enums\\\\\w+\\\\)?(?:Usage|Suggestion|Purchase)Status::)/';
+        $anyValue = '/'.$write.'(?!(?:\\\\?App\\\\Enums\\\\\w+\\\\)?(?:Usage|Suggestion|Purchase)Status::|\$\w+->status->value\s*,)/';
         $violations = [];
 
         foreach (self::phpFiles($paths) as $file) {

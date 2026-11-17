@@ -179,8 +179,7 @@ arch('App\\Contracts holds only interfaces (seams)')
 test('only the transition actions write a take status', function (): void {
     expect(SourceScan::takeStatusWrites(
         ['app', 'routes', 'database/seeders'],
-        // TakeResource only serializes a take (`'status' => $take->status->value`); it never saves one.
-        except: ['app/Actions/Takes/ApplyTakeSnapshotAction.php', 'app/Actions/Takes/FailTakeAction.php', 'app/Http/Resources/TakeResource.php'],
+        except: ['app/Actions/Takes/ApplyTakeSnapshotAction.php', 'app/Actions/Takes/FailTakeAction.php'],
     ))->toBe([]);
 });
 
@@ -200,11 +199,12 @@ test('the take-status scan sees enum cases, string values and variables next to 
     $plain = SourceScan::root().'/storage/framework/testing-status-plain.php';
     $take = SourceScan::root().'/storage/framework/testing-status-take.php';
     file_put_contents($plain, "<?php\n\$a->forceFill(['status' => TakeStatus::Failed]);\n\$b->update(['status' => 'succeeded']);\n\$c->status = \\App\\Enums\\Takes\\TakeStatus::Queued;\n\$d->update(['status' => \$next]);\nif (\$e->status === TakeStatus::Failed) {}\n");
-    file_put_contents($take, "<?php\nuse App\\Models\\Take;\n\$t->forceFill(['status' => \$snapshot->status]);\n\$u->forceFill(['status' => UsageStatus::Voided]);\n\$t->status = \$next;\n");
+    file_put_contents($take, "<?php\nuse App\\Models\\Take;\n\$t->forceFill(['status' => \$snapshot->status]);\n\$u->forceFill(['status' => UsageStatus::Voided]);\n\$t->status = \$next;\nreturn ['status' => \$t->status->value, 'label' => 'x'];\n\$t->forceFill(['status' => \$other->status->value])->save();\n");
 
     try {
+        // A serialized read (`'status' => $t->status->value,`) is not a write; the same read saved as the last element is.
         expect(SourceScan::takeStatusWrites(['storage/framework/testing-status-plain.php']))->toHaveCount(3)
-            ->and(SourceScan::takeStatusWrites(['storage/framework/testing-status-take.php']))->toHaveCount(2);
+            ->and(SourceScan::takeStatusWrites(['storage/framework/testing-status-take.php']))->toHaveCount(3);
     } finally {
         unlink($plain);
         unlink($take);
