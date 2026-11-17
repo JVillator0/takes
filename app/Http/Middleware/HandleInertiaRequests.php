@@ -72,6 +72,11 @@ final class HandleInertiaRequests extends Middleware
             'pixelforge' => [
                 'configured' => app(PixelforgeClient::class)->isConfigured(),
             ],
+            // Live take status (spec 5, D-028): the client listens on the socket
+            // only when the server really broadcasts; otherwise it polls.
+            'broadcasting' => [
+                'live' => config('broadcasting.default') === 'reverb',
+            ],
             // Buy credits from any customer page (D-026): the packs of spec 3-03
             // as the billing page shows them (spec 6), exact strings.
             'creditPacks' => fn (): array => CreditPackResource::collection(app(ListCreditPacksQuery::class)->execute())->resolve($request),

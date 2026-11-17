@@ -8,6 +8,7 @@ use App\Http\Middleware\EnsureDemoAccountActive;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\SweepStaleTakes;
+use App\Http\Middleware\TouchCustomerLastActive;
 use App\Http\Middleware\UseCustomerGuard;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -51,14 +52,17 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'customer.guard' => UseCustomerGuard::class,
             'customer.demo' => EnsureDemoAccountActive::class,
+            'customer.active' => TouchCustomerLastActive::class,
         ]);
 
         // Every customer route (D-032): customer guard as the request default,
-        // authenticated on it, and expired demo customers logged out (D-065).
+        // authenticated on it, expired demo customers logged out (D-065), and
+        // Last active refreshed at most every 5 minutes (spec 7).
         $middleware->group('customer', [
             'customer.guard',
             'auth:customer',
             'customer.demo',
+            'customer.active',
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

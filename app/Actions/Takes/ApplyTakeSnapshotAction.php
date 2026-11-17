@@ -37,9 +37,6 @@ use Throwable;
  */
 final readonly class ApplyTakeSnapshotAction
 {
-    /** First poll of the reconcile chain once Pixelforge accepts the take (spec 5: 60, 120, 300, 600, 840 s). */
-    private const int FIRST_RECONCILE_DELAY_SECONDS = 60;
-
     public function __construct(
         private SettleUsageAction $settleUsage,
         private VoidUsageAction $voidUsage,
@@ -313,7 +310,8 @@ final readonly class ApplyTakeSnapshotAction
             }
 
             if ($reconcile) {
-                ReconcileTakeJob::dispatch($take->id)->delay(self::FIRST_RECONCILE_DELAY_SECONDS);
+                // The chain's first delay has one definition (ReconcileTakeJob::DELAYS).
+                ReconcileTakeJob::start($take->id);
             }
         });
     }

@@ -26,6 +26,8 @@ declare module '@inertiajs/core' {
             name: string;
             auth: Auth;
             pixelforge: { configured: boolean };
+            /** True when the server broadcasts over Reverb (spec 5). */
+            broadcasting: { live: boolean };
             sidebarOpen: boolean;
             copy: Copy;
             creditPacks: CreditPack[];

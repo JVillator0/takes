@@ -11,14 +11,17 @@ use App\Enums\Webhooks\WebhookOutcome;
 use App\Events\TakeUpdated;
 use App\Jobs\ReconcileTakeJob;
 use App\Models\LedgerEntry;
+use App\Models\Take;
 use App\Models\WebhookDelivery;
 use App\Models\WebhookEvent;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Tests\Support\PixelforgeFixture;
 use Tests\Support\PixelforgeWebhook;
 use Tests\Support\Takes;
+use Tests\TestCase;
 
 /*
 | POST /webhooks/pixelforge (spec 5, W-01, W-04, W-10, W-11, W-13).
@@ -148,14 +151,65 @@ it('records a malformed generation as invalid_snapshot and flags the take', func
     Log::shouldHaveReceived('critical')->once();
 });
 
-it('fetches the generation instead of settling a success that has no rates', function (): void {
-    $take = Takes::in('processing');
-    $event = PixelforgeWebhook::forTake($take, 'succeeded', overrides: ['rates' => null]);
+/**
+ * D-077(a): the delivery answers 5xx with nothing written, a one-off fetch is
+ * queued, and that fetch (with the generation's own rates) settles exactly
+ * once; Pixelforge's retry then finds the take finished.
+ */
+function assertRatesLessSuccessRefetchesAndSettlesOnce(TestCase $test, Take $take): void
+{
+    config(['pixelforge.base_url' => 'https://pixelforge.test/v1', 'pixelforge.api_key' => 'pf_test_webhook']);
+    Http::preventStrayRequests();
+    $generationId = 'gen_'.$take->id;
+    $event = PixelforgeWebhook::forTake($take, 'succeeded', 'evt_rates_missing_00001', ['id' => $generationId, 'rates' => null]);
+    Queue::fake();
 
-    PixelforgeWebhook::post($this, $event)->assertOk()->assertExactJson(['status' => 'invalid_snapshot']);
+    PixelforgeWebhook::post($test, $event, attempt: 1)->assertServerError();
 
-    expect($take->refresh()->status)->toBe(TakeStatus::Processing)
+    expect(WebhookEvent::query()->count())->toBe(0)
+        ->and(WebhookDelivery::query()->count())->toBe(0)
+        ->and($take->refresh()->status)->not->toBe(TakeStatus::Succeeded)
         ->and($take->attention_reason)->toBeNull()
-        ->and(Takes::usage($take)->status)->toBe(UsageStatus::Open);
-    Queue::assertPushed(ReconcileTakeJob::class, fn (ReconcileTakeJob $job): bool => $job->takeId === $take->id && ! $job->continuesChain && $job->delay === null);
+        ->and(Takes::usage($take)->status)->toBe(UsageStatus::Open)
+        ->and(LedgerEntry::query()->where('type', 'charge')->count())->toBe(0);
+
+    $fetch = null;
+    Queue::assertPushed(ReconcileTakeJob::class, function (ReconcileTakeJob $job) use ($take, $generationId, &$fetch): bool {
+        $fetch = $job;
+
+        return $job->takeId === $take->id && ! $job->continuesChain && $job->generationId === $generationId && $job->delay === null;
+    });
+
+    // The one-off fetch: GET /v1/generations/{id} returns it with its rates.
+    Http::fake(['pixelforge.test/v1/generations/*' => Http::response(PixelforgeFixture::generation('succeeded', [
+        'id' => $generationId,
+        'metadata' => ['app_take_id' => $take->id],
+    ]))]);
+    Queue::fake();
+    app()->call([$fetch, 'handle']);
+
+    expect($take->refresh()->status)->toBe(TakeStatus::Succeeded)
+        ->and(Takes::usage($take)->charge_nanos)->toBe(Takes::DOCS_CHARGE);
+    Queue::assertNotPushed(ReconcileTakeJob::class, fn (ReconcileTakeJob $job): bool => $job->continuesChain && $job->attempt > 0);
+
+    // Pixelforge retries the delivery: recorded, nothing settles again.
+    PixelforgeWebhook::post($test, $event, attempt: 2)->assertOk()->assertExactJson(['status' => 'ignored_same_state']);
+
+    expect(LedgerEntry::query()->where('type', 'charge')->count())->toBe(1)
+        ->and(WebhookDelivery::query()->sole()->attempt)->toBe(2);
+}
+
+it('answers 5xx for a success without rates, then settles once from the fetched generation', function (): void {
+    $take = Takes::in('processing');
+
+    assertRatesLessSuccessRefetchesAndSettlesOnce($this, $take);
+});
+
+it('refetches by the event generation id when the take was found by metadata', function (): void {
+    $take = Takes::pendingWithHold();
+    expect($take->pixelforge_id)->toBeNull();
+
+    assertRatesLessSuccessRefetchesAndSettlesOnce($this, $take);
+
+    expect($take->refresh()->pixelforge_id)->toBe('gen_'.$take->id);
 });

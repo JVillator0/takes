@@ -59,7 +59,22 @@ final class TakeUpdated implements ShouldBroadcast, ShouldDispatchAfterCommit, S
     public function broadcastWith(): array
     {
         $customer = Customer::query()->findOrFail($this->take->customer_id);
+        $available = $customer->available();
+        $held = $customer->held();
 
-        return TakeLiveUpdateDTO::fromTake($this->take, $customer)->toArray();
+        return (new TakeLiveUpdateDTO(
+            takeId: $this->take->id,
+            projectId: $this->take->project_id,
+            status: $this->take->status->value,
+            failureCode: $this->take->failure_code?->value,
+            updatedAt: $this->take->updated_at?->toIso8601ZuluString(),
+            available: $available->format(4),
+            availableExact: $available->formatExact(),
+            onHold: $held->format(4),
+            onHoldExact: $held->formatExact(),
+            // When the balance was read, to the microsecond: the client keeps
+            // the newest balance whichever take's update carried it.
+            balanceAt: now()->utc()->format('Y-m-d\\TH:i:s.u\\Z'),
+        ))->toArray();
     }
 }

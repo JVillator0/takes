@@ -46,16 +46,18 @@ return [
 
         'apps' => [
             [
-                'key' => env('REVERB_APP_KEY'),
-                'secret' => env('REVERB_APP_SECRET'),
-                'app_id' => env('REVERB_APP_ID'),
+                'key' => env('REVERB_APP_KEY', ''),
+                'secret' => env('REVERB_APP_SECRET', ''),
+                'app_id' => env('REVERB_APP_ID', ''),
                 'options' => [
                     'host' => env('REVERB_HOST'),
                     'port' => env('REVERB_PORT', 443),
                     'scheme' => env('REVERB_SCHEME', 'https'),
                     'useTLS' => env('REVERB_SCHEME', 'https') === 'https',
                 ],
-                'allowed_origins' => ['*'],
+                // Browsers may only connect from the app's own host; private
+                // channel auth protects the data, this keeps other sites off.
+                'allowed_origins' => [parse_url((string) env('APP_URL', 'http://localhost'), PHP_URL_HOST) ?: 'localhost'],
                 'ping_interval' => 60,
                 'activity_timeout' => 30,
                 'max_connections' => null,

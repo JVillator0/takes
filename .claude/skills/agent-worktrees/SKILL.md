@@ -62,7 +62,7 @@ git -C ../takes-b worktree lock --reason "<agent>: <spec or issue> (<YYYY-MM-DD>
 
 `git worktree lock` fails when the worktree is already locked, so it is the atomic lease: if it fails, someone else holds the letter; pick another one and touch nothing here. Locking before the fetch and switch means two agents picking the same letter can never both change its branch. The lock shows in `git worktree list` and in the status script, and keeps `git worktree prune` / `remove` away from a worktree in use. Refresh caches before handing it out (section 4).
 
-**Integrate:** only through a PR. The agent opens it (`gh pr create`, Conventional Commit title, the 1-01 template), waits for `gh pr checks <n> --watch`, and the `pr-review` workflow (spec 1-03) reviews and squash-merges it. Agents never push to `main`, merge or force-push. If `main` moves, the agent rebases **only when asked** and then stops running tests until it reports; never rebase while the review workflow is reading the branch.
+**Integrate:** only through a PR. The agent opens it (`gh pr create`, Conventional Commit title, the 1-01 template), writes the body to a fresh `mktemp` file passed with `--body-file` (never a shared path such as `/tmp/pr-body.md`), confirms with `gh pr view <n> --json body,closingIssuesReferences` that the body and the closing issues are its own, waits for `gh pr checks <n> --watch`, and the `pr-review` workflow (spec 1-03) reviews and squash-merges it. Agents never push to `main`, merge or force-push. If `main` moves, the agent rebases **only when asked** and then stops running tests until it reports; never rebase while the review workflow is reading the branch.
 
 **Release after merge** (or when the task is abandoned):
 

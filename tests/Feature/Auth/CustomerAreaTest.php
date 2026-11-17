@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Enums\Auth\DenialReason;
 use App\Http\Middleware\EnsureDemoAccountActive;
+use App\Http\Middleware\TouchCustomerLastActive;
 use App\Http\Middleware\UseCustomerGuard;
 use App\Models\Customer;
 use App\Models\Project;
@@ -94,7 +95,8 @@ it('registers the customer middleware aliases and group', function (): void {
     expect($kernel->getMiddlewareAliases())->toMatchArray([
         'customer.guard' => UseCustomerGuard::class,
         'customer.demo' => EnsureDemoAccountActive::class,
-    ])->and($kernel->getMiddlewareGroups()['customer'] ?? null)->toBe(['customer.guard', 'auth:customer', 'customer.demo']);
+        'customer.active' => TouchCustomerLastActive::class,
+    ])->and($kernel->getMiddlewareGroups()['customer'] ?? null)->toBe(['customer.guard', 'auth:customer', 'customer.demo', 'customer.active']);
 });
 
 it('sends a policy denial back to the Inertia page with its reason code', function (): void {

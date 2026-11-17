@@ -62,3 +62,20 @@ it('leaves a suggestion that already moved on alone', function (): void {
     expect(app(ExpireSuggestionAction::class)->execute($this->suggestion))->toBeFalse()
         ->and($this->suggestion->refresh()->status)->toBe(SuggestionStatus::Proposed);
 });
+
+it('re-checks under the lock: a stale pending copy of a row that moved on changes nothing', function (): void {
+    $stale = $this->suggestion;
+    // Another process proposed it after the sweeper loaded its copy.
+    Suggestion::query()->whereKey($stale->id)->update(['status' => SuggestionStatus::Proposed->value]);
+    $before = $this->customer->refresh();
+
+    expect($stale->status)->toBe(SuggestionStatus::Pending)
+        ->and(app(ExpireSuggestionAction::class)->execute($stale))->toBeFalse();
+
+    $fresh = $stale->refresh();
+    expect($fresh->status)->toBe(SuggestionStatus::Proposed)
+        ->and($fresh->failure_reason)->toBeNull()
+        ->and($fresh->usageRecord()->firstOrFail()->status)->toBe(UsageStatus::Open)
+        ->and($this->customer->refresh()->held_nanos)->toBe($before->held_nanos)
+        ->and($this->customer->balance_nanos)->toBe($before->balance_nanos);
+});

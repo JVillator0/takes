@@ -8,9 +8,9 @@ use App\Actions\Takes\ApplyTakeSnapshotAction;
 use App\Actions\Takes\FlagTakeAttentionAction;
 use App\DTOs\Webhooks\PixelforgeWebhookDTO;
 use App\Enums\Takes\AttentionReason;
-use App\Enums\Takes\TakeStatus;
 use App\Enums\Webhooks\PixelforgeEventType;
 use App\Enums\Webhooks\WebhookOutcome;
+use App\Exceptions\Takes\SnapshotRatesMissingException;
 use App\Jobs\ReconcileTakeJob;
 use App\Models\Take;
 use App\Models\WebhookDelivery;
@@ -31,9 +31,10 @@ use Illuminate\Support\Facades\Log;
  *  3. `ping` and unknown types are acknowledged (W-10); a generation event
  *     goes to ApplyTakeSnapshotAction, the only writer of take status (W-12).
  *
- * No HTTP here (M-16): a `succeeded` snapshot without `rates` is not settled
- * from cached prices (D-055); the reconcile job fetches the generation after
- * commit and applies that snapshot instead (spec 3-04).
+ * No HTTP here (M-16): a `succeeded` snapshot without `rates` is never
+ * settled from cached prices (D-055). ApplyTakeSnapshotAction throws before
+ * any write; the delivery answers 5xx (Pixelforge retries) and a one-off
+ * reconcile fetches the generation and settles it (D-077(a)).
  */
 final readonly class HandlePixelforgeWebhookAction
 {
@@ -51,6 +52,26 @@ final readonly class HandlePixelforgeWebhookAction
             'webhook_attempt' => $event->attempt,
         ]);
 
+        try {
+            return $this->record($event);
+        } catch (SnapshotRatesMissingException $exception) {
+            // D-077(a): a success that would settle has no rates. Nothing was
+            // written (the event row rolled back with the rest), the request
+            // answers 5xx and Pixelforge retries. Meanwhile the generation is
+            // fetched outside any transaction and settles with its own rates
+            // (D-055); the retried delivery then finds the take finished.
+            Log::warning('Pixelforge succeeded webhook without rates; fetching the generation.', [
+                'take_id' => $exception->takeId,
+                'generation_id' => $exception->generationId,
+            ]);
+            ReconcileTakeJob::fetchNow($exception->takeId, $exception->generationId);
+
+            throw $exception;
+        }
+    }
+
+    private function record(PixelforgeWebhookDTO $event): WebhookOutcome
+    {
         return DB::transaction(function () use ($event): WebhookOutcome {
             $receivedAt = now();
 
@@ -120,19 +141,6 @@ final readonly class HandlePixelforgeWebhookAction
                 'reason' => $event->snapshotError,
             ]);
             $this->flagAttention->execute($take, AttentionReason::InvalidSnapshot);
-
-            return WebhookOutcome::InvalidSnapshot;
-        }
-
-        if ($snapshot->status === TakeStatus::Succeeded && $snapshot->rates === null && ! $take->status->isTerminal()) {
-            // This success would settle, and settlement uses only the
-            // generation's own rates (D-055, W-13): fetch the generation
-            // after commit, outside this transaction, and apply that instead.
-            Log::warning('Pixelforge succeeded webhook without rates; fetching the generation.', [
-                'take_id' => $take->id,
-                'generation_id' => $snapshot->id,
-            ]);
-            ReconcileTakeJob::fetchNow($take->id);
 
             return WebhookOutcome::InvalidSnapshot;
         }
