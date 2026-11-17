@@ -1,0 +1,47 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\DTOs\Billing;
+
+use App\Support\Money\Nanodollars;
+use InvalidArgumentException;
+
+/**
+ * What a provider call may cost and charge (spec 3-03 §4). Every estimator
+ * (Pixelforge spec 4, Anthropic spec 8) returns one. The hold is always
+ * `maxCharge` (D-024).
+ */
+final readonly class EstimateDTO
+{
+    public function __construct(
+        public Nanodollars $minCost,
+        public Nanodollars $maxCost,
+        public Nanodollars $minCharge,
+        public Nanodollars $maxCharge,
+    ) {
+        foreach ([$minCost, $maxCost, $minCharge, $maxCharge] as $amount) {
+            if ($amount->isNegative()) {
+                throw new InvalidArgumentException('Estimate amounts cannot be negative.');
+            }
+        }
+
+        if ($maxCost->lessThan($minCost) || $maxCharge->lessThan($minCharge)) {
+            throw new InvalidArgumentException('Estimate minimum cannot exceed its maximum.');
+        }
+    }
+
+    /** Charges are the costs with the markup (README rule, spec 3-03 §3). */
+    public static function fromCosts(
+        Nanodollars $minCost,
+        Nanodollars $maxCost,
+        int $markupBps = Nanodollars::DEFAULT_MARKUP_BPS,
+    ): self {
+        return new self(
+            $minCost,
+            $maxCost,
+            $minCost->withMarkup($markupBps),
+            $maxCost->withMarkup($markupBps),
+        );
+    }
+}
