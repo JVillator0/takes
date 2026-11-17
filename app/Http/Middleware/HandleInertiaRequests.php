@@ -6,11 +6,18 @@ namespace App\Http\Middleware;
 
 use App\Services\Pixelforge\PixelforgeClient;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\File;
 use Inertia\Inertia;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
 {
+    /**
+     * Lang groups shared with the client as UI copy (D-057). They hold no
+     * secrets and no provider names (D-023).
+     */
+    private const COPY_GROUPS = ['takes', 'billing', 'landing'];
+
     /**
      * The root template that's loaded on the first page visit.
      *
@@ -51,7 +58,7 @@ class HandleInertiaRequests extends Middleware
                 'configured' => app(PixelforgeClient::class)->isConfigured(),
             ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
-            'copy' => Inertia::once(fn (): array => self::copy()),
+            'copy' => Inertia::once(fn (): array => self::copy())->as('copy:'.self::copyVersion()),
         ];
     }
 
@@ -59,17 +66,33 @@ class HandleInertiaRequests extends Middleware
      * Customer-facing UI copy read on the client by `useCopy().t()` (D-057).
      *
      * An Inertia once prop: sent on the first page load and kept by the client
-     * across visits, because the strings never change while the app runs.
-     * Only these files are exposed; they hold no secrets.
+     * across visits. Its once key carries a hash of the lang files (see
+     * copyVersion()), so a deploy that changes only copy re-sends it to tabs
+     * that are already open; the asset version does not cover lang files.
      *
-     * @return array{takes: mixed, billing: mixed, landing: mixed}
+     * @return array<string, mixed>
      */
     private static function copy(): array
     {
-        return [
-            'takes' => trans('takes'),
-            'billing' => trans('billing'),
-            'landing' => trans('landing'),
-        ];
+        $copy = [];
+
+        foreach (self::COPY_GROUPS as $group) {
+            $copy[$group] = trans($group);
+        }
+
+        return $copy;
+    }
+
+    /**
+     * Content hash of the shared lang files; it changes whenever a string does.
+     */
+    public static function copyVersion(): string
+    {
+        $contents = array_map(
+            fn (string $group): string => File::get(lang_path("en/{$group}.php")),
+            self::COPY_GROUPS,
+        );
+
+        return hash('xxh128', implode("\0", $contents));
     }
 }
