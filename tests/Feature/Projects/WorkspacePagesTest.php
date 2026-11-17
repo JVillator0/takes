@@ -187,9 +187,8 @@ it('shares the credit packs formatted for the Buy credits modal', function (): v
     $customer = TakeFlow::customer();
 
     $this->actingAs($customer, 'customer')->get(route('projects.index'))
-        ->assertInertia(fn (Assert $page) => $page->where('creditPacks', [
-            ['package' => 5, 'amount' => '$5.00'],
-            ['package' => 10, 'amount' => '$10.00'],
-            ['package' => 25, 'amount' => '$25.00'],
-        ]));
+        ->assertInertia(fn (Assert $page) => $page
+            ->has('creditPacks', 3)
+            ->where('creditPacks.0.amount', '$5.00')
+            ->where('creditPacks.2.total', '$25.00'));
 });

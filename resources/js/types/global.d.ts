@@ -1,7 +1,7 @@
 import type { Directive } from 'vue';
 import type { Auth } from '@/types/auth';
 import type { Copy } from '@/types/copy';
-import type { CreditPack } from '@/types/takes';
+import type { CreditPack } from '@/types/billing';
 
 // Extend ImportMeta interface for Vite...
 declare module 'vite/client' {

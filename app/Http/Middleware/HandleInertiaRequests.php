@@ -5,11 +5,12 @@ declare(strict_types=1);
 namespace App\Http\Middleware;
 
 use App\DTOs\Auth\AbilityDTO;
+use App\Http\Resources\Billing\CreditPackResource;
 use App\Models\Customer;
 use App\Models\Project;
 use App\Models\Purchase;
+use App\Queries\Billing\ListCreditPacksQuery;
 use App\Services\Pixelforge\PixelforgeClient;
-use App\Support\Money\Nanodollars;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Gate;
@@ -71,11 +72,9 @@ final class HandleInertiaRequests extends Middleware
             'pixelforge' => [
                 'configured' => app(PixelforgeClient::class)->isConfigured(),
             ],
-            // Buy credits modal (D-026): the fixed packs of spec 3-03, formatted here.
-            'creditPacks' => fn (): array => array_map(
-                fn (int $usd): array => ['package' => $usd, 'amount' => Nanodollars::fromInt($usd * Nanodollars::PER_DOLLAR)->formatExact()],
-                array_values(array_map(intval(...), config()->array('takes.purchase_packs_usd'))),
-            ),
+            // Buy credits from any customer page (D-026): the packs of spec 3-03
+            // as the billing page shows them (spec 6), exact strings.
+            'creditPacks' => fn (): array => CreditPackResource::collection(app(ListCreditPacksQuery::class)->execute())->resolve($request),
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
             'copy' => Inertia::once(fn (): array => self::copy())->as('copy:'.self::copyVersion()),
         ];

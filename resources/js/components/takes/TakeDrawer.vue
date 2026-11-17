@@ -53,6 +53,10 @@ const emit = defineEmits<{
     selectVersion: [id: string];
 }>();
 
+defineSlots<{
+    describe?: () => unknown;
+}>();
+
 const { t } = useCopy();
 const ids = { timeline: useId(), price: useId(), versions: useId() };
 const copied = ref(false);
@@ -376,6 +380,8 @@ const sectionLabel =
                     </div>
 
                     <div class="flex min-w-0 flex-col gap-5">
+                        <!-- Describe a change (P07, spec 8), when the page opens it. -->
+                        <slot name="describe" />
                         <div class="rounded-lg border p-3">
                             <p class="text-sm">“{{ take.prompt }}”</p>
                             <p

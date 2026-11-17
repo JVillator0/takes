@@ -5,6 +5,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { toast } from 'vue-sonner';
 import InputError from '@/components/InputError.vue';
 import LiveIndicator from '@/components/takes/LiveIndicator.vue';
+import DescribeChangePanel from '@/components/takes/DescribeChangePanel.vue';
 import TakeComposer from '@/components/takes/TakeComposer.vue';
 import TakeDrawer from '@/components/takes/TakeDrawer.vue';
 import TakeFilterTabs from '@/components/takes/TakeFilterTabs.vue';
@@ -167,6 +168,26 @@ const closeTake = (): void => {
             replace: true,
         },
     );
+};
+
+/*
+ * Describe a change (P07, spec 8): the panel opens in the drawer of a done
+ * take; applying creates the new take through the same pipeline as the
+ * composer, which then opens in the drawer.
+ */
+const describing = ref(false);
+
+watch(
+    () => props.take?.id,
+    () => {
+        describing.value = false;
+    },
+);
+
+const onSuggestionApplied = (takeId: string): void => {
+    describing.value = false;
+    router.reload({ only: ['takes', 'counts', 'balance', 'project'] });
+    openTake(takeId);
 };
 
 /* Cancel a take waiting for capacity (D-044): voids the hold. */
@@ -455,12 +476,21 @@ const canManage = computed(
             v-model:open="drawerOpen"
             v-model:comparing="comparing"
             :take="take"
-            :can-describe-change="false"
             @remix="remix"
             @try-again="tryAgain"
             @cancel="cancel"
             @select-version="openTake"
-        />
+            @describe-change="describing = true"
+        >
+            <template v-if="describing && take" #describe>
+                <DescribeChangePanel
+                    :key="take.id"
+                    :take-id="take.id"
+                    @applied="onSuggestionApplied"
+                    @buy-credits="buyCredits.open()"
+                />
+            </template>
+        </TakeDrawer>
 
         <Dialog v-model:open="renaming">
             <DialogContent class="sm:max-w-md">

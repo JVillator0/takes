@@ -205,9 +205,3 @@ export type ProjectSummary = {
     /** ISO 8601. */
     updatedAt: string | null;
 };
-
-/** A credit pack in the Buy credits modal (D-026), formatted by the server. */
-export type CreditPack = {
-    package: number;
-    amount: string;
-};
