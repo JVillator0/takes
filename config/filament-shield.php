@@ -7,6 +7,7 @@ use App\Filament\Admin\Clusters\Billing\BillingCluster;
 use App\Filament\Admin\Clusters\Providers\ProvidersCluster;
 use App\Filament\Admin\Clusters\Studio\StudioCluster;
 use App\Filament\Admin\Pages\Dashboard;
+use App\Filament\Admin\Resources\Customers\CustomerResource;
 use BezhanSalleh\FilamentShield\Resources\Roles\RoleResource;
 use Filament\Widgets\AccountWidget;
 use Filament\Widgets\FilamentInfoWidget;
@@ -196,6 +197,8 @@ return [
             RoleResource::class => ['viewAny', 'view'],
             // The audit is read-only: nobody edits or deletes what an admin did.
             AdminAuditResource::class => ['viewAny', 'view'],
+            // Read-only console resources (D-074): their writes are custom permissions (AdminPermission).
+            CustomerResource::class => ['viewAny', 'view'],
         ],
         'exclude' => [
             //
