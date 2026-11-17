@@ -31,4 +31,18 @@ final class DenialResponse
 
         return back($request->header('X-Inertia') !== null ? 303 : 302)->withErrors(['denial' => $reason->message()]);
     }
+
+    /**
+     * A refusal that is not a policy denial (`cannot_cancel`,
+     * `project_archived`), rendered the same way: JSON `{code, message}`
+     * with `$jsonStatus`, or back with the message under `$errorKey`.
+     */
+    public static function rejected(Request $request, string $code, string $message, string $errorKey, int $jsonStatus = 422): JsonResponse|RedirectResponse
+    {
+        if ($request->header('X-Inertia') === null && $request->expectsJson()) {
+            return new JsonResponse(['code' => $code, 'message' => $message], $jsonStatus);
+        }
+
+        return back($request->header('X-Inertia') !== null ? 303 : 302)->withErrors([$errorKey => $message]);
+    }
 }

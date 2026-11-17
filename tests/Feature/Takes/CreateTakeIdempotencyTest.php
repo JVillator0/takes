@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Actions\Projects\ArchiveProjectAction;
 use App\Actions\Takes\CreateTakeAction;
 use App\DTOs\Takes\CreateTakeDTO;
 use App\Enums\Auth\CustomerRole;
@@ -9,6 +10,7 @@ use App\Enums\Auth\DenialReason;
 use App\Enums\Billing\UsageStatus;
 use App\Enums\Takes\TakeSource;
 use App\Enums\Takes\TakeStatus;
+use App\Exceptions\Projects\ProjectArchivedException;
 use App\Jobs\ReconcileTakeJob;
 use App\Jobs\SubmitTakeJob;
 use App\Models\Customer;
@@ -16,10 +18,12 @@ use App\Models\LedgerEntry;
 use App\Models\Project;
 use App\Models\Take;
 use App\Models\UsageRecord;
+use App\Support\Takes\TakeImageUrl;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Tests\Support\Billing;
@@ -244,4 +248,51 @@ it('throttles creates at 10 a minute per customer with rate_limited', function (
         ->postJson(route('takes.store', $project), TakeFlow::payload())
         ->assertStatus(429)
         ->assertJson(['code' => DenialReason::RateLimited->value, 'message' => DenialReason::RateLimited->message()]);
+});
+
+it('refuses a project archived after the request was authorized, under the customer lock', function (): void {
+    $customer = TakeFlow::customer();
+    $project = TakeFlow::project($customer);
+    app(ArchiveProjectAction::class)->execute($project);
+
+    expect(fn () => app(CreateTakeAction::class)->execute($customer, $project->refresh(), CreateTakeDTO::fromArray(TakeFlow::payload())))
+        ->toThrow(ProjectArchivedException::class);
+
+    expect(Take::query()->count())->toBe(0)
+        ->and(UsageRecord::query()->count())->toBe(0)
+        ->and($customer->refresh()->held_nanos)->toBe(0);
+    Queue::assertNothingPushed();
+});
+
+it('re-issues a remix reference to an earlier take image, and refuses one that expired', function (): void {
+    Storage::fake();
+    $customer = TakeFlow::customer();
+    $project = TakeFlow::project($customer);
+    $parent = Take::factory()->succeeded()->create(['customer_id' => $customer->id, 'project_id' => $project->id]);
+    $parent->forceFill([
+        'image_path' => "takes/{$customer->id}/{$parent->id}.png",
+        'image_url' => "https://pixelforge.promptedit.dev/images/{$parent->pixelforge_id}.png?expires=1&signature=x",
+        'image_url_expires_at' => now()->addMinutes(90),
+    ])->save();
+    Storage::put($parent->image_path, 'png');
+    $issued = TakeImageUrl::forReference($parent);
+
+    // Remix 61 minutes later: the stored temporary URL has expired.
+    $this->travel(61)->minutes();
+    createTake($customer, $project, ['parent_take_id' => $parent->id, 'reference_images' => [$issued]])
+        ->assertSessionHasNoErrors();
+
+    $remix = Take::query()->where('parent_take_id', $parent->id)->sole();
+    expect($remix->reference_images[0])->not->toBe($issued)
+        ->and($remix->reference_images[0])->toBe(TakeImageUrl::forReference($parent));
+
+    // No persisted copy and the provider URL expired: refused, nothing held.
+    $parent->forceFill(['image_path' => null, 'image_url_expires_at' => now()->subMinute()])->save();
+    $held = $customer->refresh()->held_nanos;
+
+    createTake($customer, $project, ['parent_take_id' => $parent->id, 'reference_images' => [$parent->image_url]])
+        ->assertSessionHasErrors(['reference_images' => __('takes.image_unavailable')]);
+
+    expect(Take::query()->where('parent_take_id', $parent->id)->count())->toBe(1)
+        ->and($customer->refresh()->held_nanos)->toBe($held);
 });

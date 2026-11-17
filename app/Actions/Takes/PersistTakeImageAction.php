@@ -31,7 +31,7 @@ final readonly class PersistTakeImageAction
     private const int CHUNK_BYTES = 65_536;
 
     /**
-     * @throws ConnectionException|RequestException|RuntimeException on a connection error, a 5xx or a failed write (the job retries)
+     * @throws ConnectionException|RequestException|RuntimeException on a connection error, a 5xx, 408 or 429, or a failed write (the job retries)
      */
     public function execute(Take $take): ImagePersistOutcome
     {
@@ -59,7 +59,8 @@ final readonly class PersistTakeImageAction
             ->withOptions(['stream' => true, 'allow_redirects' => false])
             ->get($take->image_url);
 
-        if ($response->serverError()) {
+        // 5xx, 408 and 429 are transient: throw so the job retries with its backoff.
+        if ($response->serverError() || in_array($response->status(), [408, 429], true)) {
             $response->throw();
         }
 

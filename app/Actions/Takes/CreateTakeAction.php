@@ -12,6 +12,8 @@ use App\Enums\Billing\Provider;
 use App\Events\TakeUpdated;
 use App\Exceptions\Auth\ActionDeniedException;
 use App\Exceptions\Billing\InsufficientCreditsException;
+use App\Exceptions\Projects\ProjectArchivedException;
+use App\Exceptions\Suggestions\BaseImageUnavailableException;
 use App\Exceptions\Takes\ServiceNotConfiguredException;
 use App\Jobs\ReconcileTakeJob;
 use App\Jobs\SubmitTakeJob;
@@ -19,6 +21,7 @@ use App\Models\Customer;
 use App\Models\Project;
 use App\Models\Take;
 use App\Queries\Takes\EstimateTakeQuery;
+use App\Queries\Takes\ResolveTakeImageReferencesQuery;
 use App\Services\Pixelforge\PixelforgeClient;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -48,12 +51,15 @@ final readonly class CreateTakeAction
         private PixelforgeClient $client,
         private EstimateTakeQuery $estimateTake,
         private OpenUsageAction $openUsage,
+        private ResolveTakeImageReferencesQuery $resolveReferences,
     ) {}
 
     /**
      * @throws ActionDeniedException with the DenialReason (insufficient credits, caps, restriction)
      * @throws AuthorizationException when the project or the parent take belongs to someone else
      * @throws ServiceNotConfiguredException when the image service has no API key
+     * @throws ProjectArchivedException when the project is archived
+     * @throws BaseImageUnavailableException when a reference is one of the customer's take images with no usable URL any more
      */
     public function execute(Customer $customer, Project $project, CreateTakeDTO $data): Take
     {
@@ -70,6 +76,15 @@ final readonly class CreateTakeAction
         );
 
         [$take, $created] = DB::transaction(function () use ($customer, $project, $data, $quote): array {
+            // Lock order take → customer (M-10): a parent take is locked first.
+            // The insert below takes a key-share lock on it through the
+            // lineage FK, and a non-terminal parent (Try again of a remix whose
+            // parent still runs) may be settling right now under take → customer.
+            if ($data->parentTakeId !== null
+                && Take::query()->whereKey($data->parentTakeId)->where('customer_id', $customer->id)->lockForUpdate()->first() === null) {
+                throw new AuthorizationException;
+            }
+
             $customer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
 
             $existing = Take::query()
@@ -81,10 +96,16 @@ final readonly class CreateTakeAction
                 return [$existing, false];
             }
 
-            if ($data->parentTakeId !== null
-                && ! Take::query()->whereKey($data->parentTakeId)->where('customer_id', $customer->id)->exists()) {
-                throw new AuthorizationException;
+            // ArchiveProjectAction takes the same customer lock, so this read
+            // cannot race an archive (composer or AI apply).
+            if (Project::query()->whereKey($project->id)->whereNotNull('archived_at')->exists()) {
+                throw ProjectArchivedException::for($project->id);
             }
+
+            // References to the customer's own take images are short-lived
+            // URLs (a remix, Try again, a kept AI reference): re-issue them, or
+            // refuse before anything is held. The count, and so the price, is unchanged.
+            $references = $this->resolveReferences->execute($customer, $data->referenceImages);
 
             // The policy again, on the customer as it is under the lock (D-015).
             $decision = Gate::forUser($customer)->inspect('create', [Take::class, $quote->estimate]);
@@ -110,7 +131,7 @@ final readonly class CreateTakeAction
                 'prompt' => $data->prompt,
                 'size' => $data->size,
                 'quality' => $data->quality,
-                'reference_images' => $data->referenceImages,
+                'reference_images' => $references,
             ])->save();
 
             try {

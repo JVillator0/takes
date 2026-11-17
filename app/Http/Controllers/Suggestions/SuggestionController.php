@@ -9,6 +9,7 @@ use App\Actions\Suggestions\CreateSuggestionAction;
 use App\Actions\Suggestions\DiscardSuggestionAction;
 use App\DTOs\Suggestions\CreateSuggestionDTO;
 use App\Enums\Auth\DenialReason;
+use App\Exceptions\Projects\ProjectArchivedException;
 use App\Exceptions\Suggestions\BaseImageUnavailableException;
 use App\Exceptions\Suggestions\BaseTakeNotReadyException;
 use App\Exceptions\Suggestions\RequestKeyReusedException;
@@ -95,6 +96,8 @@ final class SuggestionController extends Controller
             return self::rejected(409, 'not_proposed', __('suggestions.not_proposed'));
         } catch (BaseImageUnavailableException) {
             return self::rejected(409, 'image_unavailable', __('takes.image_unavailable'));
+        } catch (ProjectArchivedException) {
+            return self::rejected(409, ProjectArchivedException::CODE, __('takes.projects.archived'));
         } catch (TakeCreationUnavailableException) {
             return self::rejected(503, 'apply_unavailable', __('suggestions.apply_unavailable'));
         }
