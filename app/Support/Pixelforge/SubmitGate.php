@@ -29,9 +29,12 @@ use LogicException;
  * does not burn the 60 requests/min budget on rejected calls.
  * PixelforgeBusy stays the fallback when another app shares the account.
  *
- * A reservation lasts until finish() (call it in a `finally` after the
- * create returns) or until it expires (`gate.reservation_seconds`, longer
- * than the HTTP timeouts), so a crashed job cannot hold a slot forever.
+ * A reservation lasts until finish() or until it expires
+ * (`gate.reservation_seconds`, longer than the HTTP timeouts), so a crashed
+ * job cannot hold a slot forever. finish() is called only once the create
+ * response is persisted (the take has its pixelforge_id) or the answer was
+ * a definite non-creation (busy, rejected); after an ambiguous outcome the
+ * reservation is left to expire, because the generation may exist (#98).
  */
 final class SubmitGate
 {
@@ -74,6 +77,16 @@ final class SubmitGate
         } finally {
             $lock->release();
         }
+    }
+
+    /**
+     * True while this take holds a "submitting" slot: a create call may be
+     * in flight, so a cancel must wait (spec 4 "Cancel", D-044). Read
+     * without the gate lock; a stale answer only ever refuses a cancel.
+     */
+    public function isSubmitting(Take $take): bool
+    {
+        return array_key_exists($take->id, $this->reservations());
     }
 
     /** Generations counted against the cap right now (for logs and tests). */

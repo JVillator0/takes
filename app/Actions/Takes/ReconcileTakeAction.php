@@ -12,6 +12,7 @@ use App\Exceptions\Pixelforge\PixelforgeBusy;
 use App\Exceptions\Pixelforge\PixelforgeRejected;
 use App\Exceptions\Pixelforge\PixelforgeUnavailable;
 use App\Exceptions\Takes\SnapshotRatesMissingException;
+use App\Jobs\SubmitTakeJob;
 use App\Models\Take;
 use App\Services\Pixelforge\PixelforgeClient;
 use Illuminate\Support\Facades\Log;
@@ -43,8 +44,11 @@ final readonly class ReconcileTakeAction
         }
 
         if ($take->pixelforge_id === null) {
-            // TODO(spec 4): re-dispatch SubmitTakeJob with the same idempotency key ("Lost jobs").
-            Log::info('Reconcile skipped: the take has no generation yet.', ['take_id' => $take->id]);
+            // Lost jobs (spec 4): submit again with the same idempotency key, so
+            // a replay is never a second generation (D-033). SubmitTakeJob is
+            // unique per take, so this is dropped while the first one is alive.
+            Log::info('Reconcile re-dispatched the submit: the take has no generation yet.', ['take_id' => $take->id]);
+            SubmitTakeJob::dispatch($take->id);
 
             return new ReconcileResultDTO(ReconcileStatus::NotSubmitted);
         }
