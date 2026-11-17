@@ -8,7 +8,6 @@ use App\DTOs\Billing\EstimateDTO;
 use App\DTOs\Pixelforge\TokenFactsDTO;
 use App\Enums\Takes\TakeQuality;
 use App\Enums\Takes\TakeSize;
-use App\Support\Money\Nanodollars;
 use App\Support\Money\TokenCost;
 use InvalidArgumentException;
 
@@ -27,7 +26,8 @@ use InvalidArgumentException;
  * - reasoning: the quality range
  *
  * cost = ceil(Σ tokens × rate / 1_000_000) through {@see TokenCost} (rates in
- * nanodollars per 1M tokens); charge = cost with the markup (spec 3-03 §3).
+ * nanodollars per 1M tokens); charge = cost with the default markup
+ * (spec 3-03 §3, {@see EstimateDTO::fromCosts()}).
  * The hold is maxCharge.
  */
 final readonly class TakeEstimator
@@ -53,9 +53,8 @@ final readonly class TakeEstimator
         int $referenceImages,
         array $rates,
         ?TokenFactsDTO $tokenFacts = null,
-        int $markupBps = Nanodollars::DEFAULT_MARKUP_BPS,
     ): EstimateDTO {
-        return $this->estimateForCharacters(mb_strlen($prompt, 'UTF-8'), $size, $quality, $referenceImages, $rates, $tokenFacts, $markupBps);
+        return $this->estimateForCharacters(mb_strlen($prompt, 'UTF-8'), $size, $quality, $referenceImages, $rates, $tokenFacts);
     }
 
     /**
@@ -71,7 +70,6 @@ final readonly class TakeEstimator
         int $referenceImages,
         array $rates,
         ?TokenFactsDTO $tokenFacts = null,
-        int $markupBps = Nanodollars::DEFAULT_MARKUP_BPS,
     ): EstimateDTO {
         if ($characters < 0 || $characters > PixelforgeTokenTable::MAX_PROMPT_CHARACTERS) {
             throw new InvalidArgumentException('A prompt has between 0 and '.PixelforgeTokenTable::MAX_PROMPT_CHARACTERS." characters, got [{$characters}].");
@@ -104,12 +102,8 @@ final readonly class TakeEstimator
             'reasoning' => $reasoningTokens['max'],
         ], $rates);
 
-        return new EstimateDTO(
-            $minCost,
-            $maxCost,
-            $minCost->withMarkup($markupBps),
-            $maxCost->withMarkup($markupBps),
-        );
+        // One markup (spec 3-03 §3): the one OpenUsageAction snapshots and checks.
+        return EstimateDTO::fromCosts($minCost, $maxCost);
     }
 
     /**

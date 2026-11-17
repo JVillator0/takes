@@ -49,6 +49,18 @@ describe('floatViolations', function (): void {
         'return type' => ['<?php function f(): int|float { return 1; }', ':1 float type'],
         'nullable parameter type' => ['<?php function f(?float $x): void {}', ':1 float type'],
         'property type' => ['<?php class A { public float $x = 0; }', ':1 float type'],
+        'division' => ['<?php $x = $a / 1_000_000;', ':1 operator / (use intdiv())'],
+        'division without spaces' => ['<?php $x = $a/$b;', ':1 operator / (use intdiv())'],
+        'divide-assign' => ['<?php $x /= 4;', ':1 operator /= (use intdiv())'],
+        'power' => ['<?php $x = 10 ** 9;', ':1 operator ** (use intdiv())'],
+        'power-assign' => ['<?php $x **= 2;', ':1 operator **= (use intdiv())'],
+        'fdiv()' => ['<?php fdiv($a, $b);', ':1 fdiv()'],
+        'fmod()' => ['<?php \\fmod($a, $b);', ':1 fmod()'],
+        'pow()' => ['<?php pow(10, 9);', ':1 pow()'],
+        'ceil()' => ['<?php ceil($a);', ':1 ceil()'],
+        'floor()' => ['<?php floor($a);', ':1 floor()'],
+        'bcmath' => ['<?php bcdiv($a, $b, 9);', ':1 bcdiv()'],
+        'imported ceil' => ['<?php use function ceil;', ':1 use function ceil'],
     ]);
 
     it('reports one violation per occurrence', function (): void {
@@ -72,6 +84,9 @@ describe('floatViolations', function (): void {
         'integer arithmetic' => ['<?php $x = intdiv(10, 3) + 10 % 3 + 1_000_000_000;'],
         'property named float' => ['<?php $x->float;'],
         'import of another function' => ['<?php use function intdiv as d;'],
+        'intdiv and modulo' => ['<?php $x = intdiv($a * 125 + 99, 100); $y = $a % 100;'],
+        'slashes in strings and comments' => ["<?php \$p = '/^gen_/'; \$u = \"a/b\"; /* a / b */ # c / d"],
+        'method calls named like the helpers' => ['<?php $money->ceil(); Money::floor(1); $x?->pow(2);'],
     ]);
 
     it('skips paths that do not exist', function (): void {

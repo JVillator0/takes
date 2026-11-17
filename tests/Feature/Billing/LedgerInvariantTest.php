@@ -32,7 +32,11 @@ it('keeps Σ ledger == balance and Σ open holds == held over a randomized seque
 
     for ($step = 0; $step < 150; $step++) {
         $customer = $customers[$random->getInt(0, 2)];
-        $open = UsageRecord::query()->where('customer_id', $customer->id)->where('status', UsageStatus::Open)->get();
+        // Every pick goes through the seeded Randomizer over a list in a fixed
+        // order (ULIDs are monotonic within the process), never heap order or
+        // the database's random(), so a seed replays the exact sequence.
+        $open = UsageRecord::query()->where('customer_id', $customer->id)->where('status', UsageStatus::Open)->orderBy('id')->get();
+        $closed = UsageRecord::query()->where('customer_id', $customer->id)->where('status', '<>', UsageStatus::Open)->orderBy('id')->get();
 
         match ($random->getInt(0, 7)) {
             0 => app(PurchaseCreditsAction::class)->execute($customer, [5, 10, 25][$random->getInt(0, 2)], (string) Str::uuid()),
@@ -57,9 +61,11 @@ it('keeps Σ ledger == balance and Σ open holds == held over a randomized seque
             ),
             6 => $open->isEmpty() ? null : DB::transaction(fn () => app(VoidUsageAction::class)->execute($open[$random->getInt(0, $open->count() - 1)])),
             // Replays: settling or voiding an already closed usage changes nothing.
-            7 => ($closed = UsageRecord::query()->where('customer_id', $customer->id)->where('status', '<>', UsageStatus::Open)->inRandomOrder()->first()) === null
-                ? null
-                : ($random->getInt(0, 1) === 1 ? Billing::settle($closed) : DB::transaction(fn () => app(VoidUsageAction::class)->execute($closed))),
+            7 => $closed->isEmpty() ? null : (function (UsageRecord $replayed) use ($random): void {
+                $random->getInt(0, 1) === 1
+                    ? Billing::settle($replayed)
+                    : DB::transaction(fn () => app(VoidUsageAction::class)->execute($replayed));
+            })($closed[$random->getInt(0, $closed->count() - 1)]),
         };
 
         foreach ($customers as $each) {

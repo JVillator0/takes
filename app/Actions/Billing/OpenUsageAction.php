@@ -16,6 +16,7 @@ use App\Models\Suggestion;
 use App\Models\Take;
 use App\Models\UsageRecord;
 use App\Support\Money\Nanodollars;
+use InvalidArgumentException;
 
 /**
  * Before calling a provider: reserve the estimate's maximum charge as a hold
@@ -27,6 +28,7 @@ final readonly class OpenUsageAction
     /**
      * @throws InsufficientCreditsException when available < the estimate's max charge
      * @throws UsageAlreadyClosedException when the billable's usage is already settled or voided
+     * @throws InvalidArgumentException when the estimate's charges are not its costs with the markup snapshotted here
      */
     public function execute(
         Take|Suggestion $billable,
@@ -36,6 +38,7 @@ final readonly class OpenUsageAction
         ?string $model = null,
     ): UsageRecord {
         TransactionRequiredException::unlessInTransaction(self::class);
+        self::assertDefaultMarkup($estimate);
 
         // Lock order: the caller already locked the take/suggestion; the
         // customer row is the only money lock. Every check below runs under it.
@@ -82,5 +85,20 @@ final readonly class OpenUsageAction
         $customer->save();
 
         return $usage;
+    }
+
+    /**
+     * The hold (maxCharge) and the later charge must use the same markup:
+     * Settle charges with the `markup_bps` snapshotted below, so an estimate
+     * built with any other markup is refused before anything is locked.
+     */
+    private static function assertDefaultMarkup(EstimateDTO $estimate): void
+    {
+        $markupBps = Nanodollars::DEFAULT_MARKUP_BPS;
+
+        if (! $estimate->minCharge->equals($estimate->minCost->withMarkup($markupBps))
+            || ! $estimate->maxCharge->equals($estimate->maxCost->withMarkup($markupBps))) {
+            throw new InvalidArgumentException("The estimate's charges are not its costs with the {$markupBps} bps markup.");
+        }
     }
 }

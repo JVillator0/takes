@@ -38,6 +38,14 @@ final class VerifyBillingCommand extends Command
     ): int {
         $range = null;
 
+        // A range only scopes --usage: alone it would check nothing it names
+        // and still print a pass, so refuse it instead of ignoring it.
+        if (! $this->option('usage') && ($this->option('from') !== null || $this->option('to') !== null)) {
+            $this->error('--from and --to only apply to --usage; add --usage to compare that range.');
+
+            return self::FAILURE;
+        }
+
         if ($this->option('usage')) {
             // Bad input must never turn into a vacuous pass: refuse it up front.
             $range = $this->usageRange();

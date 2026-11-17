@@ -30,8 +30,31 @@ use SplFileInfo;
  */
 final class SourceScan
 {
-    /** Float-producing helpers forbidden in money code (spec 1-01). */
-    public const array FLOAT_FUNCTIONS = ['floatval', 'doubleval', 'round', 'number_format'];
+    /**
+     * Float-producing helpers forbidden in money code (spec 1-01, money.md
+     * M-02): conversions and display rounding, the implicit float producers
+     * (`fdiv`, `fmod`, `pow`, `ceil`, `floor` return a float or may) and
+     * bcmath, whose decimal strings are not nanodollars.
+     */
+    public const array FLOAT_FUNCTIONS = [
+        'floatval', 'doubleval', 'round', 'number_format',
+        'fdiv', 'fmod', 'pow', 'ceil', 'floor',
+        'bcadd', 'bcsub', 'bcmul', 'bcdiv', 'bcmod', 'bcpow', 'bcpowmod', 'bcsqrt', 'bcround', 'bcceil', 'bcfloor',
+    ];
+
+    /**
+     * Operators that can turn integers into a float (`/` gives a float unless
+     * the division is exact; `**` does for a negative exponent or on overflow).
+     * Integer division is `intdiv()`, with the remainder from `%`.
+     *
+     * @var array<int|string, string> token id (or the bare character) => operator
+     */
+    public const array FLOAT_OPERATORS = [
+        '/' => '/',
+        T_DIV_EQUAL => '/=',
+        T_POW => '**',
+        T_POW_EQUAL => '**=',
+    ];
 
     /**
      * Queue APIs that take a delay: method => [0-based argument index,
@@ -96,8 +119,10 @@ final class SourceScan
 
     /**
      * Float usages that are forbidden in money code: the `float` type, float
-     * casts, float literals and the float-producing helpers (called bare,
-     * fully qualified or imported with `use function`).
+     * casts, float literals, the float-producing operators (`/`, `/=`, `**`,
+     * `**=`) and the float-producing helpers (called bare, fully qualified or
+     * imported with `use function`). This is the one no-float scan: the arch
+     * suite and the per-file pricing tests all call it.
      *
      * @param  list<string>  $paths
      * @return list<string> human-readable violations ("file:line description")
@@ -114,6 +139,7 @@ final class SourceScan
                     $id === T_DOUBLE_CAST => "float cast {$text}",
                     $id === T_DNUMBER => "float literal {$text}",
                     $id === T_STRING && strtolower($text) === 'float' && ! self::isMemberAccess($tokens, $index) => 'float type',
+                    $id === 0 && $text === '/', isset(self::FLOAT_OPERATORS[$id]) => 'operator '.self::FLOAT_OPERATORS[$id === 0 ? $text : $id].' (use intdiv())',
                     default => self::functionReference($tokens, $index, self::FLOAT_FUNCTIONS),
                 };
 
