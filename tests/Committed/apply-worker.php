@@ -11,7 +11,7 @@ declare(strict_types=1);
  *
  *   php tests/Committed/apply-worker.php <takeId> <startAt> <holdMs>
  *
- * Prints the TransitionOutcome value.
+ * Prints the TransitionOutcome value; exits 3 when it booted after the start line.
  */
 
 use App\Actions\Takes\ApplyTakeSnapshotAction;
@@ -31,10 +31,14 @@ $app->make(Kernel::class)->bootstrap();
 $take = Take::query()->findOrFail($takeId);
 $snapshot = Takes::snapshot($take, 'succeeded');
 
-// A slow boot may pass the start line; time_sleep_until() warns on a past time.
-if ((float) $startAt > microtime(true)) {
-    time_sleep_until((float) $startAt);
+// A worker that boots after the start line would run alone, so the race
+// would not happen and the test could pass without the take lock: report it.
+if (microtime(true) >= (float) $startAt) {
+    fwrite(STDERR, 'late');
+    exit(3);
 }
+
+time_sleep_until((float) $startAt);
 
 $outcome = DB::transaction(function () use ($take, $snapshot, $holdMs): TransitionOutcome {
     $outcome = app(ApplyTakeSnapshotAction::class)->execute($take, $snapshot);
