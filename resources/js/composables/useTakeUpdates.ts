@@ -22,6 +22,15 @@ import type { BalanceSummary } from '@/types/takes';
 /** Props refreshed by every live update, poll and reconnect (W-20). */
 const DEFAULT_ONLY = ['takes', 'counts'];
 
+/**
+ * Always reloaded with them: the shared `auth.customer` carries the balance
+ * pill, so polling and catch-up keep it current too (W-20).
+ */
+const BALANCE_PROP = 'auth';
+
+/** How long the first handshake may take before a missing socket counts as Reconnecting. */
+const CONNECT_GRACE_MS = 10_000;
+
 /** Polling interval while the socket is down (spec 5, W-20). */
 const POLL_INTERVAL_MS = 4000;
 
@@ -33,7 +42,7 @@ export type UseTakeUpdatesOptions = {
     customerId: number | null;
     /** True while any take on the page is pending, queued or processing. */
     hasActiveTakes: MaybeRefOrGetter<boolean>;
-    /** Page props to reload; defaults to `takes` and `counts`. */
+    /** Page props to reload; defaults to `takes` and `counts` (`auth` is always added). */
     only?: string[];
 };
 
@@ -41,7 +50,11 @@ export type UseTakeUpdatesReturn = {
     state: ComputedRef<LiveConnectionState>;
     connected: ComputedRef<boolean>;
     polling: ComputedRef<boolean>;
-    /** Latest balance pill strings from the server, null until the first update. */
+    /**
+     * Balance pill strings from the newest socket payload, null until one
+     * arrives and again whenever `auth.customer` is refreshed (then the shared
+     * prop is the newer source).
+     */
     balance: ShallowRef<BalanceSummary | null>;
     /** The last `take.updated` payload, for the aria-live announcement. */
     lastUpdate: ShallowRef<TakeLiveUpdate | null>;
@@ -63,20 +76,46 @@ export type UseTakeUpdatesReturn = {
  * first one and each one after a reconnect) reloads once to catch up on
  * broadcasts missed meanwhile (W-20). There is no env switch.
  *
- * Call it once per page, from `setup`; listeners, the poll and any pending
- * reload are dropped when the page's scope is disposed.
+ * Every reload also refreshes `auth`, which carries the balance pill; the
+ * socket's balance is only shown until the next `auth` refresh, and an older
+ * payload never replaces a newer one.
+ *
+ * Call it once per page, from `setup`; listeners, the poll, the grace timer
+ * and any pending reload are dropped when the page's scope is disposed.
  */
 export function useTakeUpdates(
     projectId: MaybeRefOrGetter<string | null>,
     options: UseTakeUpdatesOptions,
 ): UseTakeUpdatesReturn {
-    const only = options.only ?? DEFAULT_ONLY;
-    const serverBroadcasts = usePage().props.broadcasting?.live === true;
+    const only = [
+        ...new Set([...(options.only ?? DEFAULT_ONLY), BALANCE_PROP]),
+    ];
+    const page = usePage();
+    const serverBroadcasts = page.props.broadcasting?.live === true;
     const live =
         serverBroadcasts && echoIsConfigured() && options.customerId !== null;
 
     const balance = shallowRef<BalanceSummary | null>(null);
     const lastUpdate = shallowRef<TakeLiveUpdate | null>(null);
+
+    // A refreshed `auth.customer` (any reload, another action on the page) is
+    // at least as new as a socket balance: drop the socket copy so the pill
+    // falls back to the shared prop instead of hiding it.
+    watch(
+        () => page.props.auth.customer,
+        () => {
+            balance.value = null;
+        },
+    );
+
+    /** Queued broadcasts may arrive out of order: keep the newest by `updatedAt`. */
+    const isOlderThanLast = (payload: TakeLiveUpdate): boolean => {
+        const last = lastUpdate.value?.take.updatedAt ?? null;
+        const incoming = payload.take.updatedAt;
+
+        // ISO-8601 Zulu strings of one format sort as time.
+        return last !== null && incoming !== null && incoming < last;
+    };
 
     let disposed = false;
     let pendingReload: ReturnType<typeof setTimeout> | null = null;
@@ -116,8 +155,10 @@ export function useTakeUpdates(
             `App.Models.Customer.${String(options.customerId)}`,
             '.take.updated',
             (payload) => {
-                balance.value = payload.balance;
-                lastUpdate.value = payload;
+                if (!isOlderThanLast(payload)) {
+                    balance.value = payload.balance;
+                    lastUpdate.value = payload;
+                }
 
                 const current = toValue(projectId);
 
@@ -167,11 +208,35 @@ export function useTakeUpdates(
         }
 
         // A dropped socket drops the subscription; the next
-        // `subscription_succeeded` marks it live again and reloads.
+        // `subscription_succeeded` marks it live again and reloads. A failed
+        // or lost first attempt ends the handshake grace, so the Reconnecting
+        // indicator shows (W-20).
+        let attempted = status.value === 'connecting';
+
         watch(status, (current) => {
             if (current !== 'connected') {
                 subscribed.value = false;
             }
+
+            if (current === 'connecting') {
+                attempted = true;
+            } else if (
+                current === 'failed' ||
+                (attempted &&
+                    (current === 'disconnected' || current === 'reconnecting'))
+            ) {
+                settled.value = true;
+            }
+        });
+
+        // Reverb unreachable or a wrong host may never fire either event:
+        // the grace period is bounded.
+        const graceTimer = setTimeout(() => {
+            settled.value = true;
+        }, CONNECT_GRACE_MS);
+
+        onScopeDispose(() => {
+            clearTimeout(graceTimer);
         });
     }
 
