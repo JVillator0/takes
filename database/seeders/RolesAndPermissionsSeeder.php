@@ -12,10 +12,11 @@ use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
 
 /**
- * Customer-guard roles and permissions (spec 3-01). Idempotent: the deploy
- * script runs it on every deploy (D-068), so it only creates what is missing
- * and re-syncs each role to its enum-defined permissions. Admin roles arrive
- * with Filament and Shield in spec 7 (D-048).
+ * Every role and permission, on both guards. Idempotent: the deploy script
+ * runs it on every deploy (D-068, spec 9), so it only creates what is
+ * missing and re-syncs each role to its enum-defined permissions. Customer
+ * roles are here (spec 3-01); the console's admin roles come from
+ * AdminRolesSeeder (spec 7, D-048), called last.
  */
 final class RolesAndPermissionsSeeder extends Seeder
 {
@@ -34,5 +35,7 @@ final class RolesAndPermissionsSeeder extends Seeder
         }
 
         $registrar->forgetCachedPermissions();
+
+        $this->call(AdminRolesSeeder::class);
     }
 }

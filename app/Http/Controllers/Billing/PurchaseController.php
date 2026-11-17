@@ -14,13 +14,15 @@ use Inertia\Inertia;
 final class PurchaseController extends Controller
 {
     /**
-     * Buy a credit pack (simulated payment, spec 3-03 §5). A replay is a
-     * no-op; the same key with another pack is a 409.
+     * Buy a credit pack (simulated payment, spec 3-03 §5) and issue its
+     * invoice (spec 6). A replay is a no-op that answers like the original;
+     * the same key with another pack is a 409. Back on the page, the shared
+     * balance props are fresh, and the toast links to the invoice.
      */
     public function store(StorePurchaseRequest $request, PurchaseCreditsAction $purchaseCredits): RedirectResponse
     {
         try {
-            $purchaseCredits->execute(
+            $purchase = $purchaseCredits->execute(
                 $request->customer(),
                 $request->integer('package'),
                 $request->string('idempotency_key')->toString(),
@@ -29,9 +31,17 @@ final class PurchaseController extends Controller
             abort(409, $e->getMessage());
         }
 
-        // The Buy credits modal (spec 4, D-026): the 2-01 success toast.
-        Inertia::flash('toast', ['type' => 'success', 'message' => __('billing.purchase_success')]);
+        $invoice = $purchase->invoice;
 
-        return back(303);
+        Inertia::flash('toast', [
+            'type' => 'success',
+            'message' => __('billing.purchase_success'),
+            'action' => $invoice === null ? null : [
+                'label' => __('billing.view_invoice'),
+                'href' => route('billing.invoices.show', $invoice),
+            ],
+        ]);
+
+        return back();
     }
 }

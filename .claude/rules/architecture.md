@@ -13,7 +13,17 @@ app/
   Exceptions/{Domain}/    domain exceptions (not HTTP exceptions)
   Support/Money/          Nanodollars value object (money.md)
   Services/Pixelforge/    PixelforgeClient: the only "service" (thin HTTP client, spec 3-04)
+  Contracts/{Domain}/     seams only: an interface one spec calls and another spec implements
 ```
+
+### Seams (`App\Contracts\{Domain}`)
+
+`App\Contracts` holds **only seams**: an interface that lets a spec merge before the spec that implements it (e.g. `Contracts\Takes\CreatesSuggestedTake`, called by spec 8's apply and implemented by spec 4 over `CreateTakeAction`). Rules:
+
+- The interface docblock is the contract (transaction, lock order, idempotency, authorization, exceptions); the implementation must honour all of it.
+- The default binding is a null implementation in `App\Support\{Domain}` that refuses with a domain exception (never a silent no-op), bound with `bindIf` in `AppServiceProvider` so the implementing spec rebinds it.
+- No business logic in a contract, no contract for code that already exists in the same PR, and never a contract to wrap an Action that could be called directly.
+- `App\Services` stays `PixelforgeClient` only (arch test).
 
 Domains in this project: `Auth`, `Projects`, `Takes`, `Billing`, `Webhooks`, `Suggestions`, `Pixelforge`. Add a subdirectory per new domain; never dump unrelated classes in a flat folder.
 

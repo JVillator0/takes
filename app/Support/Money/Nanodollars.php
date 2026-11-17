@@ -86,6 +86,21 @@ final readonly class Nanodollars
     }
 
     /**
+     * Whole dollars (credit packs, `takes.purchase_packs_usd`) as nanodollars:
+     * the one conversion shared by the price shown and the amount charged.
+     */
+    public static function fromWholeDollars(int $dollars): self
+    {
+        $limit = intdiv(PHP_INT_MAX, self::PER_DOLLAR);
+
+        if ($dollars > $limit || $dollars < -$limit) {
+            throw new OverflowException("Dollar amount out of range [{$dollars}].");
+        }
+
+        return new self($dollars * self::PER_DOLLAR);
+    }
+
+    /**
      * Wraps an integer amount of nanodollars, or an integer string as returned
      * by SQL sums (Postgres `sum(bigint)` comes back as a numeric string).
      */

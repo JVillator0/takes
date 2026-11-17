@@ -24,7 +24,7 @@ final class PurchaseFactory extends Factory
     {
         return [
             'customer_id' => Customer::factory(),
-            'reference' => 'PUR-'.Str::upper(Str::random(10)),
+            'reference' => 'SIM-'.Str::ulid(),
             'amount_nanos' => 5_000_000_000,
             'status' => PurchaseStatus::Paid,
             'paid_at' => now(),

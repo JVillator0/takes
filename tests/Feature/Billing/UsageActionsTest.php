@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Actions\Billing\OpenUsageAction;
 use App\Actions\Billing\SettleUsageAction;
 use App\Actions\Billing\VoidUsageAction;
+use App\DTOs\Billing\EstimateDTO;
 use App\DTOs\Billing\RatesSnapshotDTO;
 use App\DTOs\Billing\UsageUnitsDTO;
 use App\Enums\Billing\LedgerEntryType;
@@ -108,6 +109,21 @@ describe('open', function (): void {
         expect($this->customer->refresh()->only(['balance_nanos', 'held_nanos']))->toBe($before)
             ->and(UsageRecord::query()->count())->toBe(1);
     })->with(['settle', 'void']);
+
+    it('refuses an estimate whose charges use another markup, before any hold', function (EstimateDTO $estimate): void {
+        $take = Take::factory()->create(['customer_id' => $this->customer->id]);
+
+        expect(fn () => DB::transaction(fn () => app(OpenUsageAction::class)
+            ->execute($take, Provider::Pixelforge, $estimate, Billing::pixelforgeRates())))
+            ->toThrow(InvalidArgumentException::class, 'with the 2500 bps markup');
+
+        expect(UsageRecord::query()->count())->toBe(0)
+            ->and($this->customer->refresh()->held_nanos)->toBe(0);
+    })->with([
+        'no markup on the hold' => fn () => new EstimateDTO(Billing::nanos(0), Billing::nanos(Billing::DEFAULT_MAX_COST), Billing::nanos(0), Billing::nanos(Billing::DEFAULT_MAX_COST)),
+        'hold one nanodollar short' => fn () => new EstimateDTO(Billing::nanos(0), Billing::nanos(Billing::DEFAULT_MAX_COST), Billing::nanos(0), Billing::nanos(Billing::DEFAULT_MAX_CHARGE - 1)),
+        'minimum charge without markup' => fn () => new EstimateDTO(Billing::nanos(100_000_000), Billing::nanos(Billing::DEFAULT_MAX_COST), Billing::nanos(100_000_000), Billing::nanos(Billing::DEFAULT_MAX_CHARGE)),
+    ]);
 
     it('opens an Anthropic usage for a suggestion through the same ledger', function (): void {
         $suggestion = Suggestion::factory()->create(['customer_id' => $this->customer->id]);

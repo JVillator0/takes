@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\DTOs\Pixelforge;
 
 use App\Enums\Takes\TakeStatus;
+use App\Support\Pixelforge\GenerationId;
 use App\Support\Pixelforge\Payload;
 use Carbon\CarbonImmutable;
 
@@ -69,7 +70,7 @@ final readonly class GenerationSnapshotDTO
     {
         $id = Payload::string($data, 'id');
 
-        if (! str_starts_with($id, 'gen_')) {
+        if (! GenerationId::isValid($id)) {
             throw Payload::invalid('id', 'a gen_ id');
         }
 

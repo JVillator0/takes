@@ -110,6 +110,8 @@ describe('GenerationSnapshotDTO', function (): void {
         'rate with ten decimals' => [['rates' => ['input_text_tokens' => '5.0000000001', 'input_image_tokens' => '10.00', 'output_tokens' => '40.00', 'reasoning_tokens' => '12.50']]],
         'negative token count' => [['usage' => ['input_text_tokens' => -1, 'input_image_tokens' => 0, 'output_tokens' => 0, 'reasoning_tokens' => 0, 'total_tokens' => 0]]],
         'id without the gen_ prefix' => [['id' => 'evt_123']],
+        'id that getGeneration could not fetch' => [['id' => 'gen_01JC2Z/../usage']],
+        'id with nothing after gen_' => [['id' => 'gen_']],
         'unparseable timestamp' => [['created_at' => 'yesterday']],
         'non-string metadata value' => [['metadata' => ['order_id' => 1042]]],
     ]);
@@ -141,6 +143,20 @@ describe('GenerationPageDTO', function (): void {
         expect($page->generations)->toBe([])
             ->and($page->nextCursor)->toBeNull();
     });
+
+    it('rejects more pages without a cursor instead of ending the loop early', function (?string $cursor): void {
+        expect(fn () => GenerationPageDTO::fromArray(['object' => 'list', 'data' => [], 'has_more' => true, 'next_cursor' => $cursor]))
+            ->toThrow(InvalidArgumentException::class, '[next_cursor] must be a non-empty string while has_more is true');
+    })->with(['null cursor' => [null], 'empty cursor' => ['']]);
+
+    it('rejects the whole page when one item is not a valid generation', function (): void {
+        expect(fn () => GenerationPageDTO::fromArray([
+            'object' => 'list',
+            'data' => [PixelforgeFixture::generation('succeeded'), PixelforgeFixture::generation('succeeded', ['usage' => null])],
+            'has_more' => false,
+            'next_cursor' => null,
+        ]))->toThrow(InvalidArgumentException::class);
+    });
 });
 
 describe('PricingDTO', function (): void {
@@ -162,6 +178,41 @@ describe('PricingDTO', function (): void {
 
         expect(PricingDTO::fromArray($payload)->textTokenVarianceBps)->toBe(1500);
     });
+
+    it('reads the JSON number variance the same whatever the precision ini', function (string $precision): void {
+        $saved = ['precision' => ini_get('precision'), 'serialize_precision' => ini_get('serialize_precision')];
+        ini_set('precision', $precision);
+        ini_set('serialize_precision', $precision);
+
+        try {
+            // The live body sends the variance as the JSON number 0.15, decoded to a float.
+            $payload = PixelforgeFixture::json('pricing');
+
+            expect($payload['tokens']['text_token_variance'])->toBeFloat()
+                ->and(PricingDTO::fromArray($payload)->textTokenVarianceBps)->toBe(1500);
+        } finally {
+            foreach ($saved as $key => $value) {
+                ini_set($key, (string) $value);
+            }
+        }
+    })->with(['default' => ['14'], 'precision 17' => ['17'], 'shortest round-trip' => ['-1']]);
+
+    it('reads exact JSON number variances and rejects more than 4 decimals', function (mixed $variance, ?int $bps): void {
+        $payload = PixelforgeFixture::json('pricing');
+        $payload['tokens']['text_token_variance'] = $variance;
+
+        $bps === null
+            ? expect(fn () => PricingDTO::fromArray($payload))->toThrow(InvalidArgumentException::class, 'text_token_variance')
+            : expect(PricingDTO::fromArray($payload)->textTokenVarianceBps)->toBe($bps);
+    })->with([
+        'four decimals' => [0.1234, 1234],
+        'zero' => [0.0, 0],
+        'one' => [1.0, 10_000],
+        'integer zero' => [0, 0],
+        'five decimals' => [0.15001, null],
+        'negative' => [-0.15, null],
+        'above 9' => [10.5, null],
+    ]);
 
     it('rejects a table missing a quality or size', function (): void {
         $payload = PixelforgeFixture::json('pricing');

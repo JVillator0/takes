@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Actions\Billing\IssueInvoiceAction;
 use App\Actions\Billing\OpenUsageAction;
 use App\Actions\Billing\RecordLedgerEntryAction;
 use App\Actions\Billing\SettleUsageAction;
@@ -10,6 +11,7 @@ use App\Enums\Billing\LedgerEntryType;
 use App\Enums\Billing\Provider;
 use App\Exceptions\Billing\TransactionRequiredException;
 use App\Models\Customer;
+use App\Models\Purchase;
 use App\Models\Take;
 use App\Models\UsageRecord;
 use App\Support\Money\Nanodollars;
@@ -47,8 +49,9 @@ it('refuses to run outside a transaction', function (string $action): void {
             CarbonImmutable::now(),
         ),
         'void' => app(VoidUsageAction::class)->execute(UsageRecord::factory()->create()),
+        'invoice' => app(IssueInvoiceAction::class)->execute(Purchase::factory()->create()),
     };
-})->throws(TransactionRequiredException::class)->with(['record', 'open', 'settle', 'void']);
+})->throws(TransactionRequiredException::class)->with(['record', 'open', 'settle', 'void', 'invoice']);
 
 it('writes nothing when it refuses', function (): void {
     $customer = Customer::factory()->create();
