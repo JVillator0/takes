@@ -160,7 +160,7 @@ return [
         'failed_free' => 'Failed takes are free.',
         'hold_note' => 'We hold up to :amount from your balance while it runs.',
         'insufficient' => 'This take can cost up to :max. You have :available available.',
-        'max_not_average' => 'We check the maximum, not the average, so a take can never leave you below zero.',
+        'max_not_average' => 'We check the maximum, not the average, before a take starts.',
         'error' => "We couldn't update the price. Keep typing or try again in a moment.",
     ],
 

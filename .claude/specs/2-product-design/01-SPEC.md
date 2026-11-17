@@ -124,7 +124,7 @@ Specs 3-01, 3-03, 4, 5, 6 and 8 reference these tables and never restate strings
 | `billing.spent_this_month` | billing card label | "Spent this month" |
 | `billing.purchase_line` | invoice line / activity | "Takes credits (simulated purchase)" |
 
-UI chrome strings added with the UI foundation (PR #99). Keys are the full `lang/en/<file>.php` paths; `:name` is a server-filled placeholder. The estimate panel never states the margin (D-023): "You pay the exact amount when the take finishes." replaces the P04 sheet's "+ 25%" wording.
+UI chrome strings added with the UI foundation (PR #99). Keys are the full `lang/en/<file>.php` paths; `:name` is a server-filled placeholder. The estimate panel never states the margin (D-023): "You pay the exact amount when the take finishes." replaces the P04 sheet's "+ 25%" wording. `takes.estimate.max_not_average` is softened from the P05-A sheet ("…so a take can never leave you below zero") because 3-03 allows an actual charge above the hold, which is what the negative-balance banner is for.
 
 | Key | Where | Copy |
 |---|---|---|
@@ -173,7 +173,7 @@ UI chrome strings added with the UI foundation (PR #99). Keys are the full `lang
 | `takes.estimate.failed_free` | P04, P05-A estimate panel (no margin, D-023) | "Failed takes are free." |
 | `takes.estimate.hold_note` | P04, P05-A estimate panel (no margin, D-023) | "We hold up to :amount from your balance while it runs." |
 | `takes.estimate.insufficient` | P04, P05-A estimate panel (no margin, D-023) | "This take can cost up to :max. You have :available available." |
-| `takes.estimate.max_not_average` | P04, P05-A estimate panel (no margin, D-023) | "We check the maximum, not the average, so a take can never leave you below zero." |
+| `takes.estimate.max_not_average` | P04, P05-A estimate panel (no margin, D-023) | "We check the maximum, not the average, before a take starts." |
 | `takes.estimate.error` | P04, P05-A estimate panel (no margin, D-023) | "We couldn't update the price. Keep typing or try again in a moment." |
 | `takes.scenarios.title` | P04 Try a scenario chips (D-044) | "Try a scenario" |
 | `takes.scenarios.add` | P04 Try a scenario chips (D-044) | "Add :keyword to the prompt" |
@@ -201,6 +201,7 @@ UI chrome strings added with the UI foundation (PR #99). Keys are the full `lang
 | `billing.available` | balance pill and Buy credits (P03, P04, P10) | "Available" |
 | `billing.on_hold` | balance pill and Buy credits (P03, P04, P10) | "on hold" |
 | `billing.balance_label` | balance pill and Buy credits (P03, P04, P10) | "Available :available, on hold :on_hold" |
+| `billing.balance_exact` | balance pill tooltip (exact amounts, D-042) | "Exact: available :available, on hold :on_hold" |
 | `landing.meta_title` | P01 landing | "Describe it. Take it. Remix it." |
 | `landing.nav.label` | P01 landing | "Sections" |
 | `landing.nav.how_it_works` | P01 landing | "How it works" |
