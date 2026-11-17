@@ -11,6 +11,7 @@ use App\Enums\Billing\LedgerEntryType;
 use App\Enums\Billing\Provider;
 use App\Enums\Billing\UsageStatus;
 use App\Exceptions\Billing\InsufficientCreditsException;
+use App\Exceptions\Billing\UsageAlreadyClosedException;
 use App\Models\LedgerEntry;
 use App\Models\Suggestion;
 use App\Models\Take;
@@ -91,6 +92,22 @@ describe('open', function (): void {
         expect($second->id)->toBe($first->id)
             ->and($this->customer->refresh()->held_nanos)->toBe(Billing::DEFAULT_MAX_CHARGE);
     });
+
+    it('refuses to reopen a billable whose usage is already settled or voided', function (string $close): void {
+        $usage = Billing::openForNewTake($this->customer);
+        $close === 'settle'
+            ? Billing::settle($usage)
+            : DB::transaction(fn () => app(VoidUsageAction::class)->execute($usage));
+        $before = $this->customer->refresh()->only(['balance_nanos', 'held_nanos']);
+        $take = Take::query()->findOrFail($usage->billable_id);
+
+        expect(fn () => DB::transaction(fn () => app(OpenUsageAction::class)
+            ->execute($take, Provider::Pixelforge, Billing::estimate(), Billing::pixelforgeRates())))
+            ->toThrow(UsageAlreadyClosedException::class, "Usage {$usage->id} is already");
+
+        expect($this->customer->refresh()->only(['balance_nanos', 'held_nanos']))->toBe($before)
+            ->and(UsageRecord::query()->count())->toBe(1);
+    })->with(['settle', 'void']);
 
     it('opens an Anthropic usage for a suggestion through the same ledger', function (): void {
         $suggestion = Suggestion::factory()->create(['customer_id' => $this->customer->id]);

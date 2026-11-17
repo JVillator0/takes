@@ -10,6 +10,7 @@ use App\Enums\Billing\Provider;
 use App\Enums\Billing\UsageStatus;
 use App\Exceptions\Billing\InsufficientCreditsException;
 use App\Exceptions\Billing\TransactionRequiredException;
+use App\Exceptions\Billing\UsageAlreadyClosedException;
 use App\Models\Customer;
 use App\Models\Suggestion;
 use App\Models\Take;
@@ -25,6 +26,7 @@ final readonly class OpenUsageAction
 {
     /**
      * @throws InsufficientCreditsException when available < the estimate's max charge
+     * @throws UsageAlreadyClosedException when the billable's usage is already settled or voided
      */
     public function execute(
         Take|Suggestion $billable,
@@ -39,15 +41,19 @@ final readonly class OpenUsageAction
         // customer row is the only money lock. Every check below runs under it.
         $customer = Customer::query()->lockForUpdate()->findOrFail($billable->customer_id);
 
-        // One usage per billable (unique pair): a retried open returns the
-        // existing record and places no second hold.
+        // One usage per billable (unique pair). A retried open returns the
+        // still-open record and places no second hold. A settled or voided one
+        // means the billable's provider call is already finished: calling the
+        // provider again would be work with no hold, so refuse.
         $existing = UsageRecord::query()
             ->where('billable_type', $billable->getMorphClass())
             ->where('billable_id', $billable->getKey())
             ->first();
 
         if ($existing !== null) {
-            return $existing;
+            return $existing->status === UsageStatus::Open
+                ? $existing
+                : throw UsageAlreadyClosedException::for($existing);
         }
 
         // available = balance − held (D-024), read under the lock.
