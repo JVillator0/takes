@@ -1,0 +1,88 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Database\Factories;
+
+use App\Enums\Billing\Provider;
+use App\Enums\Billing\UsageStatus;
+use App\Models\Customer;
+use App\Models\Suggestion;
+use App\Models\Take;
+use App\Models\UsageRecord;
+use App\Support\Money\Nanodollars;
+use Illuminate\Database\Eloquent\Factories\Factory;
+
+/**
+ * Defaults to an open Pixelforge usage for a take, sized like the docs'
+ * worked example (max cost 373,875,000 nanodollars). Factories write rows
+ * only; they do not update the customer's cached balance or hold.
+ *
+ * @extends Factory<UsageRecord>
+ */
+final class UsageRecordFactory extends Factory
+{
+    protected $model = UsageRecord::class;
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function definition(): array
+    {
+        return [
+            'customer_id' => Customer::factory(),
+            'provider' => Provider::Pixelforge,
+            'billable_type' => 'take',
+            'billable_id' => fn (array $attributes) => Take::factory()->state(['customer_id' => $attributes['customer_id']]),
+            'status' => UsageStatus::Open,
+            'min_cost_nanos' => 100_000_000,
+            'max_cost_nanos' => 373_875_000,
+            'min_charge_nanos' => 125_000_000,
+            'max_charge_nanos' => 467_343_750,
+            'rates' => [
+                'input_text' => '5.00',
+                'input_image' => '10.00',
+                'output' => '40.00',
+                'reasoning' => '40.00',
+            ],
+            'flags' => [],
+            'markup_bps' => Nanodollars::DEFAULT_MARKUP_BPS,
+        ];
+    }
+
+    public function settled(int $providerCostNanos = 300_000_000): static
+    {
+        return $this->state(fn (array $attributes): array => [
+            'status' => UsageStatus::Settled,
+            'provider_cost_nanos' => $providerCostNanos,
+            'charge_nanos' => Nanodollars::fromInt($providerCostNanos)->withMarkup((int) $attributes['markup_bps'])->toInt(),
+            'completed_at' => now(),
+            'billing_date' => now()->utc()->toDateString(),
+        ]);
+    }
+
+    public function voided(): static
+    {
+        return $this->state(fn (): array => [
+            'status' => UsageStatus::Voided,
+            'provider_cost_nanos' => 0,
+            'charge_nanos' => 0,
+        ]);
+    }
+
+    /** An Anthropic "Describe a change" call (spec 8). */
+    public function forSuggestion(): static
+    {
+        return $this->state(fn (): array => [
+            'provider' => Provider::Anthropic,
+            'model' => 'claude-haiku-5-5',
+            'billable_type' => 'suggestion',
+            'billable_id' => fn (array $attributes) => Suggestion::factory()->state(['customer_id' => $attributes['customer_id']]),
+            'min_cost_nanos' => 50_000,
+            'max_cost_nanos' => 400_000,
+            'min_charge_nanos' => 62_500,
+            'max_charge_nanos' => 500_000,
+            'rates' => ['input_text' => '0.10', 'output' => '0.50'],
+        ]);
+    }
+}
