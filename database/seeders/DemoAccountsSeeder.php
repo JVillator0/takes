@@ -75,6 +75,9 @@ final class DemoAccountsSeeder extends Seeder
             ->whereDoesntHave('invoice')
             ->orderBy('paid_at')
             ->orderBy('id')
+            // Loaded first: issuing removes rows from this set, so paging it
+            // with OFFSET (each()/chunk()) would skip purchases.
+            ->get()
             ->each(fn (Purchase $purchase) => DB::transaction(fn () => $issueInvoice->execute($purchase)));
     }
 
