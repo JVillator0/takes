@@ -12,6 +12,7 @@ use App\Models\UsageRecord;
 use App\Support\Money\Nanodollars;
 use App\Support\Money\TokenCost;
 use Illuminate\Support\Facades\DB;
+use Psr\Log\NullLogger;
 use Throwable;
 
 /**
@@ -22,9 +23,16 @@ use Throwable;
  * are re-priced in PHP), so it is a CLI check; the spec 7 widget needs a
  * bounded variant (issue #102).
  */
-final readonly class LedgerInvariantViolationsQuery
+final readonly class ListLedgerInvariantViolationsQuery
 {
-    public function __construct(private TokenCost $tokenCost) {}
+    private TokenCost $tokenCost;
+
+    public function __construct()
+    {
+        // Re-pricing history must not re-log the rounding warning that
+        // settlement already logged once, with its usage and customer ids.
+        $this->tokenCost = new TokenCost(new NullLogger);
+    }
 
     /** @return list<string> */
     public function execute(): array

@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\DB;
  * Our provider cost per UTC billing day (settled usages only), the side of
  * `billing:verify --usage` that comes from the ledger.
  */
-final readonly class SettledProviderCostPerDayQuery
+final readonly class GetSettledDailyCostsQuery
 {
     /** @return array<string, Nanodollars> keyed by 'Y-m-d' */
     public function execute(Provider $provider, CarbonImmutable $from, CarbonImmutable $to): array

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 use App\Actions\Billing\PurchaseCreditsAction;
 use App\Actions\Billing\VoidUsageAction;
-use App\Contracts\Billing\PixelforgeUsageSource;
 use App\DTOs\Billing\UsageUnitsDTO;
 use App\Enums\Takes\TakeStatus;
 use App\Models\Customer;
@@ -12,9 +11,12 @@ use App\Models\LedgerEntry;
 use App\Models\Purchase;
 use App\Support\Money\Nanodollars;
 use Carbon\CarbonImmutable;
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Tests\Support\Billing;
+use Tests\Support\PixelforgeFixture;
 
 /*
  * billing:verify (D-059): passes on a clean dataset, exits 1 on any drift.
@@ -35,18 +37,40 @@ function cleanDataset(): Customer
     return $customer->refresh();
 }
 
-function fakeUsageSource(array $costs): void
+/**
+ * Fakes GET /v1/usage: one row per requested day, costs (nanodollars) from $costs.
+ *
+ * @param  array<string, int>  $costs  keyed by 'Y-m-d'
+ */
+function fakePixelforgeUsage(array $costs): void
 {
-    app()->instance(PixelforgeUsageSource::class, new class($costs) implements PixelforgeUsageSource
-    {
-        /** @param array<string, int> $costs */
-        public function __construct(private array $costs) {}
+    config(['pixelforge.base_url' => 'https://pixelforge.test/v1', 'pixelforge.api_key' => 'pf_test_0123456789abcdef']);
+    Http::preventStrayRequests();
+    Http::fake(['pixelforge.test/v1/usage*' => function (Request $request) use ($costs) {
+        $start = CarbonImmutable::parse((string) $request->data()['start_date'], 'UTC');
+        $end = CarbonImmutable::parse((string) $request->data()['end_date'], 'UTC');
+        $days = [];
 
-        public function dailyCosts(CarbonImmutable $from, CarbonImmutable $to): array
-        {
-            return array_map(Nanodollars::fromInt(...), $this->costs);
+        for ($day = $start; $day->lessThanOrEqualTo($end); $day = $day->addDay()) {
+            $days[] = [
+                'date' => $day->toDateString(),
+                'generations' => 0,
+                'input_text_tokens' => 0,
+                'input_image_tokens' => 0,
+                'output_tokens' => 0,
+                'reasoning_tokens' => 0,
+                'cost_usd' => Nanodollars::fromInt($costs[$day->toDateString()] ?? 0)->toDecimalString(),
+            ];
         }
-    });
+
+        return Http::response([
+            'object' => 'usage',
+            'start_date' => $start->toDateString(),
+            'end_date' => $end->toDateString(),
+            'data' => $days,
+            'total' => [],
+        ]);
+    }]);
 }
 
 it('passes on a clean dataset', function (): void {
@@ -145,14 +169,27 @@ it('fails when a terminal take still holds an open usage', function (): void {
 });
 
 describe('--usage', function (): void {
-    it('fails with "not configured" until the Pixelforge client binds a source', function (): void {
+    it('fails, never passes, when Pixelforge has no API key', function (): void {
+        config(['pixelforge.api_key' => null]);
+        Http::preventStrayRequests();
+
         $this->artisan('billing:verify --usage')
-            ->expectsOutputToContain('Pixelforge usage source is not configured.')
+            ->expectsOutputToContain('--usage: Pixelforge usage is unavailable (PixelforgeNotConfigured')
+            ->assertFailed();
+    });
+
+    it('fails, never passes, when Pixelforge cannot answer', function (): void {
+        config(['pixelforge.base_url' => 'https://pixelforge.test/v1', 'pixelforge.api_key' => 'pf_test_0123456789abcdef']);
+        Http::preventStrayRequests();
+        Http::fake(['pixelforge.test/v1/usage*' => Http::response(PixelforgeFixture::error('overloaded'), 503)]);
+
+        $this->artisan('billing:verify --usage --from=2026-11-15 --to=2026-11-18')
+            ->expectsOutputToContain('--usage: Pixelforge usage is unavailable')
             ->assertFailed();
     });
 
     it('refuses a date that is not a real Y-m-d day', function (string $option): void {
-        fakeUsageSource([]);
+        fakePixelforgeUsage([]);
 
         $this->artisan("billing:verify --usage {$option}")
             ->expectsOutputToContain('must be a real date in Y-m-d format')
@@ -166,7 +203,7 @@ describe('--usage', function (): void {
     ]);
 
     it('refuses an inverted range instead of passing vacuously', function (): void {
-        fakeUsageSource([]);
+        fakePixelforgeUsage([]);
 
         $this->artisan('billing:verify --usage --from=2026-11-18 --to=2026-11-15')
             ->expectsOutputToContain('--from 2026-11-18 is after --to 2026-11-15.')
@@ -176,7 +213,7 @@ describe('--usage', function (): void {
 
     it('passes when the per-day cost matches Pixelforge', function (): void {
         Billing::settle(Billing::openForNewTake(Billing::fundedCustomer()));
-        fakeUsageSource(['2026-11-17' => Billing::EXAMPLE_COST]);
+        fakePixelforgeUsage(['2026-11-17' => Billing::EXAMPLE_COST]);
 
         $this->artisan('billing:verify --usage --from=2026-11-15 --to=2026-11-18')
             ->expectsOutputToContain('Pixelforge usage matches from 2026-11-15 to 2026-11-18.')
@@ -185,7 +222,7 @@ describe('--usage', function (): void {
 
     it('fails on the day the costs differ', function (): void {
         Billing::settle(Billing::openForNewTake(Billing::fundedCustomer()));
-        fakeUsageSource(['2026-11-17' => Billing::EXAMPLE_COST + 1, '2026-11-16' => 5]);
+        fakePixelforgeUsage(['2026-11-17' => Billing::EXAMPLE_COST + 1, '2026-11-16' => 5]);
 
         $this->artisan('billing:verify --usage --from=2026-11-15 --to=2026-11-18')
             ->expectsOutputToContain('usage 2026-11-16: ledger cost $0.00 but Pixelforge reports $0.000000005')
