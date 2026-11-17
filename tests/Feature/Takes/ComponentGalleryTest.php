@@ -18,6 +18,26 @@ it('renders every take state in the gallery with copy from the lang files', func
         );
 });
 
+it('resolves every copy key in the gallery payload', function (): void {
+    $props = $this->get(route('dev.gallery'))->viewData('page')['props'];
+
+    $unresolved = [];
+    array_walk_recursive($props, function (mixed $value) use (&$unresolved): void {
+        if (is_string($value) && preg_match('/^(takes|billing|landing|denials)\.[a-z0-9_.]+$/', $value) === 1) {
+            $unresolved[] = $value;
+        }
+    });
+
+    // lang/en/denials.php belongs to spec 3-01 (PR #92); until it lands, denial
+    // keys are the only ones allowed to render raw.
+    $unresolvedOutsideDenials = array_values(array_filter(
+        $unresolved,
+        fn (string $key): bool => ! str_starts_with($key, 'denials.'),
+    ));
+
+    expect($unresolvedOutsideDenials)->toBe([]);
+});
+
 it('is not reachable in production', function (): void {
     app()->detectEnvironment(fn (): string => 'production');
 

@@ -13,8 +13,11 @@ use Inertia\Response;
  *
  * Returns 404 outside the local and testing environments. Fixtures follow the
  * demo dataset (D-037, Ana López at 2026-11-17 12:02 UTC). Every sentence comes
- * from the lang files, so the gallery shows the real copy (D-057). Amounts are
- * hard-coded display strings here; in the app the server formats them (D-042).
+ * from the lang files, so the gallery shows the real copy (D-057). The one
+ * exception is the denial reason: `lang/en/denials.php` belongs to spec 3-01
+ * (PR #92), so `insufficientMessage` renders its raw key until that file lands
+ * (the gallery test allows `denials.*` keys only). Amounts are hard-coded
+ * display strings here; in the app the server formats them (D-042).
  */
 class ComponentGalleryController extends Controller
 {
@@ -42,7 +45,12 @@ class ComponentGalleryController extends Controller
                 'remix' => $this->estimate('$0.0677', '$0.0960'),
                 'heavy' => $this->estimate('$0.3577', '$0.4674'),
             ],
-            'lowBalanceAvailable' => '$0.0100',
+            'lowBalance' => [
+                'available' => '$0.0100',
+                'availableExact' => '$0.01',
+                'onHold' => '$0.0000',
+                'onHoldExact' => '$0.00',
+            ],
             'insufficientMessage' => __('denials.insufficient_credits'),
         ]);
     }
