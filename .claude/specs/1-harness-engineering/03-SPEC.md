@@ -17,7 +17,7 @@ Every PR receives three specialist reviews and a judge's scored verdict, publish
    - MERGEABLE ⇒ judge re-reads `gh pr checks` and the PR head SHA immediately before merging; if the SHA differs from the reviewed one it refuses and the workflow re-runs. Otherwise it adds label `verdict:mergeable` and runs `gh pr merge --squash --auto --delete-branch --match-head-commit <sha>`, so GitHub itself waits for the required checks; when GitHub cannot enable auto-merge (PR already clean, or no branch protection yet) it merges directly with the same `--match-head-commit`, only after confirming the checks are green; the issue closes; the worktree is released. Money/webhook PRs also need the author's checked "I can explain every line" item in the PR body (1-01 template).
    - MERGEABLE AFTER NITS ⇒ label `verdict:nits`; author fixes in new commits, replies to threads; workflow re-runs (judge only needs to re-check).
    - NOT MERGEABLE ⇒ label `verdict:not-mergeable`; author fixes in **new commits** (no force-push), replies "Fixed in abc1234" or "Won't fix: …" per thread, resolves; full workflow re-runs.
-   - Max 3 rounds; then the lead escalates to Javier.
+   - Max 3 rounds; then the lead decides (D-075): one extra full round with `args.escalation = "D-075"` after the important findings are fixed, recorded on the PR; minors left after it go to a follow-up issue.
 5. Since author and reviewers use the same GitHub account, GitHub only allows `COMMENT` reviews (no APPROVE). The verdict lives in the judge comment + label.
 
 ## Judge rubric (adapted from `diimo/core/.claude/agents/code-reviewer.md`)
