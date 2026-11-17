@@ -25,6 +25,11 @@ use App\Models\Take;
  *   (restriction, daily caps, credits against the recomputed estimate),
  *   re-checked under the customer lock, denials as SuggestionDeniedException
  *   with the DenialReason (apply itself only checks ownership);
+ * - re-resolves every reference that points at a take image through
+ *   TakeImageUrl::forReference (kept references may be signed URLs that
+ *   expired since the base take was created) and refuses an unresolvable one
+ *   with BaseImageUnavailableException, like the base image itself (issue #133
+ *   tracks a stable reference identity owned by spec 4);
  * - recomputes the estimate from the real prompt and opens the hold;
  * - idempotent on (customer, idempotency key): a replay returns the
  *   existing take, with no second hold.
