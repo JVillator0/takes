@@ -5,17 +5,23 @@ declare(strict_types=1);
 namespace App\Providers;
 
 use App\Contracts\Billing\PixelforgeUsageSource;
+use App\Enums\Auth\DenialReason;
+use App\Http\Responses\DenialResponse;
 use App\Models\Customer;
 use App\Models\Suggestion;
 use App\Models\Take;
 use App\Models\User;
 use App\Services\Billing\UnconfiguredPixelforgeUsageSource;
 use Carbon\CarbonImmutable;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use Symfony\Component\HttpFoundation\Response;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -35,6 +41,29 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureDefaults();
         $this->configureMorphMap();
+        $this->configureRateLimiting();
+    }
+
+    /**
+     * Route throttles that answer with the `rate_limited` denial (D-050,
+     * 2-01 copy): JSON callers get 429 `{code, message}`, Inertia visits go
+     * back with the denial like any other.
+     *
+     * - `takes`: 10 creates per minute per customer (spec 4 "Create take").
+     * - `demo`: "Try a demo account" per IP and hour (D-045, D-065).
+     */
+    protected function configureRateLimiting(): void
+    {
+        $denied = fn (Request $request, array $headers): Response => DenialResponse::make($request, DenialReason::RateLimited, 429)
+            ->withHeaders($headers);
+
+        RateLimiter::for('takes', fn (Request $request): Limit => Limit::perMinute(10)
+            ->by('takes:'.($request->user()?->getAuthIdentifier() ?? $request->ip()))
+            ->response($denied));
+
+        RateLimiter::for('demo', fn (Request $request): Limit => Limit::perHour(config()->integer('takes.demo.throttle_per_ip_per_hour'))
+            ->by('demo:'.$request->ip())
+            ->response($denied));
     }
 
     /**
