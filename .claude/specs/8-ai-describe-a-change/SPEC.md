@@ -1,6 +1,6 @@
 # 8 · AI: Describe a change
 
-Status: **Approved** · Milestone: **M8 AI** (our extra) · Depends on: 3, 4, 5 (sweeper, `ApplyTakeSnapshotAction` for the new take, Reverb; 6 only for the billing UI row) · Worktree: **b** · Parallel with: 6
+Status: **Approved** · Milestone: **M8 AI** (our extra) · Depends on: 3, 4, 5 (sweeper, `ApplyTakeSnapshotAction` for the new take, Reverb; 6 only for the billing UI row) · Worktree: **b** · Parallel with: 6 · **Scope cut (D-080):** issue 5 (admin AI suggestions resource and *Edit in composer*, #76) is deferred; its acceptance criteria are out of the QA plan.
 Reviews: product ☑ · technical ☑ · Wireframes: P06, P07, A09, A11 · Decisions: D-007, D-008, D-009, D-023, D-024, D-032, D-033, D-036, D-037, D-042, D-050, D-052, D-055, D-057
 
 ## Goal

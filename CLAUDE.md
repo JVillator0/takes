@@ -16,7 +16,8 @@ Everything committed to this repository (code, comments, commits, PRs, reviews, 
 | `.claude/rules/webhooks.md` | Webhook checklist (signature, idempotency, ordering, reconcile, broadcast). Each rule names its test. |
 | `.claude/rules/frontend.md` | Inertia v3 + Vue + TS, money as server strings, copy from `lang/en/*.php`. |
 | `.claude/rules/filament.md` | Admin console layout and permissions (M7). |
-| `.claude/agents/` | Reviewer agents (`laravel-backend-reviewer`, `inertia-vue-reviewer`, `filament-reviewer`) and the PR judge. |
+| `.claude/agents/` | Reviewer agents (`laravel-backend-reviewer`, `inertia-vue-reviewer`, `filament-reviewer`), the PR judge and the `qa-tester` (spec 10, D-071). |
+| `.claude/qa/plan.md` | The spec-derived QA plan the `qa-tester` runs against production. |
 | `.claude/skills/` | Boost skills, `agent-worktrees`, `modern-web-guidance`, `pr-review`. |
 | `.claude/worktree-pool.md` | The five-worktree pool (`takes-a` … `takes-e`, D-070): URLs, databases, ports. |
 | `.ai/guidelines/` | Short project guidelines that Laravel Boost merges into its generated guidance. |

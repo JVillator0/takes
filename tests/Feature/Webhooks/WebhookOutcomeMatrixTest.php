@@ -2,19 +2,25 @@
 
 declare(strict_types=1);
 
+use App\Actions\Takes\ApplyTakeSnapshotAction;
 use App\Actions\Takes\FailTakeAction;
 use App\Enums\Billing\UsageStatus;
 use App\Enums\Takes\AttentionReason;
 use App\Enums\Takes\FailureCode;
+use App\Enums\Takes\SubmitErrorKind;
 use App\Enums\Takes\TakeStatus;
+use App\Enums\Takes\TransitionOutcome;
 use App\Enums\Webhooks\WebhookOutcome;
 use App\Events\TakeUpdated;
 use App\Models\LedgerEntry;
 use App\Models\Take;
 use App\Models\WebhookDelivery;
+use App\Services\Pixelforge\PixelforgeClient;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Tests\Support\Billing;
+use Tests\Support\PixelforgeFixture;
 use Tests\Support\PixelforgeWebhook;
 use Tests\Support\Takes;
 
@@ -37,9 +43,14 @@ function matrixTake(string $state): Take
         return Takes::in($state);
     }
 
+    $code = FailureCode::from(substr($state, 7));
     $take = Takes::pendingWithHold();
-    $take->forceFill(['pixelforge_id' => 'gen_'.$take->id])->save();
-    app(FailTakeAction::class)->execute($take, FailureCode::from(substr($state, 7)), 'local failure');
+    // A cancel is only allowed while waiting for capacity, where nothing exists
+    // at Pixelforge (D-044); the others failed after Pixelforge accepted it.
+    $take->forceFill($code === FailureCode::Cancelled
+        ? ['last_submit_error_kind' => SubmitErrorKind::Capacity]
+        : ['pixelforge_id' => 'gen_'.$take->id])->save();
+    app(FailTakeAction::class)->execute($take, $code, 'local failure');
 
     return $take->refresh();
 }
@@ -69,8 +80,31 @@ it('stores the matrix outcome for every row', function (string $from, string $in
     ['failed', 'failed', WebhookOutcome::IgnoredSameState, 'failed'],
     ['failed:submit_timeout', 'succeeded', WebhookOutcome::OrphanSuccess, 'failed'],
     ['failed:provider_busy', 'succeeded', WebhookOutcome::IgnoredConflict, 'failed'],
+    ['failed:cancelled', 'succeeded', WebhookOutcome::IgnoredConflict, 'failed'],
+    // D-077(c): an `internal` failure of a take Pixelforge had accepted.
+    ['failed:internal', 'succeeded', WebhookOutcome::OrphanSuccess, 'failed'],
     ['failed', 'succeeded', WebhookOutcome::IgnoredConflict, 'failed'],
 ]);
+
+it('ignores a stale queued snapshot for a processing take', function (): void {
+    // Pixelforge sends no generation.queued webhook: a queued snapshot only
+    // comes from the create response or a reconcile poll (W-12).
+    config(['pixelforge.base_url' => 'https://pixelforge.test/v1', 'pixelforge.api_key' => 'pf_test_matrix']);
+    Http::preventStrayRequests();
+    $take = Takes::in('processing');
+    Http::fake(['pixelforge.test/v1/generations/*' => Http::response(PixelforgeFixture::generation('queued', [
+        'id' => $take->pixelforge_id,
+        'metadata' => ['app_take_id' => $take->id],
+    ]))]);
+
+    $outcome = app(ApplyTakeSnapshotAction::class)->execute($take, app(PixelforgeClient::class)->getGeneration((string) $take->pixelforge_id));
+
+    expect($outcome)->toBe(TransitionOutcome::IgnoredStale)
+        ->and($take->refresh()->status)->toBe(TakeStatus::Processing);
+
+    // And as a webhook type it is not one Pixelforge documents.
+    PixelforgeWebhook::post($this, PixelforgeWebhook::forTake($take, 'queued'))->assertExactJson(['status' => 'ignored_type']);
+});
 
 it('keeps a succeeded take and its charge when processing arrives late', function (): void {
     $take = Takes::in('processing');

@@ -8,6 +8,7 @@ use App\DTOs\Takes\ReconcileResultDTO;
 use App\Enums\Takes\AttentionReason;
 use App\Enums\Takes\FailureCode;
 use App\Enums\Takes\ReconcileStatus;
+use App\Exceptions\Billing\TransactionNotAllowedException;
 use App\Exceptions\Pixelforge\PixelforgeBusy;
 use App\Exceptions\Pixelforge\PixelforgeRejected;
 use App\Exceptions\Pixelforge\PixelforgeUnavailable;
@@ -15,6 +16,7 @@ use App\Exceptions\Takes\SnapshotRatesMissingException;
 use App\Jobs\SubmitTakeJob;
 use App\Models\Take;
 use App\Services\Pixelforge\PixelforgeClient;
+use App\Support\Takes\ReconcileStopMarker;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -35,18 +37,27 @@ final readonly class ReconcileTakeAction
         private FlagTakeAttentionAction $flagAttention,
     ) {}
 
-    public function execute(Take $take): ReconcileResultDTO
+    /**
+     * @param  string|null  $generationId  for a take found by webhook metadata
+     *                                     before it stored its `pixelforge_id`
+     */
+    public function execute(Take $take, ?string $generationId = null): ReconcileResultDTO
     {
+        // The GET below must never run with a row lock held (M-16).
+        TransactionNotAllowedException::unlessNoTransaction(self::class);
+
         $take->refresh();
+        $generationId = $take->pixelforge_id ?? $generationId;
 
         if ($take->status->isTerminal()) {
             return new ReconcileResultDTO(ReconcileStatus::Terminal);
         }
 
-        if ($take->pixelforge_id === null) {
+        if ($generationId === null) {
             // Lost jobs (spec 4): submit again with the same idempotency key, so
             // a replay is never a second generation (D-033). SubmitTakeJob is
-            // unique per take, so this is dropped while the first one is alive.
+            // unique per take for the whole window, so this is dropped while
+            // the first one can still run.
             Log::info('Reconcile re-dispatched the submit: the take has no generation yet.', ['take_id' => $take->id]);
             SubmitTakeJob::dispatch($take->id);
 
@@ -58,7 +69,7 @@ final readonly class ReconcileTakeAction
         }
 
         try {
-            $snapshot = $this->client->getGeneration($take->pixelforge_id);
+            $snapshot = $this->client->getGeneration($generationId);
         } catch (PixelforgeBusy $exception) {
             return new ReconcileResultDTO(ReconcileStatus::Throttled, $exception->retryAfter);
         } catch (PixelforgeUnavailable) {
@@ -74,9 +85,13 @@ final readonly class ReconcileTakeAction
             // cached prices (D-055). Nothing was written; flag it.
             Log::critical('Reconcile cannot settle: the generation has no rates.', ['take_id' => $take->id]);
             $this->flagAttention->execute($take, AttentionReason::InvalidSnapshot);
+            ReconcileStopMarker::mark($take->id, ReconcileStatus::Invalid);
 
             return new ReconcileResultDTO(ReconcileStatus::Invalid);
         }
+
+        // Polling works again: let the sweeper pick the take up if it stalls.
+        ReconcileStopMarker::forget($take->id);
 
         Log::info('Reconcile applied a snapshot.', [
             'take_id' => $take->id,
@@ -99,13 +114,22 @@ final readonly class ReconcileTakeAction
             return new ReconcileResultDTO(ReconcileStatus::Revoked);
         }
 
-        Log::warning('Reconcile stopped: Pixelforge has no such generation.', [
+        if ($exception->status === 404) {
+            Log::warning('Reconcile stopped: Pixelforge has no such generation.', ['take_id' => $take->id]);
+            $this->flagAttention->execute($take, AttentionReason::ReconcileExhausted);
+            ReconcileStopMarker::mark($take->id, ReconcileStatus::NotFound);
+
+            return new ReconcileResultDTO(ReconcileStatus::NotFound);
+        }
+
+        // Any other rejection of a GET (e.g. 429 daily_limit_exceeded) says
+        // nothing about the generation: keep polling on the normal schedule.
+        Log::warning('Reconcile poll rejected; polling again later.', [
             'take_id' => $take->id,
-            'status' => $exception->status,
+            'http_status' => $exception->status,
             'error_code' => $exception->errorCode,
         ]);
-        $this->flagAttention->execute($take, AttentionReason::ReconcileExhausted);
 
-        return new ReconcileResultDTO(ReconcileStatus::NotFound);
+        return new ReconcileResultDTO(ReconcileStatus::Unavailable);
     }
 }

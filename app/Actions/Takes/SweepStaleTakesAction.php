@@ -7,20 +7,26 @@ namespace App\Actions\Takes;
 use App\Actions\Suggestions\ExpireSuggestionAction;
 use App\DTOs\Takes\SweepResultDTO;
 use App\Enums\Suggestions\SuggestionStatus;
-use App\Enums\Takes\AttentionReason;
 use App\Enums\Takes\TakeStatus;
 use App\Jobs\ReconcileTakeJob;
 use App\Models\Suggestion;
 use App\Models\Take;
+use App\Services\Pixelforge\PixelforgeClient;
+use App\Support\Takes\ReconcileStopMarker;
+use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
 
 /**
  * The opportunistic sweeper (D-036, W-16): no scheduler, so lost reconcile
  * chains and stuck suggestions are picked up whenever someone looks. Page
- * loads (SweepStaleTakes middleware) and `takes:reconcile --stale` call it.
+ * loads (SweepStaleTakes middleware, through SweepStaleTakesJob) and
+ * `takes:reconcile --stale` call it.
  *
  * Throttled with a cache lock that is never released: it simply expires, so
- * the sweep runs at most once per THROTTLE_SECONDS whatever the traffic.
+ * the sweep runs at most once per THROTTLE_SECONDS whatever the traffic. The
+ * middleware takes the lock itself before queuing the job, which then runs
+ * with $force.
  * Idempotent: ReconcileTakeJob is unique per take, and expiring a
  * suggestion re-checks its status under lock.
  */
@@ -37,7 +43,10 @@ final readonly class SweepStaleTakesAction
     /** Bounds one sweep; the next one picks up the rest. */
     public const int BATCH = 100;
 
-    public function __construct(private ExpireSuggestionAction $expireSuggestion) {}
+    public function __construct(
+        private ExpireSuggestionAction $expireSuggestion,
+        private PixelforgeClient $client,
+    ) {}
 
     /**
      * @param  bool  $force  skip the throttle (the Artisan command)
@@ -50,16 +59,8 @@ final readonly class SweepStaleTakesAction
 
         $staleBefore = now()->subSeconds(self::STALE_AFTER_SECONDS);
 
-        $takeIds = Take::query()
-            ->whereIn('status', array_map(fn (TakeStatus $status): string => $status->value, TakeStatus::nonTerminal()))
-            ->where('created_at', '<=', $staleBefore)
-            // An exhausted chain was given its full window; an admin reconciles it by hand.
-            ->where(fn ($query) => $query
-                ->whereNull('attention_reason')
-                ->orWhere('attention_reason', '!=', AttentionReason::ReconcileExhausted->value))
-            ->orderBy('created_at')
-            ->limit(self::BATCH)
-            ->pluck('id');
+        // Without an API key nothing can be polled; do not queue no-op polls.
+        $takeIds = $this->client->isConfigured() ? $this->staleTakeIds($staleBefore) : [];
 
         foreach ($takeIds as $takeId) {
             ReconcileTakeJob::dispatch($takeId);
@@ -67,9 +68,11 @@ final readonly class SweepStaleTakesAction
 
         $expired = 0;
 
+        // Pending past expires_at (CreateSuggestionAction sets it 2 min out),
+        // the same rule ExpireSuggestionAction re-checks under lock.
         $suggestions = Suggestion::query()
             ->where('status', SuggestionStatus::Pending->value)
-            ->where('created_at', '<=', $staleBefore)
+            ->where('expires_at', '<=', now())
             ->orderBy('created_at')
             ->limit(self::BATCH)
             ->get();
@@ -80,8 +83,43 @@ final readonly class SweepStaleTakesAction
 
         return new SweepResultDTO(
             ran: true,
-            reconcilesDispatched: $takeIds->count(),
+            reconcilesDispatched: count($takeIds),
             suggestionsExpired: $expired,
         );
+    }
+
+    /**
+     * The oldest stale in-flight takes, up to BATCH, skipping only chains that
+     * stopped for a definitive reason (404, a fetched generation without
+     * rates; ReconcileStopMarker). A flag from a webhook or a run of 429/5xx
+     * never stops the sweep (W-16). Stopped takes are filtered page by page
+     * before the batch is cut, so they can never crowd out newer stale takes.
+     *
+     * @return list<string>
+     */
+    private function staleTakeIds(CarbonInterface $staleBefore): array
+    {
+        $takeIds = [];
+
+        Take::query()
+            ->whereIn('status', array_map(fn (TakeStatus $status): string => $status->value, TakeStatus::nonTerminal()))
+            ->where('created_at', '<=', $staleBefore)
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->select('id')
+            ->chunk(self::BATCH, function (Collection $page) use (&$takeIds): bool {
+                $ids = $page->map(fn (Take $take): string => $take->id)->values()->all();
+                $stopped = ReconcileStopMarker::stopped($ids);
+
+                foreach ($ids as $id) {
+                    if (! in_array($id, $stopped, true)) {
+                        $takeIds[] = $id;
+                    }
+                }
+
+                return count($takeIds) < self::BATCH;
+            });
+
+        return array_slice($takeIds, 0, self::BATCH);
     }
 }
