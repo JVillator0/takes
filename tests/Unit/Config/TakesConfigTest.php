@@ -70,6 +70,8 @@ it('loads the spec 3-01 defaults', function (): void {
             'ttl_hours' => 24,
             'password' => 'password',
         ],
+        // Spec 3-03 §5 (D-051), added by the ledger PR (#94).
+        'purchase_packs_usd' => [5, 10, 25],
     ]);
 });
 

@@ -21,7 +21,7 @@ final class HandleInertiaRequests extends Middleware
      * Lang groups shared with the client as UI copy (D-057). They hold no
      * secrets and no provider names (D-023).
      */
-    private const COPY_GROUPS = ['takes', 'billing', 'landing'];
+    private const COPY_GROUPS = ['takes', 'billing', 'landing', 'suggestions'];
 
     /**
      * The root template that's loaded on the first page visit.
