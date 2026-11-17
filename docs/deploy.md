@@ -83,7 +83,7 @@ Set on the environment:
 | `SESSION_DRIVER` | `database` |
 | `SESSION_SECURE_COOKIE` | `true` |
 | `CACHE_STORE` | `database` |
-| `BROADCAST_CONNECTION` | `log` until spec 5 installs `laravel/reverb`, then `reverb` (with `reverb` and no Pusher client, `routes/channels.php` fails the build's `package:discover`) |
+| `BROADCAST_CONNECTION` | `log` until spec 5 (#112) is deployed, then `reverb`. `laravel/reverb` brings the Pusher client and `config/broadcasting.php` defaults the Reverb keys to empty strings, so `package:discover` and `routes/channels.php` boot with `reverb` even before Cloud injects `REVERB_*` (`tests/Feature/Webhooks/BroadcastingPropTest.php`) |
 | `PIXELFORGE_BASE_URL` | `https://pixelforge.promptedit.dev/v1` |
 | `PIXELFORGE_WEBHOOK_SECRET` | the `whsec_…` of the production key, set once the dashboard webhook exists |
 | `TAKES_SUPPORT_EMAIL` | support address (not set yet: the config default applies) |

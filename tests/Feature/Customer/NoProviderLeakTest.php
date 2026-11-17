@@ -11,14 +11,14 @@ use Tests\Support\Takes;
 | customer page props join it with the workspace (spec 4).
 */
 
-const FORBIDDEN_WORDS = ['pixelforge', 'anthropic', 'cost', 'token', 'margin', 'markup', 'rate', 'provider', 'gen_', 'usage', 'nanos'];
+const TAKE_UPDATED_FORBIDDEN_WORDS = ['pixelforge', 'anthropic', 'cost', 'token', 'margin', 'markup', 'rate', 'provider', 'gen_', 'usage', 'nanos'];
 
 it('broadcasts no provider data for a take in any state', function (string $status): void {
     $take = Takes::in($status);
 
     $json = strtolower(json_encode((new TakeUpdated($take))->broadcastWith(), JSON_THROW_ON_ERROR));
 
-    foreach (FORBIDDEN_WORDS as $word) {
+    foreach (TAKE_UPDATED_FORBIDDEN_WORDS as $word) {
         expect($json)->not->toContain($word);
     }
 })->with(['pending', 'queued', 'processing', 'succeeded', 'failed']);
