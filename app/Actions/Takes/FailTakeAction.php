@@ -19,8 +19,9 @@ use Illuminate\Support\Facades\Log;
 /**
  * Fails a take for a local reason, free (spec 3-02): a definite rejection at
  * submit (content_policy, daily_limit, validation, internal), a cancel while
- * waiting for capacity (D-044), or the end of the 30-minute submit window
- * (provider_busy, submit_timeout; D-025). With ApplyTakeSnapshotAction, the
+ * waiting for capacity (D-044), the end of the 30-minute submit window
+ * (provider_busy, submit_timeout; D-025), or `internal` on a take Pixelforge
+ * already accepted (a revoked key while reconciling, D-062). With ApplyTakeSnapshotAction, the
  * only code that changes a take's status (M-11); the usage is voided in the
  * same transaction, so the hold is released exactly once (M-12, M-13).
  */
@@ -29,7 +30,7 @@ final readonly class FailTakeAction
     public function __construct(private VoidUsageAction $voidUsage) {}
 
     /**
-     * @throws TakeTransitionNotAllowedException for a provider-only code, or a cancel outside the capacity state; nothing is written
+     * @throws TakeTransitionNotAllowedException for a provider-only code, or a cancel of any take that is not pending and waiting for capacity (already failed, succeeded, accepted by Pixelforge, or with an ambiguous submit in doubt); nothing is written
      */
     public function execute(Take $take, FailureCode $code, string $message): TransitionOutcome
     {
@@ -56,13 +57,18 @@ final readonly class FailTakeAction
 
             // Cancel only while nothing can exist at Pixelforge (D-044): with an
             // ambiguous submit in doubt, a cancel could hide a real generation.
-            if ($outcome === TransitionOutcome::Applied
-                && $code === FailureCode::Cancelled
-                && $take->last_submit_error_kind !== SubmitErrorKind::Capacity) {
+            // Any other cancel is the customer's race with the take, not a
+            // finding: one answer (CancelTakeAction's 422), no attention flag.
+            if ($code === FailureCode::Cancelled
+                && ($outcome !== TransitionOutcome::Applied || $take->last_submit_error_kind !== SubmitErrorKind::Capacity)) {
                 throw TakeTransitionNotAllowedException::cancel($take);
             }
 
             if ($outcome === TransitionOutcome::Applied) {
+                // Failed = free: release the hold, charge nothing (D-024, M-13).
+                // First, so a failure here leaves the caller's model untouched.
+                $this->voidUsage->execute($take->usageRecord()->firstOrFail());
+
                 $now = now();
 
                 $take->forceFill([
@@ -72,13 +78,15 @@ final readonly class FailTakeAction
                     // Local failures use local time (spec 3-02).
                     'completed_at' => $now,
                     'last_event_at' => $now,
-                    // A configuration or code problem, never the customer's (D-054, D-062).
-                    'attention_reason' => $code === FailureCode::Internal ? AttentionReason::InternalFailure : $take->attention_reason,
-                ])->save();
+                ]);
 
-                // Failed = free: release the hold, charge nothing (D-024, M-13).
-                $this->voidUsage->execute($take->usageRecord()->firstOrFail());
-            } elseif ($outcome === TransitionOutcome::IgnoredConflict) {
+                // A configuration or code problem, never the customer's (D-054, D-062).
+                if ($code === FailureCode::Internal && AttentionReason::InternalFailure->replaces($take->attention_reason)) {
+                    $take->forceFill(['attention_reason' => AttentionReason::InternalFailure]);
+                }
+
+                $take->save();
+            } elseif ($outcome === TransitionOutcome::IgnoredConflict && AttentionReason::InternalFailure->replaces($take->attention_reason)) {
                 $take->forceFill(['attention_reason' => AttentionReason::InternalFailure])->save();
             }
 

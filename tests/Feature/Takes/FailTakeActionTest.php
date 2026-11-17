@@ -101,7 +101,6 @@ it('ignores a submit-phase failure once Pixelforge accepted the take', function 
 })->with(['queued', 'processing'])->with([
     FailureCode::SubmitTimeout,
     FailureCode::ProviderBusy,
-    FailureCode::Cancelled,
     FailureCode::ContentPolicy,
 ]);
 
@@ -152,6 +151,16 @@ it('refuses to cancel unless the take waits for capacity', function (?SubmitErro
     'ambiguous submit in doubt' => SubmitErrorKind::Ambiguous,
     'never attempted' => null,
 ]);
+
+it('refuses to cancel a take that left the capacity state, without flagging it', function (string $status): void {
+    $take = Takes::in($status);
+    $before = $take->only(['status', 'failure_code', 'attention_reason', 'last_event_at']);
+
+    expect(fn () => failTake($take, FailureCode::Cancelled))->toThrow(TakeTransitionNotAllowedException::class);
+
+    expect($take->refresh()->only(array_keys($before)))->toEqual($before)
+        ->and($take->attention_reason)->toBeNull();
+})->with(['queued', 'processing', 'succeeded', 'failed']);
 
 it('refuses provider outcome codes', function (FailureCode $code): void {
     $take = Takes::pendingWithHold();

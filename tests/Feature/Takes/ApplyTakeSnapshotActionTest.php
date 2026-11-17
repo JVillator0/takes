@@ -93,15 +93,21 @@ describe('outcome matrix', function (): void {
         ['failed', 'succeeded', TransitionOutcome::IgnoredConflict, 'failed'],
     ]);
 
-    it('sets last_event_at for every valid snapshot, applied or ignored', function (): void {
-        $take = Takes::in('succeeded');
+    it('advances last_event_at only when a snapshot advances or confirms the state (D-077)', function (string $from, string $incoming, TransitionOutcome $outcome, bool $advances): void {
+        $take = Takes::in($from);
         $before = $take->last_event_at;
 
         $this->travel(5)->minutes();
 
-        expect(applySnapshot($take, Takes::snapshot($take, 'processing')))->toBe(TransitionOutcome::IgnoredStale)
-            ->and($take->refresh()->last_event_at?->greaterThan($before))->toBeTrue();
-    });
+        expect(applySnapshot($take, Takes::snapshot($take, $incoming)))->toBe($outcome)
+            ->and($take->refresh()->last_event_at?->greaterThan($before))->toBe($advances);
+    })->with([
+        'applied' => ['queued', 'processing', TransitionOutcome::Applied, true],
+        'same state' => ['processing', 'processing', TransitionOutcome::IgnoredSameState, true],
+        // A late queued redelivery must not keep a stalled processing take out of the stuck rule.
+        'stale' => ['processing', 'queued', TransitionOutcome::IgnoredStale, false],
+        'conflict' => ['succeeded', 'failed', TransitionOutcome::IgnoredConflict, false],
+    ]);
 
     it('flags a succeeded take contradicted by a failed snapshot and keeps the charge', function (): void {
         Log::spy();
@@ -162,6 +168,34 @@ describe('orphan success vs conflict', function (): void {
 
         expect(applySnapshot($take, Takes::snapshot($take, 'succeeded')))->toBe(TransitionOutcome::OrphanSuccess)
             ->and(Takes::usage($take)->flags)->toBe(['orphan']);
+    });
+
+    it('records a late success after an internal failure of an accepted take as an orphan (D-077)', function (): void {
+        $take = Takes::in('processing');
+        app(FailTakeAction::class)->execute($take, FailureCode::Internal, 'Revoked key while reconciling.');
+
+        expect(applySnapshot($take, Takes::snapshot($take, 'succeeded')))->toBe(TransitionOutcome::OrphanSuccess);
+
+        $take->refresh();
+        $usage = Takes::usage($take);
+
+        expect($take->status)->toBe(TakeStatus::Failed)
+            ->and($take->failure_code)->toBe(FailureCode::Internal)
+            ->and($take->attention_reason)->toBe(AttentionReason::OrphanSuccess)
+            ->and($usage->status)->toBe(UsageStatus::Voided)
+            ->and($usage->flags)->toBe(['orphan'])
+            ->and($take->customer->refresh()->balance_nanos)->toBe(Takes::FUNDED_NANOS)
+            ->and($take->customer->held_nanos)->toBe(0)
+            ->and(chargeCount())->toBe(0);
+    });
+
+    it('never lets a weaker finding replace orphan_success', function (): void {
+        $take = Takes::pendingWithHold(['last_submit_error_kind' => SubmitErrorKind::Ambiguous]);
+        app(FailTakeAction::class)->execute($take, FailureCode::SubmitTimeout, 'Submit window expired.');
+        applySnapshot($take, Takes::snapshot($take, 'succeeded'));
+
+        expect(applySnapshot($take, Takes::snapshot($take, 'succeeded', ['id' => 'gen_someoneelse'])))->toBe(TransitionOutcome::InvalidSnapshot)
+            ->and($take->refresh()->attention_reason)->toBe(AttentionReason::OrphanSuccess);
     });
 
     it('treats a late success after any other local failure as a conflict', function (FailureCode $code): void {
@@ -264,6 +298,10 @@ describe('settlement', function (): void {
         $snapshot = rebuildSnapshot(Takes::snapshot($take, 'succeeded'), ['rates' => null]);
 
         expect(fn () => applySnapshot($take, $snapshot))->toThrow(SnapshotRatesMissingException::class);
+
+        // The caller's model carries no unsaved transition it could persist later.
+        expect($take->isDirty())->toBeFalse()
+            ->and($take->status)->toBe(TakeStatus::Pending);
 
         $take->refresh();
 
