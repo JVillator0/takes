@@ -76,6 +76,10 @@ The suite runs offline with no provider keys. CI (GitHub Actions, `postgres:17`)
 
 Tests use the `takes_testing` database (`phpunit.xml`). To point them elsewhere, export it: `DB_DATABASE=<name> composer ci:check`. In the parallel worktrees used to build this project, `scripts/test.sh` does that per checkout (see [`.claude/worktree-pool.md`](.claude/worktree-pool.md)).
 
+## Deploy
+
+Production runs on Laravel Cloud (US East): app on Flex compute, Serverless Postgres 17, a managed queue, a Reverb cluster and a private object-storage bucket, all scaling to zero except Reverb, under a $15/month spend alert. Resources, build and deploy commands, environment variables, cold-start measurements and key rotation are in [`docs/deploy.md`](docs/deploy.md).
+
 ## Harness files
 
 *To be completed:* the files that steer the agents that built this project.
