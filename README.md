@@ -69,6 +69,17 @@ Set `REVERB_APP_ID`, `REVERB_APP_KEY` and `REVERB_APP_SECRET` to any values of y
 
 Open http://localhost. To run the tests under Sail, create the test database once: `./vendor/bin/sail exec pgsql createdb -U sail takes_testing`, then `./vendor/bin/sail artisan test`.
 
+### When webhooks never arrive
+
+Webhooks are an optimisation, not a dependency (spec 5). To see it, point the key's webhook URL nowhere (or delete a delivery in the Pixelforge dashboard) and generate a take:
+
+1. When Pixelforge accepts the take, a reconcile chain starts: `GET /v1/generations/{id}` 60 s later, then after 120, 300, 600 and 840 s (each delay ≤ 900 s for the managed queue), until the take is succeeded or failed. It settles with the generation's own rates, exactly as a webhook would; after about 32 min without a result the take is flagged `reconcile_exhausted` for Needs attention.
+2. Expected latency: a normal take (5 to 30 s) is settled by the first poll, **60 s after it was accepted**. A `[slow]` take (60 to 90 s) is picked up by the second poll, about 180 s after acceptance, so up to roughly 2 minutes after it finished.
+3. If a chain is lost (a worker died), any signed-in page load (workspace, billing, the admin console) runs the opportunistic sweeper, at most once every 2 minutes, which queues a poll for every non-terminal take older than 2 minutes. No scheduler is needed (D-036). By hand: `php artisan takes:reconcile --take=<id>` or `--stale`.
+4. The open page polls `takes`/`counts` every 4 s while the socket is down, so the card updates as soon as the take settles.
+
+Pool worktrees never receive webhooks (D-047), so every take there finishes this way.
+
 ## Quality
 
 | Command | What it runs |

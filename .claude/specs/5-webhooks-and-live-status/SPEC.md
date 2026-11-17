@@ -72,7 +72,7 @@ The Pest outcome tests are driven from this table. `ignored_conflict` always wri
 - Channel authorisation: a customer cannot subscribe to another customer's channel.
 
 ## Acceptance
-- Delete a delivery in the Pixelforge dashboard (or drop webhooks): the take still settles within 60 s via reconcile/sweeper while the workspace is open. Documented in the README walkthrough.
+- Delete a delivery in the Pixelforge dashboard (or drop webhooks): the take still settles via reconcile/sweeper while the workspace is open: within 60 s of acceptance for a normal take (first poll), about 180 s after acceptance for a `[slow]` one (second poll), since the 60/120/300/600/840 s delays are fixed above. Documented in the README walkthrough ("When webhooks never arrive").
 
 ## Issues
 1. Route, middleware, handle action (tables come from 3-02).
