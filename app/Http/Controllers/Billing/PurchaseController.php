@@ -9,6 +9,7 @@ use App\Exceptions\Billing\IdempotencyKeyReusedException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Billing\StorePurchaseRequest;
 use Illuminate\Http\RedirectResponse;
+use Inertia\Inertia;
 
 final class PurchaseController extends Controller
 {
@@ -28,6 +29,9 @@ final class PurchaseController extends Controller
             abort(409, $e->getMessage());
         }
 
-        return back();
+        // The Buy credits modal (spec 4, D-026): the 2-01 success toast.
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('billing.purchase_success')]);
+
+        return back(303);
     }
 }

@@ -12,6 +12,7 @@ return [
     'panel_title' => 'Evaluating this take-home?',
     'panel_description' => 'One click, no password. Shared accounts: balances change as people use them.',
     'admin_hint' => 'Admin console: /admin (separate login, see the README).',
+    'ephemeral_name' => 'Demo account',
     'expired' => 'This demo account has expired. Register or try a new demo account.',
     'accounts' => [
         'showcase' => 'Showcase customer · real history',

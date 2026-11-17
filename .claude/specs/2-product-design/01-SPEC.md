@@ -241,3 +241,16 @@ UI chrome strings added with the UI foundation (PR #99). Keys are the full `lang
 | `landing.pricing.landscape_high_two_refs` | P01 landing | "Landscape · high · 2 references" |
 | `landing.footer` | P01 landing | "Takes is a take-home project. Payments are simulated." |
 | `landing.shell.skip_to_content` | app shell skip link | "Skip to content" |
+
+Strings added with spec 4 (takes and generation). Same rules: keys are the full `lang/en/<file>.php` paths, `:name` is a server-filled placeholder.
+
+| Key | Where | Copy |
+|---|---|---|
+| `takes.drawer.references` | P06 parameters line (pluralised) | "no references" · "1 reference" · ":count references" |
+| `takes.drawer.ai_change_from` | P06 parameters line | "AI change from #:id" |
+| `takes.drawer.version` | P06 version strip | "#:id" |
+| `takes.drawer.version_current` | P06 version strip | "#:id this take" |
+| `takes.cancel_unavailable` | P04 card, P06 (Cancel refused, 422 `cannot_cancel`) | "This take can no longer be cancelled. It is already being sent." |
+| `takes.projects.untitled` | P03 default project (first visit, demo account) | "Untitled project" |
+| `takes.projects.sample_prompt` | P03/P04 empty state, pre-filled composer | "A lighthouse on a cliff at dusk, warm light, cinematic wide shot" |
+| `demo.ephemeral_name` | name of a "Try a demo account" customer | "Demo account" |

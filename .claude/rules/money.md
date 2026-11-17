@@ -44,34 +44,34 @@ Reviewers: a violation of any rule below is a **critical** finding unless the ru
 - [ ] **M-12 Settlement exactly once, inside the terminal transition.** A take's usage is settled (succeeded) or voided (failed) in the same transaction that moves the take to a terminal state, and nowhere else. A suggestion's usage is settled or voided only in `CreateSuggestionAction` T2 or by the sweeper's expiry (spec 8). Settling or voiding a non-open usage is a silent no-op, never an exception that could break a webhook.
   Tests: `tests/Feature/Billing/SettleUsageActionTest.php` (settle twice ⇒ one charge; settle after void ⇒ no-op); `tests/Feature/Billing/VoidUsageActionTest.php` (void after settle ⇒ no-op); `tests/Feature/Webhooks/WebhookIdempotencyTest.php` (duplicate delivery ⇒ one settlement); `tests/Feature/Takes/ApplyTakeSnapshotActionTest.php` (same success applied twice ⇒ one charge); `tests/Committed/TakeTransitionConcurrencyTest.php` (group `concurrency`: two processes apply the same success ⇒ one charge).
 - [ ] **M-13 Failed = free.** Every failure path voids the usage and releases the hold: provider `failed`, definite rejections, `cancelled`, `provider_busy`, `submit_timeout`, `internal`, revoked key (D-062), AI error/refusal/timeout.
-  Tests: `tests/Feature/Takes/FailTakeActionTest.php`; `tests/Feature/Webhooks/WebhookOutcomeMatrixTest.php` (`failed` ⇒ not charged, hold released); `tests/Feature/Suggestions/CreateSuggestionActionTest.php`.
+  Tests: `tests/Feature/Takes/FailTakeActionTest.php`; `tests/Feature/Takes/TakeMoneyFlowTest.php` (compose → submit → webhook, failed and rejected are free); `tests/Feature/Takes/SubmitTakeJobTest.php` (every submit failure path); `tests/Feature/Webhooks/WebhookOutcomeMatrixTest.php` (`failed` ⇒ not charged, hold released); `tests/Feature/Suggestions/CreateSuggestionActionTest.php`.
 - [ ] **M-14 Orphan success is not settled (D-025, D-049).** A late `succeeded` for a take failed with `submit_timeout` leaves the usage voided, flags `orphan`, sets `attention_reason = orphan_success`. After `provider_busy`/`cancelled` it is `ignored_conflict`.
   Tests: `tests/Feature/Takes/ApplyTakeSnapshotActionTest.php` (orphan vs conflict split); `tests/Feature/Webhooks/WebhookOutcomeMatrixTest.php`.
 - [ ] **M-15 Actual > hold still charges the actual amount.** Charge the computed amount, let `available` go negative by the difference, flag `over_estimate`; `TakePolicy` then denies with `insufficient_credits`.
   Tests: `tests/Feature/Billing/SettleUsageActionTest.php` (over-estimate case).
 - [ ] **M-16 No HTTP call inside a database transaction.** Provider calls (Pixelforge create/get, Anthropic) happen with no transaction open and no row locked; the result is applied in a new transaction afterwards (submit job, reconcile job, `CreateSuggestionAction` T1 → call → T2).
   Reject: `Http::`, `PixelforgeClient`, or the AI agent called inside `DB::transaction()` or after `lockForUpdate()`.
-  Tests: `tests/Feature/Billing/NoHttpInTransactionTest.php` (`Http::fake` callbacks assert `DB::transactionLevel() === 0` for submit, reconcile and suggestions).
+  Tests: `tests/Feature/Billing/NoHttpInTransactionTest.php` (`Http::fake` callbacks assert `DB::transactionLevel() === 0` for submit, reconcile and suggestions); `tests/Feature/Takes/SubmitTakeJobTest.php` (no transaction during the create call); `tests/Committed/CreateTakePricingTest.php` (pricing fetched before the create transaction).
 - [ ] **M-17 No queue delay above 900 s.** Every `delay`, `backoff`, `release()` and `retryUntil` step is ≤ 900 s (Laravel Cloud managed-queue limit). Long waits are chains of short delays (reconcile: 60, 120, 300, 600, 840 s).
   Tests: `tests/Arch/RepositoryTest.php` (max job delay/backoff 900 s for every job).
 
 ## Idempotency and authorization
 
 - [ ] **M-18 Every money-creating request is idempotent.** Takes: unique `(customer_id, idempotency_key)`, composer-minted uuid, reused as Pixelforge's `Idempotency-Key`; a replay returns the existing take with no new hold (D-033). Suggestions: unique `(customer_id, request_key)`. Purchases: unique `(customer_id, idempotency_key)`. AI apply: uuid v5 of the suggestion id + partial unique `takes(suggestion_id)`.
-  Tests: `tests/Feature/Takes/CreateTakeIdempotencyTest.php`; `tests/Feature/Billing/PurchaseCreditsActionTest.php`; `tests/Feature/Suggestions/ApplySuggestionActionTest.php`.
+  Tests: `tests/Feature/Takes/CreateTakeIdempotencyTest.php` (replay, same key from another customer, outer transaction); `tests/Feature/Billing/PurchaseCreditsActionTest.php`; `tests/Feature/Suggestions/ApplySuggestionActionTest.php`.
 - [ ] **M-19 Credits are state, checked twice (D-015).** Policies deny with `Response::deny` and a `DenialReason` code; the action re-checks `available ≥ maxCharge` under the customer lock (`InsufficientCreditsException`). Never grant or revoke a permission because of the balance.
   Tests: `tests/Feature/Takes/TakePolicyTest.php`; `tests/Feature/Billing/OpenUsageActionTest.php`.
 
 ## Display and disclosure
 
 - [ ] **M-20 The server formats money; the frontend never does money math.** Resources and broadcast payloads send formatted strings (and, where needed, integer nanos as strings); Vue never parses, sums, rounds or formats an amount.
-  Tests: `tests/Feature/Takes/TakeResourceTest.php` (money fields are strings).
+  Tests: `tests/Feature/Takes/TakeRoutesTest.php` (money fields are strings, 4 decimals on the card, exact in the drawer); `tests/Feature/Takes/EstimateEndpointTest.php`.
 - [ ] **M-21 Exact amounts keep at least 2 decimals.** Money pages (take detail, billing page, invoices) and the admin use `Nanodollars::formatExact()`: trailing zeros trimmed, never fewer than 2 decimals (`$5.00`, `$0.0735`).
   Tests: `tests/Unit/Money/NanodollarsTest.php` (`formatExact` cases).
 - [ ] **M-22 Rounded display is never 2 decimals (D-042, D-021).** Lists, cards, toasts and the balance pill use `Nanodollars::format(4, …)`: estimate min rounded down, max rounded up, charges half-up; exact value on hover. Totals are rounded from the exact sum, never summed from rounded parts.
-  Tests: `tests/Unit/Money/NanodollarsTest.php` (`format` boundaries); `tests/Feature/Takes/TakeResourceTest.php` (rounded fields have 4 decimals).
+  Tests: `tests/Unit/Money/NanodollarsTest.php` (`format` boundaries); `tests/Feature/Takes/TakeRoutesTest.php` (rounded fields have 4 decimals).
 - [ ] **M-23 Customers never see provider cost, tokens, provider names or margin (D-023).** Customer-facing Inertia props, resources, broadcast payloads, lang strings and error messages expose prices only (estimate range, amount charged, spend by feature: images, AI suggestions). Provider cost, token counts, `pixelforge` / `anthropic`, markup and margin are admin-only.
-  Tests: `tests/Feature/Customer/NoProviderLeakTest.php` (scans customer page props and the `TakeUpdated` payload for forbidden keys and words).
+  Tests: `tests/Feature/Customer/NoProviderLeakTest.php` (scans customer page props and the `TakeUpdated` payload for forbidden keys and words); `tests/Feature/Takes/TakeRoutesTest.php` (`GET /takes/{take}` in every state).
 
 ## Adding a billable provider
 
