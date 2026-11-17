@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 use App\Models\Customer;
 use App\Models\Invoice;
+use App\Models\LedgerEntry;
 use App\Models\User;
 use App\Queries\Billing\ListBillingActivityQuery;
 use Carbon\CarbonImmutable;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Support\Str;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Support\Billing;
 use Tests\Support\BillingDemo;
@@ -61,9 +63,9 @@ it('shows the demo dataset cards exactly (D-037, D-042)', function (): void {
             ->where('summary.spent.aiSuggestions', '$0.0003125')
             ->where('summary.spent.total', '$0.35245625')
             ->where('packs', [
-                ['usd' => 5, 'amount' => '$5.00', 'tax' => '$0.00'],
-                ['usd' => 10, 'amount' => '$10.00', 'tax' => '$0.00'],
-                ['usd' => 25, 'amount' => '$25.00', 'tax' => '$0.00'],
+                ['id' => '5', 'amount' => '$5.00', 'tax' => '$0.00', 'total' => '$5.00'],
+                ['id' => '10', 'amount' => '$10.00', 'tax' => '$0.00', 'total' => '$10.00'],
+                ['id' => '25', 'amount' => '$25.00', 'tax' => '$0.00', 'total' => '$25.00'],
             ])
             ->where('auth.customer.available', '$10.3336'));
 });
@@ -140,6 +142,38 @@ it('counts a take settled after midnight UTC in the month of its settlement', fu
         ->assertInertia(fn (Assert $page) => $page
             ->where('summary.spent.month', 'October 2026')
             ->where('summary.spent.images', '$0.00'));
+});
+
+it('shows a usage settled for $0 as charged $0.00 at its completion', function (): void {
+    CarbonImmutable::setTestNow('2026-11-17T08:00:00Z');
+    $customer = Billing::fundedCustomer(1_000_000_000);
+    $customer->assignRole('customer');
+
+    CarbonImmutable::setTestNow('2026-11-17T09:00:00Z');
+    $usage = Billing::openForNewTake($customer);
+    // Zero tokens settle for $0: SettleUsageAction writes no ledger entry.
+    CarbonImmutable::setTestNow('2026-11-17T09:05:00Z');
+    BillingDemo::settle($usage, [0, 0, 0, 0]);
+
+    $rows = $this->actingAs($customer, 'customer')->get(route('billing.show'))->inertiaProps('activity.rows');
+    $line = collect($rows)->firstWhere('kind', 'image');
+
+    expect($line['status'])->toBe('charged')
+        ->and($line['amount'])->toBe('$0.00')
+        ->and($line['occurredAtLabel'])->toBe('Nov 17 09:05')
+        ->and($line['balance'])->toBe('$1.00')
+        ->and(LedgerEntry::query()->where('usage_record_id', $usage->id)->exists())->toBeFalse();
+});
+
+it('buys the pack whose id the page sent', function (): void {
+    $customer = Customer::factory()->withRole()->create();
+    $pack = $this->actingAs($customer, 'customer')->get(route('billing.show'))->inertiaProps('packs.1');
+
+    $this->actingAs($customer, 'customer')
+        ->post(route('billing.purchases.store'), ['package' => $pack['id'], 'idempotency_key' => (string) Str::uuid()])
+        ->assertRedirect();
+
+    expect($customer->refresh()->balance()->formatExact())->toBe($pack['total']);
 });
 
 it('renders exact amounts whose 4-decimal rounding would differ', function (): void {

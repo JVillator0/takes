@@ -12,7 +12,7 @@ use Carbon\CarbonImmutable;
 /**
  * One line of the billing page's Activity (spec 6): a usage (one line per
  * usage, whatever its status) or a non-charge ledger entry. `amount` is the
- * signed ledger amount (zero for a voided usage, null while on hold);
+ * signed ledger amount (zero for a voided or $0 usage, null while on hold);
  * `balanceAfter` is Σ ledger up to that line, so it excludes open holds.
  */
 final readonly class BillingActivityRowDTO
@@ -41,8 +41,9 @@ final readonly class BillingActivityRowDTO
 
         $amount = match (true) {
             $data['amount_nanos'] !== null => Nanodollars::fromInt($data['amount_nanos']),
-            // A voided usage moved no money: shown as $0.00, never hidden.
-            $status === UsageStatus::Voided => Nanodollars::zero(),
+            // A voided usage, or one settled for $0 (no ledger entry), moved
+            // no money: shown as $0.00, never hidden.
+            $status === UsageStatus::Voided, $status === UsageStatus::Settled => Nanodollars::zero(),
             default => null,
         };
 

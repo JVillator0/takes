@@ -16,14 +16,16 @@ use UnexpectedValueException;
  * The billing page's Activity (spec 6, P08), newest first:
  *
  * - one line per usage record, whatever its status (open = on hold, settled =
- *   charged, voided = not charged), with its feature and take. A settled
- *   usage sits at its charge entry; open and voided ones at their creation.
+ *   charged, voided = not charged), with its feature and take. A charged
+ *   usage sits at its charge entry, one settled for $0 (no entry, see
+ *   SettleUsageAction) at its completion, open and voided ones at creation.
  * - one line per `purchase`, `promo_grant` and `adjustment` ledger entry.
  *   Charges only appear through their usage; holds are never lines (D-024).
  *
- * The running balance is Σ ledger up to that line (window over
- * `created_at, id`), so it excludes open holds. A usage line without a
- * charge shows the balance of the last entry at or before it.
+ * The running balance is one window sum over that single stream, in ledger
+ * order, where only ledger entries move it: Σ ledger up to the line, so it
+ * excludes open holds. Each page sorts the customer's whole history once
+ * (cost noted in the README's design notes).
  */
 final readonly class ListBillingActivityQuery
 {
@@ -36,36 +38,31 @@ final readonly class ListBillingActivityQuery
         $suggestion = (new Suggestion)->getMorphClass();
 
         $rows = DB::select(<<<'SQL'
-            WITH ledger AS (
-                SELECT id, type, amount_nanos, usage_record_id, purchase_id, reason, created_at,
-                       SUM(amount_nanos) OVER (ORDER BY created_at, id) AS balance_after
-                FROM ledger_entries
-                WHERE customer_id = ?
-            ),
-            activity AS (
+            WITH events AS (
                 SELECT
                     CASE WHEN ur.billable_type = ? THEN 'image' ELSE 'ai_suggestion' END AS kind,
                     ur.id::text AS row_key,
                     ur.status AS usage_status,
-                    COALESCE(charge.created_at, ur.created_at) AS occurred_at,
-                    COALESCE(charge.id, before.id, 0) AS seq,
+                    -- Charged: at the charge entry. Settled for $0 (no entry): at completion.
+                    -- Open or voided: at creation.
+                    CASE
+                        WHEN charge.id IS NOT NULL THEN charge.created_at
+                        WHEN ur.status = 'settled' THEN COALESCE(ur.completed_at, ur.updated_at)
+                        ELSE ur.created_at
+                    END AS occurred_at,
+                    -- Lines without a ledger entry sort after the entries at the same instant.
+                    CASE WHEN charge.id IS NULL THEN 1 ELSE 0 END AS tie_rank,
+                    COALESCE(charge.id, 0) AS ledger_id,
                     charge.amount_nanos AS amount_nanos,
+                    COALESCE(charge.amount_nanos, 0) AS balance_delta,
                     ur.max_charge_nanos AS max_charge_nanos,
-                    COALESCE(charge.balance_after, before.balance_after, 0) AS balance_after,
                     COALESCE(t.id, s.base_take_id)::text AS take_id,
                     COALESCE(t.project_id, s.project_id)::text AS project_id,
                     COALESCE(t.prompt, s.instruction) AS detail,
                     NULL::text AS invoice_id,
                     NULL::text AS invoice_number
                 FROM usage_records ur
-                LEFT JOIN ledger charge ON charge.usage_record_id = ur.id AND charge.type = 'charge'
-                LEFT JOIN LATERAL (
-                    SELECT l.id, l.balance_after
-                    FROM ledger l
-                    WHERE l.created_at <= ur.created_at
-                    ORDER BY l.created_at DESC, l.id DESC
-                    LIMIT 1
-                ) before ON charge.id IS NULL
+                LEFT JOIN ledger_entries charge ON charge.usage_record_id = ur.id AND charge.type = 'charge'
                 LEFT JOIN takes t ON ur.billable_type = ? AND t.id = ur.billable_id
                 LEFT JOIN suggestions s ON ur.billable_type = ? AND s.id = ur.billable_id
                 WHERE ur.customer_id = ?
@@ -82,29 +79,39 @@ final readonly class ListBillingActivityQuery
                     l.id::text,
                     NULL,
                     l.created_at,
+                    0,
                     l.id,
                     l.amount_nanos,
+                    l.amount_nanos,
                     NULL,
-                    l.balance_after,
                     NULL,
                     NULL,
                     NULL,
                     i.id::text,
                     i.number
-                FROM ledger l
+                FROM ledger_entries l
                 LEFT JOIN invoices i ON i.purchase_id = l.purchase_id
-                WHERE l.type <> 'charge'
+                WHERE l.customer_id = ? AND l.type <> 'charge'
+            ),
+            activity AS (
+                -- One pass: Σ ledger up to each line, in ledger order (created_at, id).
+                SELECT *,
+                       SUM(balance_delta) OVER (
+                           ORDER BY occurred_at, tie_rank, ledger_id, row_key
+                           ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                       ) AS balance_after
+                FROM events
             )
             SELECT kind, row_key, usage_status, occurred_at, amount_nanos, max_charge_nanos, balance_after,
                    take_id, project_id, detail, invoice_id, invoice_number
             FROM activity
-            ORDER BY occurred_at DESC, seq DESC, row_key DESC
+            ORDER BY occurred_at DESC, tie_rank DESC, ledger_id DESC, row_key DESC
             LIMIT ? OFFSET ?
             SQL, [
-            $customer->id,
             $take,
             $take,
             $suggestion,
+            $customer->id,
             $customer->id,
             $perPage + 1,
             ($page - 1) * $perPage,
