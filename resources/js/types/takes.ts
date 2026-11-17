@@ -1,4 +1,9 @@
 /**
+ * Field naming: these props are camelCase, while the endpoint-shaped types
+ * (`TakeEstimate`, the shared `auth.customer`) keep their snake_case wire
+ * names. TakeResource does not exist yet; spec 4 (#51) either emits these
+ * names or renames them here first. No mapping layer either way.
+ *
  * Props for the take components. They mirror the future TakeResource and
  * estimate endpoint (spec 4). Money is never a number on the client: every
  * amount arrives as a server-formatted string (D-021, D-042), and customers
