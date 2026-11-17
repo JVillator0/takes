@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Stop hook: when PHP files under app/ changed since the last run, run `composer stan`
-# (Larastan) with a 60 s budget and show a non-blocking hint if it reports errors.
-# CI is the source of truth; this hook never blocks Claude from stopping (always exit 0).
+# Stop hook: when PHP files under app/ differ from origin/main (committed, staged,
+# unstaged or untracked) and that set of changes was not analysed yet, run
+# `composer stan` (Larastan) with a 60 s budget and show a non-blocking hint if it
+# reports errors. CI is the source of truth; this hook never blocks Claude from
+# stopping (always exit 0).
 set -u
 
 project_dir="${CLAUDE_PROJECT_DIR:-$(pwd)}"
@@ -12,8 +14,19 @@ command -v git >/dev/null 2>&1 || exit 0
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 [ -d vendor ] || exit 0
 
-# Fingerprint of uncommitted and untracked PHP changes under app/.
-changes="$( { git diff HEAD -- 'app/*.php' 'app/**/*.php' 2>/dev/null; git ls-files --others --exclude-standard -- 'app/' 2>/dev/null | grep '\.php$' | while read -r f; do printf '%s\n' "$f"; cat "$f" 2>/dev/null; done; } )"
+# Compare with the merge base of origin/main, so PHP committed during the turn
+# (WIP commits in pool worktrees) is still analysed. Fall back to HEAD.
+base="$(git merge-base origin/main HEAD 2>/dev/null || git rev-parse HEAD 2>/dev/null)"
+[ -n "$base" ] || exit 0
+
+# Fingerprint of every PHP change under app/ since the base, plus untracked files.
+changes="$( {
+    git diff "$base" -- 'app/*.php' 'app/**/*.php' 2>/dev/null
+    git ls-files --others --exclude-standard -- 'app/' 2>/dev/null | grep '\.php$' | while read -r f; do
+        printf '%s\n' "$f"
+        cat "$f" 2>/dev/null
+    done
+} )"
 [ -n "$changes" ] || exit 0
 
 if command -v shasum >/dev/null 2>&1; then
@@ -21,6 +34,7 @@ if command -v shasum >/dev/null 2>&1; then
 else
     fingerprint="$(printf '%s' "$changes" | sha256sum | cut -d' ' -f1)"
 fi
+# Stored per worktree inside its git dir: never committed, never shared.
 state_file="$(git rev-parse --git-dir)/claude-stan-fingerprint"
 [ "$(cat "$state_file" 2>/dev/null)" = "$fingerprint" ] && exit 0
 printf '%s' "$fingerprint" >"$state_file" 2>/dev/null
@@ -42,8 +56,10 @@ hint() {
     fi
 }
 
+# laravel/pao rewrites PHPStan output as JSON when it detects an agent; PAO_DISABLE
+# keeps the raw "path:line:message" format parsed below.
 out="$(mktemp -t claude-stan.XXXXXX)"
-"${cmd[@]}" >"$out" 2>&1 &
+PAO_DISABLE=1 "${cmd[@]}" >"$out" 2>/dev/null &
 pid=$!
 elapsed=0
 while kill -0 "$pid" 2>/dev/null && [ "$elapsed" -lt 60 ]; do
@@ -62,16 +78,9 @@ fi
 wait "$pid"
 status=$?
 if [ "$status" -ne 0 ]; then
-    # PHPStan prints JSON when it detects an agent environment, raw lines otherwise.
-    count=""
-    first=""
-    if command -v jq >/dev/null 2>&1 && jq -e '.error_details' "$out" >/dev/null 2>&1; then
-        count="$(jq -r '.errors // empty' "$out")"
-        first="$(jq -r --arg root "$project_dir/" '[.error_details | to_entries[] | .key as $f | .value[] | "\($f | ltrimstr($root)):\(.line) \(.message)"] | .[0:3] | join(" | ")' "$out")"
-    else
-        count="$(grep -c ':[0-9]*:' "$out" 2>/dev/null)" || true
-        first="$(grep -m 3 ':[0-9]*:' "$out" 2>/dev/null | sed "s|$project_dir/||" | tr '\n' ' ')"
-    fi
+    # Raw format: one "path:line:message" per error.
+    count="$(grep -c ':[0-9]*:' "$out" 2>/dev/null)" || true
+    first="$(grep -m 3 ':[0-9]*:' "$out" 2>/dev/null | sed "s|$project_dir/||" | tr '\n' ' ')"
     hint "Larastan reported ${count:-some} issue(s); run composer stan. ${first}"
 fi
 rm -f "$out"
