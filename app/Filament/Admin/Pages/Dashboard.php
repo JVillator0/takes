@@ -17,6 +17,17 @@ final class Dashboard extends BaseDashboard
         return __('console.dashboard.title');
     }
 
+    /**
+     * The dashboard lists its widgets itself: the panel also discovers the resource header widgets (so Shield gives
+     * them a permission), and those belong on their own pages.
+     *
+     * @return list<class-string>
+     */
+    public function getWidgets(): array
+    {
+        return [];
+    }
+
     public static function getNavigationLabel(): string
     {
         return __('console.dashboard.title');
