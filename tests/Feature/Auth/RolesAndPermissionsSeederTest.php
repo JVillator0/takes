@@ -14,7 +14,7 @@ it('creates the customer-guard permissions and roles from the enums', function (
 
     expect(Permission::query()->where('guard_name', 'customer')->pluck('name')->sort()->values()->all())
         ->toBe(['ai.suggest', 'credits.purchase', 'projects.manage', 'takes.create'])
-        ->and(Role::query()->pluck('guard_name', 'name')->all())
+        ->and(Role::query()->where('guard_name', 'customer')->pluck('guard_name', 'name')->all())
         ->toBe(['customer' => 'customer', 'restricted' => 'customer', 'showcase' => 'customer']);
 });
 
@@ -40,8 +40,8 @@ it('is idempotent and safe to run on every deploy', function (): void {
     $this->seed(RolesAndPermissionsSeeder::class);
     $this->seed(RolesAndPermissionsSeeder::class);
 
-    expect(Permission::query()->count())->toBe(4)
-        ->and(Role::query()->count())->toBe(3)
+    expect(Permission::query()->where('guard_name', 'customer')->count())->toBe(4)
+        ->and(Role::query()->where('guard_name', 'customer')->count())->toBe(3)
         ->and($customer->refresh()->hasRole('customer'))->toBeTrue()
         ->and($customer->checkPermissionTo('takes.create'))->toBeTrue();
 });

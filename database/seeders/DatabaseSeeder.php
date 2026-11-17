@@ -9,7 +9,7 @@ use Illuminate\Database\Seeder;
 
 /**
  * Local setup: roles and permissions (also run on every deploy, D-068), a
- * local admin user and the demo accounts. Production seeds demo data by hand
+ * local admin user, the demo accounts and the console admins (AdminUsersSeeder). Production seeds demo data by hand
  * with `db:seed --class=DemoAccountsSeeder --force`.
  */
 final class DatabaseSeeder extends Seeder
@@ -24,5 +24,7 @@ final class DatabaseSeeder extends Seeder
         );
 
         $this->call(DemoAccountsSeeder::class);
+
+        $this->call(AdminUsersSeeder::class);
     }
 }
