@@ -15,12 +15,13 @@ use App\Models\User;
 use App\Queries\Billing\GetBillingReportQuery;
 use BackedEnum;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
+use Carbon\CarbonImmutable;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
-use InvalidArgumentException;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
@@ -46,13 +47,21 @@ final class Reports extends Page
 
     public string $provider = '';
 
-    public ?int $customerId = null;
+    /** The selected customer id as the select sends it ('' for all customers); converted in filter(). */
+    public string $customer = '';
+
+    /** The last valid range: an invalid date edit shows an error and leaves the report on this range. */
+    #[Locked]
+    public string $rangeFrom = '';
+
+    #[Locked]
+    public string $rangeUntil = '';
 
     public function mount(): void
     {
         $default = BillingReportFilterDTO::lastThirtyDays();
-        $this->from = $default->from->toDateString();
-        $this->until = $default->until->toDateString();
+        $this->from = $this->rangeFrom = $default->from->toDateString();
+        $this->until = $this->rangeUntil = $default->until->toDateString();
     }
 
     public function getTitle(): string
@@ -65,19 +74,66 @@ final class Reports extends Page
         return __('console.reports.title');
     }
 
+    /**
+     * Applies From/Until only when both are real dates, ordered and within MAX_DAYS (like Pixelforge usage); a
+     * cleared or invalid date is an error, never "today". Unknown grouping or provider values fall back to the
+     * defaults, so every control always matches what the table shows.
+     */
+    public function updated(string $property): void
+    {
+        if (! in_array($this->groupBy, [BillingReportFilterDTO::BY_DAY, BillingReportFilterDTO::BY_CUSTOMER], true)) {
+            $this->groupBy = BillingReportFilterDTO::BY_DAY;
+        }
+
+        if ($this->provider !== '' && Provider::tryFrom($this->provider) === null) {
+            $this->provider = '';
+        }
+
+        if ($this->customer !== '' && ! ctype_digit($this->customer)) {
+            $this->customer = '';
+        }
+
+        if (! in_array($property, ['from', 'until'], true)) {
+            return;
+        }
+
+        $this->resetErrorBag(['from', 'until']);
+        $invalid = array_filter(['from' => $this->from, 'until' => $this->until], fn (string $value): bool => ! self::isDate($value));
+
+        foreach (array_keys($invalid) as $field) {
+            $this->addError($field, __('console.reports.invalid_date'));
+        }
+
+        if ($invalid !== []) {
+            return;
+        }
+
+        $from = CarbonImmutable::parse($this->from, 'UTC');
+        $until = CarbonImmutable::parse($this->until, 'UTC');
+
+        if ($until->lessThan($from) || $from->diffInDays($until) >= BillingReportFilterDTO::MAX_DAYS) {
+            $this->addError($property, __('console.reports.invalid_range', ['days' => BillingReportFilterDTO::MAX_DAYS]));
+
+            return;
+        }
+
+        $this->rangeFrom = $this->from;
+        $this->rangeUntil = $this->until;
+        unset($this->report);
+    }
+
+    /**
+     * The one source of truth for the table, the controls and the export.
+     */
     public function filter(): BillingReportFilterDTO
     {
-        try {
-            return BillingReportFilterDTO::fromArray([
-                'from' => $this->from,
-                'until' => $this->until,
-                'group_by' => $this->groupBy,
-                'customer_id' => $this->customerId,
-                'provider' => Provider::tryFrom($this->provider)?->value,
-            ]);
-        } catch (InvalidArgumentException) {
-            return BillingReportFilterDTO::lastThirtyDays();
-        }
+        return BillingReportFilterDTO::fromArray([
+            'from' => $this->rangeFrom,
+            'until' => $this->rangeUntil,
+            'group_by' => in_array($this->groupBy, [BillingReportFilterDTO::BY_DAY, BillingReportFilterDTO::BY_CUSTOMER], true) ? $this->groupBy : BillingReportFilterDTO::BY_DAY,
+            'customer_id' => ctype_digit($this->customer) ? (int) $this->customer : null,
+            'provider' => Provider::tryFrom($this->provider)?->value,
+        ]);
     }
 
     #[Computed]
@@ -106,9 +162,33 @@ final class Reports extends Page
                 ->action(function (): ?StreamedResponse {
                     $admin = self::admin();
 
-                    return $admin === null ? null : app(ExportBillingReportCsvAction::class)->execute($admin, $this->filter());
+                    if ($admin === null) {
+                        return null;
+                    }
+
+                    $filter = $this->filter();
+
+                    return response()->streamDownload(function () use ($admin, $filter): void {
+                        $out = fopen('php://output', 'wb');
+
+                        if ($out !== false) {
+                            app(ExportBillingReportCsvAction::class)->execute($admin, $filter, $out);
+                            fclose($out);
+                        }
+                    }, sprintf('takes-report-%s-%s.csv', $filter->from->toDateString(), $filter->until->toDateString()), ['Content-Type' => 'text/csv; charset=UTF-8']);
                 }),
         ];
+    }
+
+    private static function isDate(string $value): bool
+    {
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) !== 1) {
+            return false;
+        }
+
+        [$year, $month, $day] = array_map(intval(...), explode('-', $value));
+
+        return checkdate($month, $day, $year);
     }
 
     private static function admin(): ?User

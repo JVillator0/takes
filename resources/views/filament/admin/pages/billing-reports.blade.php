@@ -4,8 +4,11 @@
     use App\Filament\Admin\Support\Money;
 
     $report = $this->report;
-    $byDay = $this->filter()->groupBy === BillingReportFilterDTO::BY_DAY;
+    $filter = $this->filter();
+    $byDay = $filter->groupBy === BillingReportFilterDTO::BY_DAY;
+    $selectedProvider = $filter->provider?->value ?? '';
     $total = $report->totals;
+    $totalMargin = $total->marginBps();
 @endphp
 
 <x-filament-panels::page>
@@ -15,29 +18,31 @@
             <x-filament::input.wrapper>
                 <x-filament::input type="date" wire:model.live="from" />
             </x-filament::input.wrapper>
+            @error('from') <span class="text-xs text-danger-600 dark:text-danger-400">{{ $message }}</span> @enderror
         </label>
         <label class="flex flex-col gap-1 text-sm">
             <span class="font-medium text-gray-700 dark:text-gray-200">{{ __('console.reports.until') }}</span>
             <x-filament::input.wrapper>
                 <x-filament::input type="date" wire:model.live="until" />
             </x-filament::input.wrapper>
+            @error('until') <span class="text-xs text-danger-600 dark:text-danger-400">{{ $message }}</span> @enderror
         </label>
 
         <x-filament::tabs>
-            <x-filament::tabs.item :active="$groupBy === 'day'" wire:click="$set('groupBy', 'day')">
+            <x-filament::tabs.item :active="$byDay" wire:click="$set('groupBy', '{{ BillingReportFilterDTO::BY_DAY }}')">
                 {{ __('console.reports.by_day') }}
             </x-filament::tabs.item>
-            <x-filament::tabs.item :active="$groupBy === 'customer'" wire:click="$set('groupBy', 'customer')">
+            <x-filament::tabs.item :active="! $byDay" wire:click="$set('groupBy', '{{ BillingReportFilterDTO::BY_CUSTOMER }}')">
                 {{ __('console.reports.by_customer') }}
             </x-filament::tabs.item>
         </x-filament::tabs>
 
         <x-filament::tabs>
-            <x-filament::tabs.item :active="$provider === ''" wire:click="$set('provider', '')">
+            <x-filament::tabs.item :active="$selectedProvider === ''" wire:click="$set('provider', '')">
                 {{ __('console.reports.all_providers') }}
             </x-filament::tabs.item>
             @foreach (\App\Enums\Billing\Provider::cases() as $case)
-                <x-filament::tabs.item :active="$provider === $case->value" wire:click="$set('provider', '{{ $case->value }}')">
+                <x-filament::tabs.item :active="$selectedProvider === $case->value" wire:click="$set('provider', '{{ $case->value }}')">
                     {{ __('console.reports.providers.'.$case->value) }}
                 </x-filament::tabs.item>
             @endforeach
@@ -46,7 +51,7 @@
         <label class="flex flex-col gap-1 text-sm">
             <span class="font-medium text-gray-700 dark:text-gray-200">{{ __('console.common.customer') }}</span>
             <x-filament::input.wrapper>
-                <x-filament::input.select wire:model.live="customerId">
+                <x-filament::input.select wire:model.live="customer">
                     <option value="">{{ __('console.reports.all_customers') }}</option>
                     @foreach ($this->customers as $id => $name)
                         <option value="{{ $id }}">{{ $name }}</option>
@@ -72,6 +77,7 @@
                             <th class="px-2 py-2 text-end">{{ __('console.reports.generations') }}</th>
                             <th class="px-2 py-2 text-end">{{ __('console.reports.suggestions') }}</th>
                             <th class="px-2 py-2 text-end">{{ __('console.reports.spend') }}</th>
+                            <th class="px-2 py-2 text-end">{{ __('console.reports.provider_cost') }}</th>
                             <th class="px-2 py-2 text-end">{{ __('console.reports.pixelforge_cost') }}</th>
                             <th class="px-2 py-2 text-end">{{ __('console.reports.anthropic_cost') }}</th>
                             <th class="px-2 py-2 text-end">{{ __('console.reports.profit') }}</th>
@@ -91,10 +97,11 @@
                                 <td class="px-2 py-2 text-end tabular-nums">{{ number_format($row->generationsCharged) }}</td>
                                 <td class="px-2 py-2 text-end tabular-nums">{{ number_format($row->suggestions) }}</td>
                                 <td class="px-2 py-2 text-end tabular-nums">{{ $row->spend->formatExact() }}</td>
+                                <td class="px-2 py-2 text-end tabular-nums">{{ $row->cost->formatExact() }}</td>
                                 <td class="px-2 py-2 text-end tabular-nums">{{ $row->pixelforgeCost->formatExact() }}</td>
                                 <td class="px-2 py-2 text-end tabular-nums">{{ $row->anthropicCost->formatExact() }}</td>
                                 <td class="px-2 py-2 text-end tabular-nums">{{ $row->profit()->formatExact() }}</td>
-                                <td @class(['px-2 py-2 text-end tabular-nums', 'font-semibold text-danger-600 dark:text-danger-400' => $margin !== null && $margin !== 2000])>{{ Money::percentFromBps($margin) }}</td>
+                                <td @class(['px-2 py-2 text-end tabular-nums', 'font-semibold text-danger-600 dark:text-danger-400' => $margin !== null && $margin !== 2000]) data-testid="margin-{{ $row->key }}">{{ Money::percentFromBps($margin) }}</td>
                                 @unless ($byDay)
                                     <td class="px-2 py-2 text-end tabular-nums">{{ Money::percentFromBps($row->shareOfSpendBps($total->spend)) }}</td>
                                 @endunless
@@ -109,10 +116,11 @@
                             <td class="px-2 py-2 text-end tabular-nums">{{ number_format($total->generationsCharged) }}</td>
                             <td class="px-2 py-2 text-end tabular-nums">{{ number_format($total->suggestions) }}</td>
                             <td class="px-2 py-2 text-end tabular-nums">{{ $total->spend->formatExact() }}</td>
+                            <td class="px-2 py-2 text-end tabular-nums">{{ $total->cost->formatExact() }}</td>
                             <td class="px-2 py-2 text-end tabular-nums">{{ $total->pixelforgeCost->formatExact() }}</td>
                             <td class="px-2 py-2 text-end tabular-nums">{{ $total->anthropicCost->formatExact() }}</td>
                             <td class="px-2 py-2 text-end tabular-nums">{{ $total->profit()->formatExact() }}</td>
-                            <td class="px-2 py-2 text-end tabular-nums">{{ Money::percentFromBps($total->marginBps()) }}</td>
+                            <td @class(['px-2 py-2 text-end tabular-nums', 'text-danger-600 dark:text-danger-400' => $totalMargin !== null && $totalMargin !== 2000]) data-testid="margin-total">{{ Money::percentFromBps($totalMargin) }}</td>
                             @unless ($byDay)
                                 <td class="px-2 py-2 text-end tabular-nums">{{ $total->spend->isZero() ? '-' : '100.0%' }}</td>
                             @endunless

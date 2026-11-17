@@ -18,6 +18,7 @@ use Filament\Facades\Filament;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
 use Spatie\Activitylog\Models\Activity;
+use Spatie\Permission\PermissionRegistrar;
 
 // Spec 7 issue 3 / A03 (D-035): totals equal Σ settled usage in every grouping, margin 2000 bps on every non-empty
 // day and "-" on an empty one, exact CSV with formula-injection protection.
@@ -28,6 +29,21 @@ beforeEach(function (): void {
     Http::preventStrayRequests();
     $this->travelTo(CarbonImmutable::parse('2026-11-17 12:00:00', 'UTC'));
 });
+
+/**
+ * The CSV the export action writes, parsed with the writer's own escape setting.
+ *
+ * @return list<list<string>>
+ */
+function exportLines(User $admin, BillingReportFilterDTO $filter): array
+{
+    $stream = fopen('php://memory', 'w+b');
+    app(ExportBillingReportCsvAction::class)->execute($admin, $filter, $stream);
+    rewind($stream);
+    $csv = (string) stream_get_contents($stream);
+
+    return array_values(array_map(fn (string $line): array => str_getcsv($line, escape: ''), array_filter(explode("\n", $csv))));
+}
 
 /**
  * Two customers over two days; voided, open and out-of-range usage must not count.
@@ -94,7 +110,9 @@ it('totals equal the settled usage by customer and filter by customer and provid
         ->and($anaOnly->totals->takes)->toBe(Take::query()->where('customer_id', $ana->id)->count())
         ->and($anthropic->totals->spend->toInt())->toBe(317_500)
         ->and($anthropic->totals->takes)->toBe(0)
-        ->and($bob->id)->toBeInt();
+        // Bob's row: one settled Pixelforge usage of 47,560,000 in the range (the September one is outside it).
+        ->and([$byCustomer->rows[1]->key, $byCustomer->rows[1]->spend->toInt(), $byCustomer->rows[1]->generationsCharged])
+        ->toBe([(string) $bob->id, 59_450_000, 1]);
 });
 
 it('renders the report for the auditor with the margin check and the dash on an empty day', function (): void {
@@ -105,7 +123,8 @@ it('renders the report for the auditor with the margin check and the dash on an 
         ->assertOk()
         ->assertSee('20.0%')
         ->assertSee('$0.0740375')
-        ->assertSeeInOrder(['2026-11-15', '-'])
+        ->assertSeeHtml('data-testid="margin-2026-11-15">-</td>')
+        ->assertSeeHtml('data-testid="margin-2026-11-16">20.0%</td>')
         ->assertActionHidden('exportCsv')
         ->set('groupBy', 'customer')
         ->assertSee('Ana López')
@@ -127,12 +146,14 @@ it('exports day × customer × provider rows with exact decimals, a formula guar
     reportDataset();
     $operator = User::factory()->admin(AdminRole::Operator)->withAppAuthentication()->create();
 
-    $response = app(ExportBillingReportCsvAction::class)->execute($operator, BillingReportFilterDTO::lastThirtyDays());
-    ob_start();
-    $response->sendContent();
-    $lines = array_map(str_getcsv(...), array_filter(explode("\n", (string) ob_get_clean())));
+    $lines = exportLines($operator, BillingReportFilterDTO::lastThirtyDays());
+    $anaId = (string) Customer::query()->where('name', 'Ana López')->value('id');
 
     expect($lines[0])->toBe(ExportBillingReportCsvAction::COLUMNS)
+        // Generations (charged) count Pixelforge only: Ana's Anthropic row exports 0, and the column sums to the screen total.
+        ->and(collect($lines)->first(fn (array $line): bool => $line[1] === $anaId && $line[3] === 'anthropic')[4] ?? null)->toBe('0')
+        ->and(array_sum(array_map(fn (array $line): int => (int) $line[4], array_slice($lines, 1))))
+        ->toBe(app(GetBillingReportQuery::class)->execute(BillingReportFilterDTO::lastThirtyDays())->totals->generationsCharged)
         ->and(count($lines))->toBe(5)
         ->and($lines[1])->toBe(['2026-11-16', (string) Customer::query()->where('name', 'Ana López')->value('id'), 'Ana López', 'pixelforge', '1', '0.074037500', '0.059230000', '0.014807500', '2000', '74037500', '59230000', '14807500'])
         ->and(collect($lines)->firstWhere(2, "'=HYPERLINK(\"http://evil\")"))->not->toBeNull()
@@ -140,6 +161,69 @@ it('exports day × customer × provider rows with exact decimals, a formula guar
         ->toBe(app(GetBillingReportQuery::class)->execute(BillingReportFilterDTO::lastThirtyDays())->totals->spend->toInt())
         ->and(Activity::query()->where('event', 'exported')->where('causer_id', $operator->id)->exists())->toBeTrue();
 
+    $filtered = exportLines($operator, BillingReportFilterDTO::fromArray(['from' => '2026-10-19', 'until' => '2026-11-17', 'customer_id' => (int) $anaId, 'provider' => 'pixelforge']));
+    $audit = Activity::query()->where('event', 'exported')->latest('id')->first();
+
+    expect(array_unique(array_map(fn (array $line): string => $line[1].'/'.$line[3], array_slice($filtered, 1))))->toBe([$anaId.'/pixelforge'])
+        ->and([$audit?->properties['customer_id'] ?? null, $audit?->properties['provider'] ?? null])->toBe([(int) $anaId, 'pixelforge']);
+
     $this->actingAs($operator);
     Livewire::test(Reports::class)->assertActionVisible('exportCsv')->callAction('exportCsv')->assertFileDownloaded('takes-report-2026-10-19-2026-11-17.csv');
+});
+
+it('keeps the last valid range and reports a lang error for an invalid one, never reading a cleared date as today', function (): void {
+    reportDataset();
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
+
+    Livewire::test(Reports::class)
+        ->set('from', '')
+        ->assertHasErrors(['from'])
+        ->assertSet('rangeFrom', '2026-10-19')
+        ->set('from', '2025-01-01')
+        ->assertHasErrors(['from'])
+        ->set('from', '2026-11-20')
+        ->assertHasErrors(['from'])
+        ->assertSee('2026-11-16')
+        ->set('from', '2026-11-16')
+        ->assertHasNoErrors()
+        ->assertSet('rangeFrom', '2026-11-16');
+});
+
+it('lets the operator pick a customer and go back to all customers', function (): void {
+    ['ana' => $ana, 'bob' => $bob] = reportDataset();
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
+
+    Livewire::test(Reports::class)
+        ->set('groupBy', 'customer')
+        ->set('customer', (string) $ana->id)
+        ->assertSeeHtml('wire:key="row-'.$ana->id.'"')
+        ->assertDontSeeHtml('wire:key="row-'.$bob->id.'"')
+        ->set('customer', '')
+        ->assertOk()
+        ->assertSeeHtml('wire:key="row-'.$bob->id.'"');
+});
+
+it('flags a total margin other than 20.0%', function (): void {
+    $customer = Customer::factory()->create();
+    UsageRecord::factory()->settled(100_000_000)->create(['customer_id' => $customer->id, 'billing_date' => '2026-11-16', 'markup_bps' => 3000, 'charge_nanos' => 130_000_000]);
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
+
+    // markup 3000 bps on cost ⇒ margin 3000 / 13000 of spend = 2307 bps.
+    Livewire::test(Reports::class)->assertSeeHtml('text-danger-600 dark:text-danger-400" data-testid="margin-total">23.1%</td>');
+});
+
+it('rejects an unordered range, a range over the maximum and an unknown grouping', function (array $data): void {
+    expect(fn () => BillingReportFilterDTO::fromArray($data))->toThrow(InvalidArgumentException::class);
+})->with([
+    'until before from' => [['from' => '2026-11-17', 'until' => '2026-11-16']],
+    '367 inclusive days' => [['from' => '2025-11-16', 'until' => '2026-11-17']],
+    'unknown grouping' => [['from' => '2026-11-16', 'until' => '2026-11-17', 'group_by' => 'week']],
+]);
+
+it('hides Billing in the sidebar from an admin who may open nothing in it', function (): void {
+    $admin = User::factory()->admin(AdminRole::Auditor)->create();
+    $admin->roles()->first()?->revokePermissionTo('View:Reports');
+    app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+    $this->actingAs($admin->refresh())->get('/admin')->assertOk()->assertDontSee('Billing');
 });

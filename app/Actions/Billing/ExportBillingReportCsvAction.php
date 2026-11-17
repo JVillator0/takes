@@ -8,13 +8,14 @@ use App\Actions\Admin\RecordAdminActivityAction;
 use App\DTOs\Billing\BillingReportFilterDTO;
 use App\Models\User;
 use App\Queries\Billing\ListBillingReportExportRowsQuery;
+use App\Support\Money\BasisPoints;
 use App\Support\Money\Nanodollars;
-use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
- * Billing › Reports **Export CSV** (spec 7, D-035, D-042): day × customer × provider rows, streamed. Money is an
- * exact decimal string (`0.074037500`) next to its integer nanodollars; a customer name that a spreadsheet would
- * run as a formula is prefixed with `'`. The export itself is audited.
+ * Billing › Reports **Export CSV** (spec 7, D-035, D-042): day × customer × provider rows written to a stream
+ * (never an HTTP response: the page wraps it in a streamed download). Money is an exact decimal string
+ * (`0.074037500`) next to its integer nanodollars; a customer name that a spreadsheet would run as a formula is
+ * prefixed with `'`. The export itself is audited with its filters.
  */
 final readonly class ExportBillingReportCsvAction
 {
@@ -31,53 +32,56 @@ final readonly class ExportBillingReportCsvAction
         private RecordAdminActivityAction $recordActivity,
     ) {}
 
-    public function execute(User $admin, BillingReportFilterDTO $filter): StreamedResponse
+    /**
+     * Audits the export (who, range and filters) and writes the CSV to `$stream` (any writable stream: the
+     * page passes php://output inside a streamed download; a command could pass a file). Returns the rows written.
+     *
+     * @param  resource  $stream
+     */
+    public function execute(User $admin, BillingReportFilterDTO $filter, $stream): int
     {
         $this->recordActivity->execute($admin, self::EVENT, null, [
             'page' => 'billing/reports',
             'from' => $filter->from->toDateString(),
             'until' => $filter->until->toDateString(),
+            'customer_id' => $filter->customerId,
+            'provider' => $filter->provider?->value,
         ]);
 
-        $filename = sprintf('takes-report-%s-%s.csv', $filter->from->toDateString(), $filter->until->toDateString());
+        fputcsv($stream, self::COLUMNS, escape: '');
+        $written = 0;
 
-        return response()->streamDownload(function () use ($filter): void {
-            $out = fopen('php://output', 'wb');
+        foreach ($this->rows->execute($filter) as $row) {
+            $spend = Nanodollars::fromInt($row->spend_nanos);
+            $cost = Nanodollars::fromInt($row->cost_nanos);
+            $profit = $spend->minus($cost);
 
-            if ($out === false) {
-                return;
-            }
+            fputcsv($stream, [
+                $row->billing_date,
+                (string) $row->customer_id,
+                self::safeCell($row->customer_name),
+                $row->provider,
+                (string) $row->generations_charged,
+                $spend->toDecimalString(),
+                $cost->toDecimalString(),
+                $profit->toDecimalString(),
+                (string) (BasisPoints::ratio($profit->toInt(), $spend->toInt()) ?? ''),
+                (string) $spend->toInt(),
+                (string) $cost->toInt(),
+                (string) $profit->toInt(),
+            ], escape: '');
+            $written++;
+        }
 
-            fputcsv($out, self::COLUMNS, escape: '');
-
-            foreach ($this->rows->execute($filter) as $row) {
-                $spend = Nanodollars::fromInt($row->spend_nanos);
-                $cost = Nanodollars::fromInt($row->cost_nanos);
-                $profit = $spend->minus($cost);
-
-                fputcsv($out, [
-                    $row->billing_date,
-                    (string) $row->customer_id,
-                    self::safeCell($row->customer_name),
-                    $row->provider,
-                    (string) $row->generations_charged,
-                    $spend->toDecimalString(),
-                    $cost->toDecimalString(),
-                    $profit->toDecimalString(),
-                    $spend->isZero() ? '' : (string) intdiv($profit->toInt() * 10_000, $spend->toInt()),
-                    (string) $spend->toInt(),
-                    (string) $cost->toInt(),
-                    (string) $profit->toInt(),
-                ], escape: '');
-            }
-
-            fclose($out);
-        }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
+        return $written;
     }
 
-    /** CSV formula injection: a cell starting with =, +, - or @ is read as text. */
+    /**
+     * CSV formula injection: a cell starting with =, +, - or @ (spec 7), or a tab or carriage return (OWASP), is
+     * read as text.
+     */
     private static function safeCell(string $value): string
     {
-        return $value !== '' && in_array($value[0], ['=', '+', '-', '@'], true) ? "'".$value : $value;
+        return $value !== '' && in_array($value[0], ['=', '+', '-', '@', "\t", "\r"], true) ? "'".$value : $value;
     }
 }

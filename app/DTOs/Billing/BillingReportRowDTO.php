@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\DTOs\Billing;
 
+use App\Support\Money\BasisPoints;
 use App\Support\Money\Nanodollars;
 
 /**
@@ -53,16 +54,12 @@ final readonly class BillingReportRowDTO
     /** Integer basis points of profit over spend; null when nothing was spent. */
     public function marginBps(): ?int
     {
-        if ($this->spend->isZero()) {
-            return null;
-        }
-
-        return intdiv($this->profit()->toInt() * 10_000, $this->spend->toInt());
+        return BasisPoints::ratio($this->profit()->toInt(), $this->spend->toInt());
     }
 
     /** This row's share of the total spend, in integer basis points. */
     public function shareOfSpendBps(Nanodollars $totalSpend): ?int
     {
-        return $totalSpend->isZero() ? null : intdiv($this->spend->toInt() * 10_000, $totalSpend->toInt());
+        return BasisPoints::ratio($this->spend->toInt(), $totalSpend->toInt());
     }
 }

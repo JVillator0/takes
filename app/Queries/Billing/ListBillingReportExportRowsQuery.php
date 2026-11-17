@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Queries\Billing;
 
 use App\DTOs\Billing\BillingReportFilterDTO;
+use App\Enums\Billing\Provider;
 use App\Enums\Billing\UsageStatus;
 use App\Models\UsageRecord;
 use Illuminate\Database\Query\Builder;
@@ -33,7 +34,8 @@ final readonly class ListBillingReportExportRowsQuery
             ->selectRaw('usage_records.customer_id as customer_id')
             ->selectRaw('customers.name as customer_name')
             ->selectRaw('usage_records.provider as provider')
-            ->selectRaw('count(*) as generations_charged')
+            // Generations (charged) are settled Pixelforge usages only (spec 7 Definitions): an Anthropic row has 0.
+            ->selectRaw('count(*) filter (where usage_records.provider = ?) as generations_charged', [Provider::Pixelforge->value])
             ->selectRaw('sum(usage_records.charge_nanos) as spend_nanos')
             ->selectRaw('sum(usage_records.provider_cost_nanos) as cost_nanos')
             ->groupBy('usage_records.billing_date', 'usage_records.customer_id', 'customers.name', 'usage_records.provider')

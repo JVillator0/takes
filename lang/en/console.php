@@ -333,7 +333,10 @@ return [
         'total' => 'Total',
         'empty' => 'No settled usage in this range',
         'export' => 'Export CSV',
-        'footnote' => 'Profit = customer spend − provider cost, from settled usage only (purchases are prepaid cash, never spend). With an exact 25% markup on cost the margin on spend is always 20.0%; any other value is highlighted as an invariant alert. Promo and adjustment credits consumed count as spend with no cash received.',
+        'invalid_date' => 'Enter a date as YYYY-MM-DD.',
+        'invalid_range' => 'Pick an ordered range of at most :days days.',
+        'provider_cost' => 'Provider cost',
+        'footnote' => 'Profit = customer spend − provider cost, from settled usage only (purchases are prepaid cash, never spend). With an exact 25% markup on cost the margin on spend is always 20.0%; any other value, totals included, is highlighted as an invariant alert.',
     ],
 
     'audit' => [

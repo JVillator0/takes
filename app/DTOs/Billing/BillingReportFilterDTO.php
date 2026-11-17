@@ -31,8 +31,8 @@ final readonly class BillingReportFilterDTO
             throw new InvalidArgumentException("Unknown grouping {$groupBy}.");
         }
 
-        if ($until->lessThan($from) || $from->diffInDays($until) > self::MAX_DAYS) {
-            throw new InvalidArgumentException('The report range must be ordered and at most a year.');
+        if ($until->lessThan($from) || $from->diffInDays($until) >= self::MAX_DAYS) {
+            throw new InvalidArgumentException('The report range must be ordered and at most 366 days.');
         }
     }
 
