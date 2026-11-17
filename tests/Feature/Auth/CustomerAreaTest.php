@@ -57,7 +57,7 @@ it('resolves the customer in shared props on every customer page (D-032)', funct
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->where('auth.customer.id', $customer->id)
-            ->where('can.createProject.allowed', true));
+            ->where('auth.can.createProject.allowed', true));
 })->with('customer pages');
 
 it('makes the customer guard the request default inside the customer group', function (): void {

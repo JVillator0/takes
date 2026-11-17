@@ -38,7 +38,7 @@ final class HandleInertiaRequests extends Middleware
     /**
      * Define the props that are shared by default.
      *
-     * `auth` and `can` are closures so they resolve at render time, after the
+     * `auth` is a closure so it resolves at render time, after the
      * route's `customer.guard` / `auth:customer` middleware ran (D-032). The
      * public app only ever shares the customer: never an admin, and never
      * provider cost, tokens, provider names or margin (D-023).
@@ -52,10 +52,12 @@ final class HandleInertiaRequests extends Middleware
         return [
             ...parent::share($request),
             'name' => config('app.name'),
+            // Shared abilities live under `auth.can`, so a page's own `can`
+            // prop (createTake, suggest: specs 4 and 8) never replaces them.
             'auth' => fn (): array => [
                 'customer' => $this->customerProps($this->customer($request)),
+                'can' => $this->abilities($this->customer($request)),
             ],
-            'can' => fn (): ?array => $this->abilities($this->customer($request)),
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
     }

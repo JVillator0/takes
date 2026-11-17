@@ -10,11 +10,6 @@ export type Customer = {
     email: string;
     available: string;
     on_hold: string;
-    avatar?: string;
-};
-
-export type Auth = {
-    customer: Customer | null;
 };
 
 /** One entry of a `can` object: `{ allowed: false, reason: 'insufficient_credits', message }`. */
@@ -24,10 +19,16 @@ export type Ability = {
     message: string | null;
 };
 
-/** Estimate-independent abilities shared with every customer page. */
+/** Estimate-independent abilities shared with every customer page as `auth.can`. */
 export type SharedAbilities = {
     createProject: Ability;
     purchaseCredits: Ability;
+};
+
+/** Shared `auth`: page-level `can` props never clash with `auth.can`. */
+export type Auth = {
+    customer: Customer | null;
+    can: SharedAbilities | null;
 };
 
 /** A seeded login on the P02 demo panel (only when DEMO_LOGIN_ENABLED=true). */
