@@ -80,19 +80,19 @@ const moneyClass = computed(() => {
                 </span>
             </div>
 
-            <h3
-                :id="titleId"
-                class="line-clamp-2 text-sm leading-snug font-medium"
-            >
+            <h3 :id="titleId" class="text-sm leading-snug font-medium">
                 <button
                     type="button"
-                    class="cursor-pointer text-left outline-none after:absolute after:inset-0 after:content-['']"
+                    class="block w-full cursor-pointer text-left outline-none after:absolute after:inset-0 after:content-['']"
                     @click="emit('open', take.id)"
                 >
                     <span class="sr-only">
                         {{ t('takes.card.open', { id: take.id }) }}:
                     </span>
-                    {{ take.prompt }}
+                    <!-- Clamp on a block inside the button; prompts reach 4,000 characters. -->
+                    <span class="line-clamp-2 break-words">
+                        {{ take.prompt }}
+                    </span>
                 </button>
             </h3>
 

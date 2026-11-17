@@ -74,7 +74,7 @@ const { t } = useCopy();
                     :href="dashboard()"
                     class="shrink-0 rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                 >
-                    <TakesMark />
+                    <TakesMark compact />
                 </Link>
 
                 <div class="hidden min-w-0 flex-1 truncate sm:block">
@@ -86,7 +86,9 @@ const { t } = useCopy();
                     </slot>
                 </div>
 
-                <div class="ml-auto flex shrink-0 items-center gap-2">
+                <div
+                    class="ml-auto flex min-w-0 items-center justify-end gap-2"
+                >
                     <slot name="status" />
                     <slot name="balance">
                         <BalancePill v-if="balance" :balance="balance" />
