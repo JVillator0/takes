@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Support;
 
+use App\Enums\Takes\TakeStatus;
 use FilesystemIterator;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -330,6 +331,49 @@ final class SourceScan
                 }
 
                 $statement = [];
+            }
+        }
+
+        return $violations;
+    }
+
+    /**
+     * Writes of a take status outside the files in `$except` (money.md M-11):
+     * anywhere, a status written as a TakeStatus case or as the string of one
+     * (`'status' => TakeStatus::Failed`, `->status = 'failed'`); in a file
+     * that references App\Models\Take, a status written with any other value
+     * (`'status' => $snapshot->status`), unless it is another model's status
+     * enum (UsageStatus, SuggestionStatus, PurchaseStatus).
+     *
+     * @param  list<string>  $paths
+     * @param  list<string>  $except  project-relative path prefixes to skip
+     * @return list<string>
+     */
+    public static function takeStatusWrites(array $paths, array $except = []): array
+    {
+        $statuses = implode('|', array_map(fn (TakeStatus $status): string => $status->value, TakeStatus::cases()));
+        // Possessive: the value lookahead below must not backtrack into the spaces.
+        $write = '(?:[\'"]status[\'"]\s*=>|->status\s*=(?!=))\s*+';
+        $takeValue = '/'.$write.'(?:\\\\?(?:App\\\\Enums\\\\Takes\\\\)?TakeStatus::(?!class\b)|[\'"](?:'.$statuses.')[\'"])/';
+        $anyValue = '/'.$write.'(?!(?:\\\\?App\\\\Enums\\\\\w+\\\\)?(?:Usage|Suggestion|Purchase)Status::)/';
+        $violations = [];
+
+        foreach (self::phpFiles($paths) as $file) {
+            $relative = self::relative($file);
+
+            foreach ($except as $prefix) {
+                if (str_starts_with($relative, $prefix)) {
+                    continue 2;
+                }
+            }
+
+            $source = (string) file_get_contents($file);
+            $pattern = preg_match('/App\\\\Models\\\\Take\b/', $source) === 1 ? $anyValue : $takeValue;
+            $matches = [];
+            preg_match_all($pattern, $source, $matches, PREG_OFFSET_CAPTURE);
+
+            foreach ($matches[0] as [$text, $offset]) {
+                $violations[] = $relative.':'.(substr_count($source, "\n", 0, $offset) + 1).' writes a take status: '.trim($text);
             }
         }
 

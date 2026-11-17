@@ -159,24 +159,26 @@ test('the usage-record lock scan sees Eloquent and query-builder locks', functio
     }
 });
 
-// M-11: a take's status changes only in ApplyTakeSnapshotAction and
-// FailTakeAction (spec 3-02). A tripwire for the obvious shapes, a TakeStatus
-// case written as a value (`'status' => TakeStatus::…`, `->status = TakeStatus::…`);
-// review catches the rest.
+// money.md M-11: a take's status changes only in ApplyTakeSnapshotAction and
+// FailTakeAction (spec 3-02). Models declare the cast and the default.
 test('only the transition actions write a take status', function (): void {
-    $allowed = [
-        SourceScan::root().'/app/Actions/Takes/ApplyTakeSnapshotAction.php',
-        SourceScan::root().'/app/Actions/Takes/FailTakeAction.php',
-    ];
-    $writes = [];
+    expect(SourceScan::takeStatusWrites(
+        ['app', 'routes', 'database/seeders'],
+        except: ['app/Actions/Takes/ApplyTakeSnapshotAction.php', 'app/Actions/Takes/FailTakeAction.php', 'app/Models/'],
+    ))->toBe([]);
+});
 
-    foreach (SourceScan::phpFiles(['app']) as $file) {
-        $source = (string) file_get_contents($file);
+test('the take-status scan sees enum cases, string values and variables next to a Take', function (): void {
+    $plain = SourceScan::root().'/storage/framework/testing-status-plain.php';
+    $take = SourceScan::root().'/storage/framework/testing-status-take.php';
+    file_put_contents($plain, "<?php\n\$a->forceFill(['status' => TakeStatus::Failed]);\n\$b->update(['status' => 'succeeded']);\n\$c->status = \\App\\Enums\\Takes\\TakeStatus::Queued;\n\$d->update(['status' => \$next]);\nif (\$e->status === TakeStatus::Failed) {}\n");
+    file_put_contents($take, "<?php\nuse App\\Models\\Take;\n\$t->forceFill(['status' => \$snapshot->status]);\n\$u->forceFill(['status' => UsageStatus::Voided]);\n\$t->status = \$next;\n");
 
-        if (! in_array($file, $allowed, true) && preg_match('/(\'status\'\s*=>|->status\s*=(?!=))\s*\\\\?(App\\\\Enums\\\\Takes\\\\)?TakeStatus::(?!class\b)/', $source) === 1) {
-            $writes[] = $file;
-        }
+    try {
+        expect(SourceScan::takeStatusWrites(['storage/framework/testing-status-plain.php']))->toHaveCount(3)
+            ->and(SourceScan::takeStatusWrites(['storage/framework/testing-status-take.php']))->toHaveCount(2);
+    } finally {
+        unlink($plain);
+        unlink($take);
     }
-
-    expect($writes)->toBe([]);
 });
