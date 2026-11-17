@@ -6,6 +6,8 @@ use App\Http\Middleware\HandleInertiaRequests;
 use Inertia\Testing\AssertableInertia as Assert;
 
 it('renders the landing page with the demo button off by default', function (): void {
+    config()->set('takes.welcome_credit_nanos', 1_000_000_000);
+
     $this->get(route('home'))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
@@ -45,4 +47,35 @@ it('re-sends the copy only when the client does not hold the current version', f
 
     expect($inertiaVisit($current)->json('props'))->not->toHaveKey('copy');
     expect($inertiaVisit('copy:stale-hash')->json('props'))->toHaveKey('copy');
+});
+
+it('advertises the configured welcome credit', function (): void {
+    config()->set('takes.welcome_credit_nanos', 2_500_000_000);
+
+    $this->get(route('home'))
+        ->assertInertia(fn (Assert $page) => $page->where('welcomeCredit', '$2.50'));
+});
+
+it('versions the copy by locale, falling back to the fallback locale files', function (): void {
+    $english = HandleInertiaRequests::copyVersion();
+
+    app()->setLocale('xx');
+
+    expect(HandleInertiaRequests::copyVersion())->toBe('xx'.substr($english, strlen('en')));
+});
+
+it('changes the copy version when a lang file changes', function (): void {
+    $path = lang_path('en/landing.php');
+    $originalMtime = filemtime($path);
+    $before = HandleInertiaRequests::copyVersion();
+
+    try {
+        touch($path, $originalMtime + 60);
+        clearstatcache(true, $path);
+
+        expect(HandleInertiaRequests::copyVersion())->not->toBe($before);
+    } finally {
+        touch($path, $originalMtime);
+        clearstatcache(true, $path);
+    }
 });

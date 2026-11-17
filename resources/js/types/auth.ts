@@ -9,9 +9,9 @@ export type Customer = {
     name: string;
     email: string;
     available: string;
-    on_hold: string;
-    /** Exact amounts for the pill's hover (D-042). */
+    /** Exact amount for the pill's tooltip (D-042). */
     available_exact: string;
+    on_hold: string;
     on_hold_exact: string;
 };
 

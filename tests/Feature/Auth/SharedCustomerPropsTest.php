@@ -24,8 +24,8 @@ it('shares the customer with money as server-formatted strings only (D-023, D-02
             'name' => $customer->name,
             'email' => $customer->email,
             'available' => '$10.3336',
-            'on_hold' => '$0.3140',
             'available_exact' => '$10.33358125',
+            'on_hold' => '$0.3140',
             'on_hold_exact' => '$0.3139625',
         ]));
 });

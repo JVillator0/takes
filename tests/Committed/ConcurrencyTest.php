@@ -35,7 +35,7 @@ function race(array $runs): array
         'DB_PASSWORD' => (string) $connection['password'],
     ];
     // Time for both processes to boot before the start line.
-    $startAt = (string) (microtime(true) + 2.0);
+    $startAt = (string) (microtime(true) + 3.0);
 
     $results = Process::pool(function (Pool $pool) use ($runs, $env, $startAt): void {
         foreach ($runs as $index => $arguments) {
@@ -49,7 +49,8 @@ function race(array $runs): array
     return array_map(function (string $index) use ($results): string {
         $result = $results[$index];
 
-        expect($result->successful())->toBeTrue($result->errorOutput());
+        expect($result->exitCode())->not->toBe(3, 'A worker missed the start line: the processes did not race.')
+            ->and($result->successful())->toBeTrue($result->errorOutput());
 
         return trim($result->output());
     }, array_map('strval', array_keys($runs)));

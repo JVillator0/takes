@@ -25,13 +25,14 @@ import type { BalanceSummary, BreadcrumbItem } from '@/types';
  */
 type Props = {
     breadcrumbs?: BreadcrumbItem[];
+    /** Overrides the signed-in customer's shared balance (e.g. a live-updated one). */
     balance?: BalanceSummary | null;
     showBuyCredits?: boolean;
     /** Full-bleed pages (the workspace) manage their own padding. */
     fluid?: boolean;
 };
 
-withDefaults(defineProps<Props>(), {
+const props = withDefaults(defineProps<Props>(), {
     breadcrumbs: () => [],
     balance: null,
     showBuyCredits: false,
@@ -53,7 +54,28 @@ defineSlots<{
 }>();
 
 const page = usePage();
-const user = computed(() => page.props.auth.customer);
+const customer = computed(() => page.props.auth.customer);
+
+/**
+ * The pill on every customer page: the page's balance if it passes one,
+ * otherwise the shared `auth.customer` strings (renamed only, no money math).
+ */
+const shellBalance = computed<BalanceSummary | null>(() => {
+    if (props.balance) {
+        return props.balance;
+    }
+
+    const current = customer.value;
+
+    return current
+        ? {
+              available: current.available,
+              availableExact: current.available_exact,
+              onHold: current.on_hold,
+              onHoldExact: current.on_hold_exact,
+          }
+        : null;
+});
 const { t } = useCopy();
 </script>
 
@@ -91,7 +113,10 @@ const { t } = useCopy();
                 >
                     <slot name="status" />
                     <slot name="balance">
-                        <BalancePill v-if="balance" :balance="balance" />
+                        <BalancePill
+                            v-if="shellBalance"
+                            :balance="shellBalance"
+                        />
                     </slot>
                     <Button
                         v-if="showBuyCredits"
@@ -104,13 +129,13 @@ const { t } = useCopy();
                         {{ t('billing.buy_credits') }}
                     </Button>
 
-                    <DropdownMenu v-if="user">
+                    <DropdownMenu v-if="customer">
                         <DropdownMenuTrigger :as-child="true">
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                class="size-9 rounded-full p-0.5"
-                                :aria-label="user.name"
+                                class="size-9 shrink-0 rounded-full p-0.5"
+                                :aria-label="customer.name"
                             >
                                 <Avatar
                                     class="size-8 overflow-hidden rounded-full"
@@ -118,13 +143,13 @@ const { t } = useCopy();
                                     <AvatarFallback
                                         class="rounded-full bg-muted text-xs font-semibold"
                                     >
-                                        {{ getInitials(user.name) }}
+                                        {{ getInitials(customer.name) }}
                                     </AvatarFallback>
                                 </Avatar>
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" class="w-56">
-                            <UserMenuContent :user="user" />
+                            <UserMenuContent :user="customer" />
                         </DropdownMenuContent>
                     </DropdownMenu>
                 </div>

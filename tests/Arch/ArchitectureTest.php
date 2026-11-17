@@ -122,24 +122,39 @@ test('money code never uses floats', function (): void {
     expect(SourceScan::floatViolations(MONEY_PATHS))->toBe([]);
 });
 
-// M-11: a take's status changes only in ApplyTakeSnapshotAction and
-// FailTakeAction (spec 3-02). A tripwire for the obvious shapes, a TakeStatus
-// case written as a value (`'status' => TakeStatus::…`, `->status = TakeStatus::…`);
-// review catches the rest.
-test('only the transition actions write a take status', function (): void {
-    $allowed = [
-        SourceScan::root().'/app/Actions/Takes/ApplyTakeSnapshotAction.php',
-        SourceScan::root().'/app/Actions/Takes/FailTakeAction.php',
-    ];
-    $writes = [];
+// money.md M-07: RecordLedgerEntryAction owns balance_nanos; Open/Settle/Void own
+// held_nanos. Models declare the columns; factories and tests set fixtures.
+test('cached money columns are written only from App\Actions\Billing', function (): void {
+    expect(SourceScan::columnWrites(
+        ['app', 'routes', 'config', 'database/seeders'],
+        ['balance_nanos', 'held_nanos'],
+        except: ['app/Actions/Billing/', 'app/Models/'],
+    ))->toBe([]);
+});
 
-    foreach (SourceScan::phpFiles(['app']) as $file) {
-        $source = (string) file_get_contents($file);
+test('the column-write scan sees assignments, array keys and increments', function (): void {
+    $file = SourceScan::root().'/storage/framework/testing-column-writes.php';
+    file_put_contents($file, "<?php\n\$c->held_nanos = 1;\n\$q->update(['customers.balance_nanos' => 2]);\n\$q->increment('held_nanos');\n\$q->select('balance_nanos');\n");
 
-        if (! in_array($file, $allowed, true) && preg_match('/(\'status\'\s*=>|->status\s*=(?!=))\s*\\\\?(App\\\\Enums\\\\Takes\\\\)?TakeStatus::(?!class\b)/', $source) === 1) {
-            $writes[] = $file;
-        }
+    try {
+        expect(SourceScan::columnWrites(['storage/framework/testing-column-writes.php'], ['balance_nanos', 'held_nanos']))->toHaveCount(3);
+    } finally {
+        unlink($file);
     }
+});
 
-    expect($writes)->toBe([]);
+// money.md M-10: the customer row is the only money lock; a usage is re-read under it.
+test('no code locks a usage record row', function (): void {
+    expect(SourceScan::usageRecordLocks(['app']))->toBe([]);
+});
+
+test('the usage-record lock scan sees Eloquent and query-builder locks', function (): void {
+    $file = SourceScan::root().'/storage/framework/testing-usage-locks.php';
+    file_put_contents($file, "<?php\nUsageRecord::query()->lockForUpdate()->find(1);\nDB::table('usage_records')->sharedLock()->get();\nCustomer::query()->lockForUpdate()->find(1);\nUsageRecord::query()->find(1);\n");
+
+    try {
+        expect(SourceScan::usageRecordLocks(['storage/framework/testing-usage-locks.php']))->toHaveCount(2);
+    } finally {
+        unlink($file);
+    }
 });
