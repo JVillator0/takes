@@ -21,10 +21,12 @@ it('renders every take state in the gallery with copy from the lang files', func
 it('resolves every copy key in the gallery payload', function (): void {
     $props = $this->get(route('dev.gallery'))->viewData('page')['props'];
 
+    // Unanchored: a missing key nested in another string ("estimate was
+    // takes.estimate.range") is caught too.
     $unresolved = [];
     array_walk_recursive($props, function (mixed $value) use (&$unresolved): void {
-        if (is_string($value) && preg_match('/^(takes|billing|landing|denials)\.[a-z0-9_.]+$/', $value) === 1) {
-            $unresolved[] = $value;
+        if (is_string($value) && preg_match_all('/\b(?:takes|billing|landing|denials)(?:\.[a-z0-9_]+)+/', $value, $matches) > 0) {
+            array_push($unresolved, ...$matches[0]);
         }
     });
 

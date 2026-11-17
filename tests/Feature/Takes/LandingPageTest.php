@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Middleware\HandleInertiaRequests;
 use Inertia\Testing\AssertableInertia as Assert;
 
 it('renders the landing page with the demo button off by default', function (): void {
@@ -26,11 +27,22 @@ it('shares the takes and billing copy with the client', function (): void {
         );
 });
 
-it('never shows the margin or a provider name in customer copy', function (): void {
+it('never shows the margin, markup or a provider name in customer copy', function (): void {
     $copy = json_encode([trans('takes'), trans('billing'), trans('landing')], JSON_THROW_ON_ERROR);
 
-    expect($copy)
-        ->not->toContain('25%')
-        ->not->toContain('Pixelforge')
-        ->not->toContain('Anthropic');
+    expect($copy)->not->toMatch('/pixelforge|anthropic|markup|margin|25\s*%/i');
+});
+
+it('re-sends the copy only when the client does not hold the current version', function (): void {
+    $version = app(HandleInertiaRequests::class)->version(request());
+    $inertiaVisit = fn (string $loadedOnceProps) => $this->get(route('home'), [
+        'X-Inertia' => 'true',
+        'X-Inertia-Version' => (string) $version,
+        'X-Inertia-Except-Once-Props' => $loadedOnceProps,
+    ]);
+
+    $current = 'copy:'.HandleInertiaRequests::copyVersion();
+
+    expect($inertiaVisit($current)->json('props'))->not->toHaveKey('copy');
+    expect($inertiaVisit('copy:stale-hash')->json('props'))->toHaveKey('copy');
 });

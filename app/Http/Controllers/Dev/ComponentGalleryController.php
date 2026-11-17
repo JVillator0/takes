@@ -145,6 +145,12 @@ class ComponentGalleryController extends Controller
                 'failureMessage' => __('takes.failure.cancelled'),
                 'canRetry' => true,
             ]),
+            // A URL that no longer loads (expired temporary link): the image falls back to "image unavailable" (F-22).
+            $this->card(27, 'succeeded', 'done', '1024x1024', 'Harbour at night, expired image link', [
+                'moneyLine' => __('takes.money.charged', ['amount' => '$0.0691']),
+                'moneyExact' => '$0.0691',
+                'imageUrl' => '/_ui/expired-take-image.png',
+            ]),
             $this->card(26, 'failed', 'failed', '1024x1024', 'Harbour at night', [
                 'moneyLine' => __('takes.money.not_charged'),
                 'failureCode' => 'daily_limit',

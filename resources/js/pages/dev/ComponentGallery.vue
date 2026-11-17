@@ -115,6 +115,11 @@ const composers = {
         references: ['ftp://images.example.com/a.png'],
     }),
     unconfigured: draft({ prompt: 'A lighthouse on a cliff at dusk' }),
+    recomputing: draft({
+        prompt: 'Night version with stars',
+        quality: 'high',
+    }),
+    estimateFailed: draft({ prompt: 'Harbour at dawn' }),
     submitting: draft({ prompt: 'Night version with stars' }),
 };
 
@@ -231,7 +236,7 @@ const caption = 'text-xs font-medium text-muted-foreground';
                 <p class="text-sm text-muted-foreground">
                     Submitting, Submitting after an ambiguous error, Waiting for
                     capacity (busy), content policy (no Try again), cancelled,
-                    daily limit.
+                    done with an expired image link, daily limit.
                 </p>
                 <TakeGrid
                     :takes="extraStates"
@@ -349,6 +354,38 @@ const caption = 'text-xs font-medium text-muted-foreground';
                             v-model:references="composers.validation.references"
                             :estimate="null"
                             estimate-state="idle"
+                            @submit="log('submit')"
+                        />
+                    </div>
+                    <div class="flex flex-col gap-2 rounded-xl border p-4">
+                        <span :class="caption">
+                            Recomputing · previous max dimmed, not submittable
+                        </span>
+                        <ComposerShell
+                            v-model:prompt="composers.recomputing.prompt"
+                            v-model:size="composers.recomputing.size"
+                            v-model:quality="composers.recomputing.quality"
+                            v-model:references="
+                                composers.recomputing.references
+                            "
+                            :estimate="estimates.square"
+                            estimate-state="loading"
+                            @submit="log('submit')"
+                        />
+                    </div>
+                    <div class="flex flex-col gap-2 rounded-xl border p-4">
+                        <span :class="caption">
+                            Estimate failed · no price, not submittable
+                        </span>
+                        <ComposerShell
+                            v-model:prompt="composers.estimateFailed.prompt"
+                            v-model:size="composers.estimateFailed.size"
+                            v-model:quality="composers.estimateFailed.quality"
+                            v-model:references="
+                                composers.estimateFailed.references
+                            "
+                            :estimate="null"
+                            estimate-state="error"
                             @submit="log('submit')"
                         />
                     </div>
