@@ -20,8 +20,13 @@ use App\Support\Money\TokenCost;
  * schema and the user message (base prompt + instruction). Two bytes per
  * token is far below the usual ~4, and the overhead covers what the API adds
  * around structured output and the message framing (the spike measured 959
- * input tokens for 2,010 bytes, D-073). If the actual still exceeds the hold,
+ * input tokens for 2,010 bytes, D-076). If the actual still exceeds the hold,
  * the actual is charged and flagged (SettleUsageAction, money rule M-15).
+ *
+ * Known limit: two bytes per token is a typical-text bound, not a worst case.
+ * A tokenizer that falls back to one token per byte (rare scripts, random
+ * symbols) can exceed it; M-15 then charges the actual and flags
+ * `over_estimate`, so money stays correct while the hold was too small.
  *
  * The minimum is a display floor: about four bytes per token, no output.
  */

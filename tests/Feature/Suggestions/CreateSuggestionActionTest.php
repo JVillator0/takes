@@ -15,6 +15,7 @@ use App\Enums\Suggestions\SuggestionFailureReason;
 use App\Enums\Suggestions\SuggestionStatus;
 use App\Enums\Takes\FailureCode;
 use App\Exceptions\Suggestions\BaseTakeNotReadyException;
+use App\Exceptions\Suggestions\RequestKeyReusedException;
 use App\Exceptions\Suggestions\SuggestionAlreadyPendingException;
 use App\Exceptions\Suggestions\SuggestionDeniedException;
 use App\Models\Customer;
@@ -245,6 +246,8 @@ describe('prompt injection', function (): void {
         'size out of range' => [Suggestions::proposal(['size' => '4096x4096'])],
         'string boolean' => [Suggestions::proposal(['keep_references' => 'true'])],
         'missing field' => [array_diff_key(Suggestions::proposal(), ['quality' => true])],
+        'provider name in the rationale' => [Suggestions::proposal(['rationale' => 'Claude Haiku made it warmer.'])],
+        'tokens in the rationale' => [Suggestions::proposal(['rationale' => 'Used 212 tokens to warm it up.'])],
     ]);
 
     it('sends the instruction as data in the user message, never in the instructions', function (): void {
@@ -260,6 +263,49 @@ describe('prompt injection', function (): void {
 });
 
 describe('idempotency and pending', function (): void {
+    it('answers a request_key reused for another base take with a conflict, with no call', function (): void {
+        Suggestions::fake(Suggestions::messageBody(Suggestions::proposal()));
+        $key = (string) Str::uuid();
+        suggest(requestKey: $key);
+        $this->take = Suggestions::baseTake($this->customer, ['project_id' => $this->take->project_id]);
+
+        expect(fn () => suggest(requestKey: $key))->toThrow(RequestKeyReusedException::class)
+            ->and(Suggestions::anthropicRequests())->toHaveCount(1)
+            ->and(Suggestion::query()->count())->toBe(1);
+    });
+
+    it('expires a suggestion orphaned after T1 (killed before T2): voided, hold released, take unblocked', function (): void {
+        Suggestions::fake(Suggestions::messageBody(Suggestions::proposal()));
+        // What T1 leaves behind when the process dies before T2.
+        $orphan = Suggestion::factory()->create([
+            'customer_id' => $this->customer->id,
+            'project_id' => $this->take->project_id,
+            'base_take_id' => $this->take->id,
+            'expires_at' => now()->addSeconds(CreateSuggestionAction::PENDING_TTL_SECONDS),
+        ]);
+        DB::transaction(fn () => app(OpenUsageAction::class)->execute(
+            Suggestion::query()->lockForUpdate()->findOrFail($orphan->id), Provider::Anthropic, Billing::estimate(400_000), Billing::anthropicRates(),
+        ));
+        expect($this->customer->refresh()->held_nanos)->toBe(500_000);
+
+        // Still within its TTL: it blocks the take.
+        expect(fn () => suggest())->toThrow(SuggestionAlreadyPendingException::class);
+
+        $this->travel(CreateSuggestionAction::PENDING_TTL_SECONDS + 1)->seconds();
+        $fresh = suggest();
+        $orphan->refresh();
+
+        expect($orphan->status)->toBe(SuggestionStatus::Failed)
+            ->and($orphan->failure_reason)->toBe(SuggestionFailureReason::Timeout)
+            ->and($orphan->usageRecord()->firstOrFail()->status)->toBe(UsageStatus::Voided)
+            ->and($fresh->status)->toBe(SuggestionStatus::Proposed)
+            ->and($this->customer->refresh()->held_nanos)->toBe(0)
+            ->and($this->customer->balance_nanos)->toBe(1_000_000_000 - Suggestions::EXAMPLE_CHARGE);
+
+        Billing::assertCachedColumnsMatch($this->customer);
+        $this->artisan('billing:verify')->assertSuccessful();
+    });
+
     it('replays the same request_key with no second call and no second hold', function (): void {
         Suggestions::fake(Suggestions::messageBody(Suggestions::proposal()));
         $key = (string) Str::uuid();
@@ -344,12 +390,14 @@ describe('guardrails', function (): void {
 });
 
 describe('hold bound', function (): void {
-    it('holds at least the actual for an adversarially long prompt and instruction', function (): void {
+    it('holds at least the actual for a long multibyte prompt and instruction at one token per character', function (): void {
         // 4,000 four-byte characters and a 500-character instruction of the same.
         $this->take->forceFill(['prompt' => str_repeat('🌊', 4000)])->save();
         $instruction = str_repeat('火', 500);
         $estimate = Suggestions::expectedEstimate($this->take, $instruction);
-        // A pessimistic tokenizer: one token per character plus the measured fixed part.
+        // One token per character plus the measured fixed part. A byte-level fallback
+        // (one token per byte) exceeds the bytes/2 bound by design: see the next
+        // test and SuggestionEstimator's "Known limit" (charged actual, flagged).
         $actualInput = 959 + 4000 + 500;
         Suggestions::fake(Suggestions::messageBody(Suggestions::proposal(), $actualInput, 600));
 

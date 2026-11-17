@@ -19,6 +19,7 @@ use App\Enums\Suggestions\SuggestionStatus;
 use App\Enums\Takes\TakeStatus;
 use App\Exceptions\Billing\InsufficientCreditsException;
 use App\Exceptions\Suggestions\BaseTakeNotReadyException;
+use App\Exceptions\Suggestions\RequestKeyReusedException;
 use App\Exceptions\Suggestions\SuggestionAlreadyPendingException;
 use App\Exceptions\Suggestions\SuggestionDeniedException;
 use App\Models\Customer;
@@ -37,9 +38,14 @@ use Illuminate\Support\Facades\Log;
  * "Describe a change" (spec 8 step 2): two transactions with the model call
  * between them, outside any lock (money rule M-16).
  *
+ * Expiry: first, void this base take's pending suggestions past expires_at
+ *     (ExpireSuggestionAction), so a crash between T1 and T2 never blocks the
+ *     take: the next request on it voids the stale one and releases its hold
+ *     (spec 5's sweeper does the same for every take).
  * T1  serialize on the AI budget lock, lock the customer; a replayed
- *     request_key returns the existing suggestion (no call, no hold, D-033);
- *     reject a second pending suggestion on the same base take; re-check
+ *     request_key returns the existing suggestion (no call, no hold, D-033;
+ *     the same key on another base take is a 409); reject a second unexpired
+ *     pending suggestion on the same base take; re-check
  *     SuggestionPolicy::create under the lock (D-015); insert the `pending`
  *     suggestion and open the usage with the per-request hold (D-024, D-055).
  * Call ProposeTakeChangeAction: never throws for a provider problem.
@@ -70,12 +76,14 @@ final readonly class CreateSuggestionAction
         private ProposeTakeChangeAction $proposeTakeChange,
         private SuggestionEstimator $estimator,
         private AiPricing $pricing,
+        private ExpireSuggestionAction $expireSuggestion,
     ) {}
 
     /**
      * @throws AuthorizationException when the base take belongs to another customer
      * @throws BaseTakeNotReadyException when the base take has not succeeded
      * @throws SuggestionAlreadyPendingException when the base take already has a pending suggestion
+     * @throws RequestKeyReusedException when the request key was used for another base take
      * @throws SuggestionDeniedException when the policy or the hold denies it
      */
     public function execute(Customer $customer, Take $baseTake, CreateSuggestionDTO $request): Suggestion
@@ -87,6 +95,8 @@ final readonly class CreateSuggestionAction
         $input = TakeChangeInputDTO::forTake($baseTake, $request->instruction);
         $rates = new RatesSnapshotDTO($this->pricing->rates(Provider::Anthropic, TakeChangeAgent::MODEL));
         $estimate = $this->estimator->estimate((new TakeChangeAgent)->fixedRequestText().$input->toMessage(), $rates->toArray());
+
+        $this->expireStalePending($baseTake);
 
         [$suggestion, $usage] = $this->open($customer, $baseTake, $request, $estimate, $rates);
 
@@ -118,16 +128,21 @@ final readonly class CreateSuggestionAction
                 ->first();
 
             if ($existing !== null) {
-                return [$existing, null];
+                return $existing->base_take_id === $baseTake->id
+                    ? [$existing, null]
+                    : throw RequestKeyReusedException::for($request->requestKey);
             }
 
             if ($baseTake->status !== TakeStatus::Succeeded) {
                 throw BaseTakeNotReadyException::for($baseTake->id);
             }
 
+            // A pending suggestion past expires_at no longer blocks (expireStalePending
+            // voids it before T1; one that expired since is voided on the next request).
             $pending = Suggestion::query()
                 ->where('base_take_id', $baseTake->id)
                 ->where('status', SuggestionStatus::Pending->value)
+                ->where('expires_at', '>', now())
                 ->exists();
 
             if ($pending) {
@@ -164,6 +179,22 @@ final readonly class CreateSuggestionAction
 
             return [$suggestion, $usage];
         });
+    }
+
+    /**
+     * Lazy expiry (spec 8 "Expiry"): before T1, void the expired pending
+     * suggestions of this base take, each in its own transaction with the lock
+     * order suggestion → customer. Runs before T1 because T1 already holds the
+     * customer lock. Spec 5's sweeper covers every other take.
+     */
+    private function expireStalePending(Take $baseTake): void
+    {
+        Suggestion::query()
+            ->where('base_take_id', $baseTake->id)
+            ->where('status', SuggestionStatus::Pending->value)
+            ->where('expires_at', '<=', now())
+            ->get()
+            ->each(fn (Suggestion $stale): bool => $this->expireSuggestion->execute($stale));
     }
 
     /** T2: lock order suggestion → customer (the money actions lock the customer). */
