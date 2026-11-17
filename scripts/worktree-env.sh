@@ -197,9 +197,14 @@ Next steps in $ROOT:
   npm run dev -- --port $vite_port --strictPort
   scripts/test.sh                      # Pest against $test_db
   open $app_url
+EOF
+# The main working tree cannot be locked; only pool worktrees are leased.
+if [[ $slot != main ]]; then
+    cat <<EOF
 Lease this worktree before working in it (see .claude/worktree-pool.md):
   git worktree lock --reason "<agent>: <issue> ($(date +%F))" .
 EOF
+fi
 if ((!with_secrets)); then
     echo "Provider keys are not set; re-run with --with-secrets only if this checkout needs the real API."
 fi
