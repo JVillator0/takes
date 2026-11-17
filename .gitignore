@@ -51,3 +51,8 @@ yarn-error.log
 # Any other dotenv file (local variants, temp copies written by scripts/lib/dotenv.sh)
 /.env.*
 !/.env.example
+
+# Filament's and its plugins' assets: `filament:upgrade` publishes them after every composer install (spec 7)
+/public/css/
+/public/js/
+/public/fonts/
