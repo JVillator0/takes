@@ -5,12 +5,14 @@ declare(strict_types=1);
 use App\Enums\Auth\AdminRole;
 use App\Filament\Admin\Clusters\Studio\Resources\Projects\Pages\ListProjects;
 use App\Filament\Admin\Clusters\Studio\Resources\Projects\Pages\ViewProject;
+use App\Filament\Admin\Clusters\Studio\Resources\Projects\RelationManagers\TakesRelationManager;
 use App\Models\Project;
 use App\Models\Take;
 use App\Models\UsageRecord;
 use App\Models\User;
 use Database\Seeders\AdminRolesSeeder;
 use Filament\Facades\Filament;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
 // Spec 7 issue 5: Studio › Projects (A09), spend = Σ settled charges of the project's takes.
@@ -38,11 +40,11 @@ it('shows each project with its take count and settled spend only', function ():
         ->assertSee('$0.0740375');
 });
 
-it('filters projects with takes in progress and opens a project with its takes', function (): void {
+it("filters projects with takes in progress and lists only that project's takes", function (): void {
     $busy = Project::factory()->create();
     $runningTake = Take::factory()->processing()->create(['customer_id' => $busy->customer_id, 'project_id' => $busy->id]);
     $idle = Project::factory()->create();
-    Take::factory()->succeeded()->create(['customer_id' => $idle->customer_id, 'project_id' => $idle->id]);
+    $idleTake = Take::factory()->succeeded()->create(['customer_id' => $idle->customer_id, 'project_id' => $idle->id]);
 
     Livewire::test(ListProjects::class)
         ->filterTable('in_progress', true)
@@ -50,6 +52,21 @@ it('filters projects with takes in progress and opens a project with its takes',
         ->assertCanNotSeeTableRecords([$idle]);
 
     $this->get('/admin/studio/projects/'.$busy->id)->assertOk()->assertSee($busy->name);
-    Livewire::test(ViewProject::class, ['record' => $busy->id])->assertOk();
-    expect($runningTake->project_id)->toBe($busy->id);
+    Livewire::test(TakesRelationManager::class, ['ownerRecord' => $busy, 'pageClass' => ViewProject::class])
+        ->assertCanSeeTableRecords([$runningTake])
+        ->assertCanNotSeeTableRecords([$idleTake]);
+});
+
+it('loads the projects list with a fixed number of queries', function (): void {
+    Project::factory()->create();
+    Livewire::test(ListProjects::class)->assertOk();
+
+    DB::enableQueryLog();
+    Livewire::test(ListProjects::class)->assertOk();
+    $withOne = count(DB::getQueryLog());
+    Project::factory()->count(4)->create();
+    DB::flushQueryLog();
+    Livewire::test(ListProjects::class)->assertOk();
+
+    expect(count(DB::getQueryLog()))->toBe($withOne);
 });

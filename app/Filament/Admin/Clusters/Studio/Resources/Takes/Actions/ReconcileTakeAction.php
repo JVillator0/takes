@@ -6,6 +6,7 @@ namespace App\Filament\Admin\Clusters\Studio\Resources\Takes\Actions;
 
 use App\Actions\Takes\ReconcileTakeNowAction;
 use App\Enums\Auth\AdminPermission;
+use App\Enums\Takes\ReconcileStatus;
 use App\Filament\Admin\Support\Money;
 use App\Models\Take;
 use App\Models\User;
@@ -16,7 +17,7 @@ use Filament\Support\Icons\Heroicon;
 
 /**
  * **Reconcile now** (A06, D-058): confirms, runs ReconcileTakeNowAction and reports "No change" or what it
- * applied. Only admins holding `Reconcile:Take` see it; the auditor never does.
+ * applied after a completed poll, or, when Pixelforge could not be checked, says so (never a green "No change"). Only admins holding `Reconcile:Take` see it; the auditor never does.
  */
 final class ReconcileTakeAction
 {
@@ -37,11 +38,13 @@ final class ReconcileTakeAction
                 }
 
                 $statusBefore = $record->status;
-                $take = app(ReconcileTakeNowAction::class)->execute($admin, $record);
+                $result = app(ReconcileTakeNowAction::class)->execute($admin, $record);
+                $checked = in_array($result->status, [ReconcileStatus::Terminal, ReconcileStatus::InFlight], true);
 
+                // Say what was actually checked: only a completed poll may report "No change".
                 Notification::make()
-                    ->title(self::outcome($take, $statusBefore === $take->status))
-                    ->success()
+                    ->title($checked ? self::outcome($record, $statusBefore === $record->status) : __('console.takes.reconcile.unchecked.'.$result->status->value))
+                    ->status($checked ? 'success' : 'warning')
                     ->send();
             });
     }

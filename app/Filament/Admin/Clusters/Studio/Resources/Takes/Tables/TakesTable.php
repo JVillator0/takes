@@ -8,6 +8,7 @@ use App\Enums\Takes\TakeQuality;
 use App\Enums\Takes\TakeSize;
 use App\Enums\Takes\TakeSource;
 use App\Enums\Takes\TakeStatus;
+use App\Filament\Admin\Clusters\Studio\Resources\Takes\Actions\ReconcileTakeAction;
 use App\Filament\Admin\Support\Money;
 use App\Models\Take;
 use App\Queries\Takes\ListStuckTakesQuery;
@@ -65,7 +66,7 @@ final class TakesTable
                     ->alignEnd(),
                 TextColumn::make('created_at')
                     ->label(__('console.common.created'))
-                    ->dateTime('Y-m-d H:i:s')
+                    ->dateTime('Y-m-d H:i:s \U\T\C')
                     ->sortable(),
             ])
             ->filters([
@@ -93,6 +94,7 @@ final class TakesTable
             ])
             ->recordActions([
                 ViewAction::make(),
+                ReconcileTakeAction::make(),
             ])
             ->defaultSort('created_at', 'desc');
     }

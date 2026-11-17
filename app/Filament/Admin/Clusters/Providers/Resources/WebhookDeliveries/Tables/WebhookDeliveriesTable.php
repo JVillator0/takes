@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace App\Filament\Admin\Clusters\Providers\Resources\WebhookDeliveries\Tables;
 
+use App\Enums\Webhooks\PixelforgeEventType;
 use App\Enums\Webhooks\WebhookOutcome;
 use App\Filament\Admin\Clusters\Providers\Resources\WebhookDeliveries\Actions\ViewPayloadAction;
 use App\Filament\Admin\Clusters\Studio\Resources\Takes\TakeResource;
 use App\Models\WebhookDelivery;
 use Carbon\CarbonImmutable;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\TextInput;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
@@ -41,7 +43,14 @@ final class WebhookDeliveriesTable
             ])))
             ->filters([
                 SelectFilter::make('type')->label(__('console.webhooks.type'))
-                    ->options(fn (): array => WebhookDelivery::query()->distinct()->orderBy('type')->pluck('type', 'type')->all()),
+                    ->options(collect(PixelforgeEventType::cases())->mapWithKeys(fn (PixelforgeEventType $type): array => [$type->value => $type->value])->all()),
+                Filter::make('take')
+                    ->label(__('console.webhooks.take_filter'))
+                    ->schema([TextInput::make('take_id')->label(__('console.webhooks.take_filter'))])
+                    ->query(fn (Builder $query, array $data): Builder => $query->when(
+                        $data['take_id'] ?? null,
+                        fn (Builder $inner, string $takeId): Builder => $inner->where('take_id', trim($takeId)),
+                    )),
                 SelectFilter::make('outcome')->label(__('console.webhooks.outcome'))->options(WebhookOutcome::class)->multiple(),
                 Filter::make('received')
                     ->label(__('console.webhooks.received_at'))

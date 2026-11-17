@@ -2,22 +2,36 @@
 
 declare(strict_types=1);
 
+use App\DTOs\Takes\TakeStatsDTO;
 use App\Enums\Auth\AdminRole;
 use App\Enums\Billing\LedgerEntryType;
+use App\Enums\Takes\ReconcileStatus;
 use App\Enums\Takes\TakeStatus;
+use App\Events\TakeUpdated;
 use App\Filament\Admin\Clusters\Studio\Resources\Takes\Pages\ListTakes;
 use App\Filament\Admin\Clusters\Studio\Resources\Takes\Pages\ViewTake;
+use App\Filament\Admin\Clusters\Studio\Resources\Takes\TakeResource;
+use App\Filament\Admin\Clusters\Studio\StudioCluster;
+use App\Filament\Admin\Support\Money;
+use App\Jobs\ReconcileTakeJob;
 use App\Models\LedgerEntry;
 use App\Models\Take;
 use App\Models\UsageRecord;
 use App\Models\User;
+use App\Queries\Takes\GetTakeStatsQuery;
 use App\Queries\Takes\ListStuckTakesQuery;
+use Carbon\CarbonImmutable;
 use Database\Seeders\AdminRolesSeeder;
+use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
 use Spatie\Activitylog\Models\Activity;
+use Tests\Support\PixelforgeFixture;
+use Tests\Support\Takes;
 
 // Spec 7 issue 5: Studio › Takes (A09) and the take view (A06).
 
@@ -141,19 +155,62 @@ it('hides Reconcile now from the auditor and shows it to the operator', function
     'operator' => [AdminRole::Operator, true],
 ]);
 
-it('reconciles a take for the operator, reports the outcome and audits it', function (): void {
-    $take = Take::factory()->processing()->create();
+it('reconciles a take once through the spec 5 action, reports what it applied and audits it', function (): void {
+    config(['pixelforge.base_url' => 'https://pixelforge.test/v1', 'pixelforge.api_key' => 'pf_test_reconcile']);
+    Queue::fake();
+    Event::fake([TakeUpdated::class]);
+    $take = Takes::in('processing');
+    Http::fake(['pixelforge.test/v1/generations/*' => Http::response(PixelforgeFixture::generation('succeeded', [
+        'id' => $take->pixelforge_id,
+        'metadata' => ['app_take_id' => $take->id],
+    ]))]);
     $operator = User::factory()->admin(AdminRole::Operator)->withAppAuthentication()->create();
     $this->actingAs($operator);
+    $charged = Money::exact(Takes::DOCS_CHARGE);
+    Queue::fake(); // only what Reconcile now pushes from here on
+
+    Livewire::test(ViewTake::class, ['record' => $take->id])
+        ->callAction('reconcile')
+        ->assertNotified('Applied: Succeeded, charged '.$charged);
 
     Livewire::test(ViewTake::class, ['record' => $take->id])
         ->callAction('reconcile')
         ->assertNotified('No change');
 
-    $entry = Activity::query()->where('event', 'reconciled')->sole();
-    expect((int) $entry->causer_id)->toBe($operator->id)
-        ->and($entry->subject_type)->toBe('take')
-        ->and($entry->properties['status_before'] ?? null)->toBe(TakeStatus::Processing->value);
+    $entry = Activity::query()->where('event', 'reconciled')->orderBy('id')->first();
+    expect($take->refresh()->status)->toBe(TakeStatus::Succeeded)
+        ->and(LedgerEntry::query()->where('type', LedgerEntryType::Charge)->count())->toBe(1)
+        ->and((int) $entry?->causer_id)->toBe($operator->id)
+        ->and($entry?->subject_type)->toBe('take')
+        ->and([$entry?->properties['status_before'] ?? null, $entry?->properties['status_after'] ?? null, $entry?->properties['reconcile'] ?? null])
+        ->toBe([TakeStatus::Processing->value, TakeStatus::Succeeded->value, ReconcileStatus::Terminal->value]);
+    Queue::assertNotPushed(ReconcileTakeJob::class);
+});
+
+it('says when Reconcile now could not check Pixelforge, never a green "No change"', function (): void {
+    config(['pixelforge.base_url' => 'https://pixelforge.test/v1', 'pixelforge.api_key' => 'pf_test_reconcile']);
+    Queue::fake();
+    $take = Takes::in('processing');
+    Http::fake(['pixelforge.test/v1/generations/*' => Http::response(['error' => ['type' => 'api_error', 'code' => 'internal_error', 'message' => 'down']], 503)]);
+    $this->actingAs(User::factory()->admin(AdminRole::Operator)->withAppAuthentication()->create());
+
+    Livewire::test(ViewTake::class, ['record' => $take->id])
+        ->callAction('reconcile')
+        ->assertNotified('Not checked: could not reach Pixelforge.');
+
+    expect($take->refresh()->status)->toBe(TakeStatus::Processing);
+});
+
+it('offers Reconcile now on the takes table to operators only, and lists Takes first in Studio', function (): void {
+    $take = Takes::in('processing');
+
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
+    Livewire::test(ListTakes::class)->assertActionHidden(TestAction::make('reconcile')->table($take));
+
+    $this->actingAs(User::factory()->admin(AdminRole::Operator)->withAppAuthentication()->create());
+    Livewire::test(ListTakes::class)->assertActionVisible(TestAction::make('reconcile')->table($take));
+
+    expect(StudioCluster::getClusteredComponents()[0])->toBe(TakeResource::class);
 });
 
 it('refuses the take pages to an admin without the take permissions', function (): void {
@@ -164,4 +221,22 @@ it('refuses the take pages to an admin without the take permissions', function (
 
     $this->actingAs($admin)->get('/admin/studio/takes')->assertForbidden();
     $this->actingAs($admin)->get('/admin/studio/takes/'.$take->id)->assertForbidden();
+});
+
+it('computes the take stats: nulls when empty, rate and median over 30 days, in progress now', function (): void {
+    $this->travelTo(CarbonImmutable::parse('2026-11-17 12:00:00', 'UTC'));
+
+    expect(app(GetTakeStatsQuery::class)->execute())
+        ->toEqual(new TakeStatsDTO(inProgress: 0, stuck: 0, failureRateBps: null, medianDurationSeconds: null));
+
+    Take::factory()->succeeded()->create(['submitted_at' => now()->subSeconds(30), 'completed_at' => now()]);
+    Take::factory()->succeeded()->create(['submitted_at' => now()->subSeconds(10), 'completed_at' => now()]);
+    Take::factory()->failed()->create();
+    Take::factory()->failed()->create(['created_at' => now()->subDays(31)]); // outside the range
+    Take::factory()->processing()->create(['last_event_at' => now()]);
+
+    $stats = app(GetTakeStatsQuery::class)->execute();
+
+    expect([$stats->inProgress, $stats->stuck, $stats->failureRateBps, $stats->medianDurationSeconds])
+        ->toBe([1, 0, 3333, 10]);
 });

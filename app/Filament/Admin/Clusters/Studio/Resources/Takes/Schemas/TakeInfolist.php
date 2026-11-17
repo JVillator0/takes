@@ -6,6 +6,7 @@ namespace App\Filament\Admin\Clusters\Studio\Resources\Takes\Schemas;
 
 use App\Enums\Billing\UsageStatus;
 use App\Enums\Takes\TakeStatus;
+use App\Filament\Admin\Clusters\Studio\Resources\Projects\ProjectResource;
 use App\Filament\Admin\Clusters\Studio\Resources\Takes\TakeResource;
 use App\Filament\Admin\Support\Money;
 use App\Models\Take;
@@ -45,7 +46,8 @@ final class TakeInfolist
                 TextEntry::make('pixelforge_id')->label(__('console.takes.fields.pixelforge_id'))->fontFamily('mono')->placeholder('-')->copyable(),
                 TextEntry::make('idempotency_key')->label(__('console.takes.fields.idempotency_key'))->fontFamily('mono')->copyable(),
                 TextEntry::make('customer.name')->label(__('console.common.customer')),
-                TextEntry::make('project.name')->label(__('console.common.project')),
+                TextEntry::make('project.name')->label(__('console.common.project'))
+                    ->url(fn (Take $record): string => ProjectResource::getUrl('view', ['record' => $record->project_id])),
                 TextEntry::make('source')->label(__('console.takes.source'))->badge(),
                 TextEntry::make('size')->label(__('console.takes.size_quality'))
                     ->formatStateUsing(fn (Take $record): string => $record->size->value.' · '.$record->quality->value),
@@ -71,16 +73,16 @@ final class TakeInfolist
                 self::usageEntry('estimate_charge', __('console.takes.fields.estimate_charge'),
                     fn (UsageRecord $usage): string => Money::nanos($usage->min_charge_nanos).' / '.Money::nanos($usage->max_charge_nanos)),
                 self::usageEntry('tokens', __('console.takes.fields.tokens'), fn (UsageRecord $usage): string => implode(' / ', array_map(
-                    fn (?int $tokens): string => $tokens === null ? '-' : number_format($tokens),
+                    fn (?int $tokens): string => $tokens === null ? '-' : Money::grouped($tokens),
                     [$usage->input_text_tokens, $usage->input_image_tokens, $usage->output_tokens, $usage->reasoning_tokens],
                 ))),
                 self::usageEntry('provider_cost', __('console.takes.fields.provider_cost'), fn (UsageRecord $usage): string => Money::nanos($usage->provider_cost_nanos)),
                 TextEntry::make('charge')
-                    ->label(fn (Take $record): string => __('console.takes.fields.charge', ['bps' => number_format($record->usageRecord->markup_bps ?? 0)]))
+                    ->label(fn (Take $record): string => __('console.takes.fields.charge', ['bps' => Money::grouped($record->usageRecord->markup_bps ?? 0)]))
                     ->state(fn (Take $record): string => Money::nanos($record->usageRecord?->charge_nanos))
                     ->inlineLabel()->alignEnd()->fontFamily('mono'),
                 self::usageEntry('rates', __('console.takes.fields.rates'), fn (UsageRecord $usage): string => collect($usage->rates)
-                    ->map(fn (int $rate, string $kind): string => $kind.' '.number_format($rate))
+                    ->map(fn (int $rate, string $kind): string => $kind.' '.Money::grouped($rate))
                     ->implode(' · ')),
                 TextEntry::make('usage_status')->label(__('console.takes.fields.usage_status'))
                     ->state(fn (Take $record): mixed => $record->usageRecord?->status)
