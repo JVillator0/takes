@@ -46,6 +46,7 @@ import type {
     TakeDetailData,
     TakeFilter,
     TakeFilterCounts,
+    TakePhase,
     WorkspaceProject,
 } from '@/types';
 
@@ -77,7 +78,20 @@ const page = usePage();
 const { t, tc } = useCopy();
 const buyCredits = useBuyCredits();
 
-const LIVE_PROPS = ['takes', 'counts', 'balance', 'project', 'take'];
+/*
+ * The 2-01 balance banners (negative balance, low balance) are separate
+ * props: a hold released or a settlement over the hold changes them, so
+ * every live reload refreshes them with the pill (F-10).
+ */
+const LIVE_PROPS = [
+    'takes',
+    'counts',
+    'balance',
+    'negativeBalance',
+    'smallestTake',
+    'project',
+    'take',
+];
 
 const updates = useTakeUpdates(() => props.project.id, {
     customerId: page.props.auth.customer?.id ?? null,
@@ -187,7 +201,16 @@ watch(
 
 const onSuggestionApplied = (takeId: string): void => {
     describing.value = false;
-    router.reload({ only: ['takes', 'counts', 'balance', 'project'] });
+    router.reload({
+        only: [
+            'takes',
+            'counts',
+            'balance',
+            'negativeBalance',
+            'smallestTake',
+            'project',
+        ],
+    });
     openTake(takeId);
 };
 
@@ -248,38 +271,98 @@ const tryAgain = (): void => {
 
 /*
  * Toasts only for transitions to a terminal state of the customer's own
- * takes (2-02); hold release is not announced as a balance event.
+ * takes (2-02); hold release is not announced as a balance event. Under a
+ * status filter a finishing take can enter the list (Done, Failed) or leave
+ * it (In progress); the live payload says it just finished. A take that
+ * left keeps its number from the last list, and its toast has the title
+ * and, for a failure, the 2-01 "Not charged" line (the charged amount is
+ * only on the card).
  */
-const RUNNING = ['submitting', 'waiting_for_capacity', 'queued', 'processing'];
-let phases = new Map(props.takes.map((take) => [take.id, take.phase]));
+const RUNNING: TakePhase[] = [
+    'submitting',
+    'waiting_for_capacity',
+    'queued',
+    'processing',
+];
+let seen = new Map(
+    props.takes.map((take) => [
+        take.id,
+        { phase: take.phase, number: take.number },
+    ]),
+);
+/** Terminal outcomes from the socket, by take id, until the reload that follows them. */
+const finished = new Map<string, 'succeeded' | 'failed'>();
+
+watch(updates.lastUpdate, (update) => {
+    if (
+        update !== null &&
+        update.take.projectId === props.project.id &&
+        (update.take.status === 'succeeded' || update.take.status === 'failed')
+    ) {
+        finished.set(update.take.id, update.take.status);
+    }
+});
+
+const toastDone = (number: number | null, charged: string | null): void => {
+    toast.success(t('takes.toast.done', { id: number ?? '' }), {
+        description:
+            charged === null
+                ? undefined
+                : t('takes.toast.done_detail', { charged }),
+    });
+};
+
+const toastFailed = (number: number | null, moneyLine: string): void => {
+    toast.info(t('takes.toast.failed', { id: number ?? '' }), {
+        description: moneyLine,
+    });
+};
 
 watch(
     () => props.takes,
     (takes) => {
-        for (const take of takes) {
-            const before = phases.get(take.id);
+        const listed = new Set(takes.map((take) => take.id));
 
-            if (before === undefined || !RUNNING.includes(before)) {
+        for (const take of takes) {
+            const before = seen.get(take.id);
+            const wasRunning =
+                before === undefined
+                    ? finished.has(take.id)
+                    : RUNNING.includes(before.phase);
+
+            if (!wasRunning) {
                 continue;
             }
 
             if (take.phase === 'done') {
-                toast.success(
-                    t('takes.toast.done', { id: take.number ?? '' }),
-                    {
-                        description: t('takes.toast.done_detail', {
-                            charged: take.moneyLine,
-                        }),
-                    },
-                );
+                toastDone(take.number, take.moneyLine);
             } else if (take.phase === 'failed') {
-                toast.info(t('takes.toast.failed', { id: take.number ?? '' }), {
-                    description: take.moneyLine,
-                });
+                toastFailed(take.number, take.moneyLine);
             }
         }
 
-        phases = new Map(takes.map((take) => [take.id, take.phase]));
+        // Running takes the filter no longer shows: announce a known outcome.
+        for (const [id, before] of seen) {
+            const outcome = finished.get(id);
+
+            if (listed.has(id) || !RUNNING.includes(before.phase) || !outcome) {
+                continue;
+            }
+
+            if (outcome === 'succeeded') {
+                toastDone(before.number, null);
+            } else {
+                toastFailed(before.number, t('takes.money.not_charged'));
+            }
+        }
+
+        finished.clear();
+        seen = new Map(
+            takes.map((take) => [
+                take.id,
+                { phase: take.phase, number: take.number },
+            ]),
+        );
     },
 );
 
@@ -310,6 +393,11 @@ const archive = (): void => {
 
 const canManage = computed(
     () => page.props.auth.can?.createProject.allowed === true,
+);
+
+/** Buy credits only where the purchase policy allows it, as StudioLayout and the composer do (F-20). */
+const canPurchase = computed(
+    () => page.props.auth.can?.purchaseCredits.allowed === true,
 );
 </script>
 
@@ -402,6 +490,7 @@ const canManage = computed(
                         }}
                     </p>
                     <Button
+                        v-if="canPurchase"
                         size="sm"
                         variant="outline"
                         @click="buyCredits.open()"
@@ -420,6 +509,7 @@ const canManage = computed(
                         }}
                     </p>
                     <Button
+                        v-if="canPurchase"
                         size="sm"
                         variant="outline"
                         @click="buyCredits.open()"
