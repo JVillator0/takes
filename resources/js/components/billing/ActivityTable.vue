@@ -3,7 +3,11 @@ import { Link } from '@inertiajs/vue3';
 import { useId } from 'vue';
 import { useCopy } from '@/composables/useCopy';
 import { show } from '@/routes/billing';
-import type { BillingActivityPage, BillingActivityRow } from '@/types';
+import type {
+    BillingActivityPage,
+    BillingActivityRow,
+    BillingActivityStatus,
+} from '@/types';
 
 /**
  * Activity (P08, spec 6): one line per usage (on hold, charged, not charged)
@@ -26,7 +30,7 @@ function kindLabel(row: BillingActivityRow): string {
         : t(`billing.activity.kind.${row.kind}`);
 }
 
-const statusClass: Record<string, string> = {
+const statusClass: Record<BillingActivityStatus, string> = {
     on_hold: 'text-amber-700 dark:text-amber-400',
     charged: 'text-emerald-700 dark:text-emerald-400',
     not_charged: 'text-muted-foreground',

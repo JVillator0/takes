@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 namespace App\Queries\Billing;
 
+use App\Actions\Billing\GrantWelcomeCreditAction;
 use App\DTOs\Billing\BillingActivityPageDTO;
 use App\DTOs\Billing\BillingActivityRowDTO;
+use App\Enums\Billing\BillingActivityKind;
+use App\Enums\Billing\LedgerEntryType;
+use App\Enums\Billing\UsageStatus;
 use App\Models\Customer;
 use App\Models\Suggestion;
 use App\Models\Take;
@@ -40,14 +44,14 @@ final readonly class ListBillingActivityQuery
         $rows = DB::select(<<<'SQL'
             WITH events AS (
                 SELECT
-                    CASE WHEN ur.billable_type = ? THEN 'image' ELSE 'ai_suggestion' END AS kind,
+                    CASE WHEN ur.billable_type = ? THEN ?::text ELSE ?::text END AS kind,
                     ur.id::text AS row_key,
                     ur.status AS usage_status,
                     -- Charged: at the charge entry. Settled for $0 (no entry): at completion.
                     -- Open or voided: at creation.
                     CASE
                         WHEN charge.id IS NOT NULL THEN charge.created_at
-                        WHEN ur.status = 'settled' THEN COALESCE(ur.completed_at, ur.updated_at)
+                        WHEN ur.status = ? THEN COALESCE(ur.completed_at, ur.updated_at)
                         ELSE ur.created_at
                     END AS occurred_at,
                     -- Lines without a ledger entry sort after the entries at the same instant.
@@ -62,7 +66,7 @@ final readonly class ListBillingActivityQuery
                     NULL::text AS invoice_id,
                     NULL::text AS invoice_number
                 FROM usage_records ur
-                LEFT JOIN ledger_entries charge ON charge.usage_record_id = ur.id AND charge.type = 'charge'
+                LEFT JOIN ledger_entries charge ON charge.usage_record_id = ur.id AND charge.type = ?
                 LEFT JOIN takes t ON ur.billable_type = ? AND t.id = ur.billable_id
                 LEFT JOIN suggestions s ON ur.billable_type = ? AND s.id = ur.billable_id
                 WHERE ur.customer_id = ?
@@ -71,10 +75,10 @@ final readonly class ListBillingActivityQuery
 
                 SELECT
                     CASE
-                        WHEN l.type = 'purchase' THEN 'purchase'
-                        WHEN l.type = 'adjustment' THEN 'adjustment'
-                        WHEN l.reason = 'welcome' THEN 'welcome_credit'
-                        ELSE 'promo_grant'
+                        WHEN l.type = ? THEN ?::text
+                        WHEN l.type = ? THEN ?::text
+                        WHEN l.reason = ? THEN ?::text
+                        ELSE ?::text
                     END,
                     l.id::text,
                     NULL,
@@ -91,7 +95,7 @@ final readonly class ListBillingActivityQuery
                     i.number
                 FROM ledger_entries l
                 LEFT JOIN invoices i ON i.purchase_id = l.purchase_id
-                WHERE l.customer_id = ? AND l.type <> 'charge'
+                WHERE l.customer_id = ? AND l.type <> ?
             ),
             activity AS (
                 -- One pass: Σ ledger up to each line, in ledger order (created_at, id).
@@ -108,11 +112,19 @@ final readonly class ListBillingActivityQuery
             ORDER BY occurred_at DESC, tie_rank DESC, ledger_id DESC, row_key DESC
             LIMIT ? OFFSET ?
             SQL, [
-            $take,
+            // Every enum value is bound, in placeholder order, so a renamed
+            // case can never silently drop or misfile a line.
+            $take, BillingActivityKind::Image->value, BillingActivityKind::AiSuggestion->value,
+            UsageStatus::Settled->value,
+            LedgerEntryType::Charge->value,
             $take,
             $suggestion,
             $customer->id,
-            $customer->id,
+            LedgerEntryType::Purchase->value, BillingActivityKind::Purchase->value,
+            LedgerEntryType::Adjustment->value, BillingActivityKind::Adjustment->value,
+            GrantWelcomeCreditAction::REASON, BillingActivityKind::WelcomeCredit->value,
+            BillingActivityKind::PromoGrant->value,
+            $customer->id, LedgerEntryType::Charge->value,
             $perPage + 1,
             ($page - 1) * $perPage,
         ]);

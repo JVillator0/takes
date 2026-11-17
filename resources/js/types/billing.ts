@@ -93,5 +93,7 @@ export type InvoiceDetail = InvoiceSummary & {
     reference: string;
     quantity: number;
     unitPrice: string;
+    /** The purchase line, before tax. */
+    lineAmount: string;
     tax: string;
 };

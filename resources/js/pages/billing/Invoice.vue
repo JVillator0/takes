@@ -138,7 +138,7 @@ function print(): void {
                             {{ invoice.unitPrice }}
                         </td>
                         <td class="border-b px-2 py-2 text-right">
-                            {{ invoice.total }}
+                            {{ invoice.lineAmount }}
                         </td>
                     </tr>
                     <tr>

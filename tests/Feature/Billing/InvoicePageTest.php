@@ -52,6 +52,7 @@ it('shows the owner the printable invoice with exact amounts', function (): void
                 'reference' => $purchase->reference,
                 'quantity' => 1,
                 'unitPrice' => '$10.00',
+                'lineAmount' => '$10.00',
                 'tax' => '$0.00',
             ]));
 });
@@ -65,7 +66,8 @@ it('renders an exact total whose 4-decimal rounding would differ', function (): 
         ->get(route('billing.invoices.show', $invoice))
         ->assertInertia(fn (Assert $page) => $page
             ->where('invoice.total', '$0.0740375')
-            ->where('invoice.unitPrice', '$0.0740375'));
+            ->where('invoice.unitPrice', '$0.0740375')
+            ->where('invoice.lineAmount', '$0.0740375'));
 });
 
 it('answers 404 for another customer\'s invoice, the same as an unknown one', function (): void {
