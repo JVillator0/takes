@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Enums\Auth\AdminRole;
 use App\Models\Customer;
+use App\Models\Take;
 use App\Models\User;
 use Database\Seeders\AdminRolesSeeder;
 use Filament\Facades\Filament;
@@ -45,6 +46,17 @@ it('records a write an admin makes while the console is serving, linking mapped 
         ['event' => 'created', 'causer' => $operator->id, 'subject' => 'customer', 'resource' => 'customers', 'record' => (string) $customer->id],
         ['event' => 'updated', 'causer' => $operator->id, 'subject' => 'customer', 'resource' => 'customers', 'record' => (string) $customer->id],
     ]);
+});
+
+it('links a subject whose key is a ULID', function (): void {
+    $operator = User::factory()->admin(AdminRole::Operator)->create();
+    $this->actingAs($operator);
+    Filament::setServingStatus();
+
+    $take = Take::factory()->create();
+
+    expect(collect(adminAudit())->firstWhere('resource', 'takes'))
+        ->toBe(['event' => 'created', 'causer' => $operator->id, 'subject' => 'take', 'resource' => 'takes', 'record' => $take->id]);
 });
 
 it('records a role change by table and id', function (): void {
