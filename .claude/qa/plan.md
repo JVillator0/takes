@@ -6,19 +6,20 @@ How to read a row: `ID` is stable (re-verification refers to it). `Account / vie
 
 ## 1. Scope
 
-**In** ([D-080](../specs/DECISIONS.md#L82), lead decision on scope):
+**In** ([D-080](../specs/DECISIONS.md#L83), lead decision on scope):
 
 - Required: spec 3 (only what a browser or the public webhook endpoint can observe), 4, 5, 9.
 - Stretch that shipped: 6 (billing page, purchases, invoices) and 8 (Describe a change).
 - Spec 7, limited to: Filament foundation (login, MFA required for admins except the MFA-exempt read-only auditor, clusters, Shield); Studio (Takes list, take view A06 with **Reconcile now hidden for the auditor**, Projects); Providers › Webhook deliveries; Billing › Reports (A03); Providers › Pixelforge usage reconciliation (A04, issue #64); Customers resource with balances and Adjust credits (issue #68; the auditor sees no write action).
 - Cross-cutting: 2-01 copy tables, disclosure (D-023), money formats (D-021, D-042), wireframes P01 to P10 and A03, A04, A06, scenario keywords, live status, accessibility smoke, console errors, brief-coverage matrix rows (D-044).
 
-**Out of scope** (cut by [D-080](../specs/DECISIONS.md#L82) or not observable; do not file issues for these):
+**Out of scope** (cut by [D-080](../specs/DECISIONS.md#L83) or not observable; do not file issues for these):
 
 - Dashboard widgets and *Needs attention* (#67, wireframe A02).
 - Ledger invariant widget and Ledger entries resource (#63 remainder).
 - Users, Purchases and Invoices admin resources (#70).
 - Anthropic usage and Pricing pages (#71).
+- Spec 8 issue 5: the admin AI suggestions resource and the customer-facing *Edit in composer* action (#76).
 - Anything only checkable by reading code or the database (locks, transactions, enum values, Pest-only cases such as out-of-order snapshots that cannot be produced from a browser).
 - Needs provider dashboards or extra credentials: deleting a delivery in the Pixelforge dashboard ([5 Acceptance](../specs/5-webhooks-and-live-status/SPEC.md#L75)), the dashboard ping ([9 L51](../specs/9-deployment/SPEC.md#L51)), MFA enforcement for non-auditor admins (no operator login is provided), Adjust credits / Restrict as an operator (A05 modal; the auditor must not see them).
 - Not reachable within budget on production: daily caps (`daily_take_cap` 40/customer, `demo_quota_reached` 300/day), `ai_paused`, `ai_daily_limit`, negative-balance banner, purchase failed/unconfirmed states, demo expiry after 24 h, `service.not_configured` banner in its shown state, 30-minute `provider_busy` / `submit_timeout` exhaustion.

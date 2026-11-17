@@ -8,7 +8,7 @@ Live app: **TBD_APP_URL** · Plan and execution: [GitHub Project](https://github
 
 ## Brief coverage
 
-Every requirement, tip and stretch goal of the brief, plus what was added. Paths are relative to the repo root. A row marked **(lands with #N)** depends on that open pull request.
+Every requirement, tip and stretch goal of the brief, plus what was added. Paths are relative to the repo root. A row marked **(lands with #N)** depends on that open pull request (open now: #110, #112, #113, #117, #121, #131, #132). **Redeploy evidence** marks a row that depends on specs 6 to 8, which were deployed after the required first deploy (D-063).
 
 | Requirement | Tier | How to see it live | Code path | Pest test |
 |---|---|---|---|---|
@@ -24,21 +24,21 @@ Every requirement, tip and stretch goal of the brief, plus what was added. Paths
 | Correct state despite out-of-order events | required | Showcase take `[slow]`; its deliveries in `/admin` show `ignored_stale` where a late `processing` arrived | `app/Actions/Takes/ApplyTakeSnapshotAction.php` (outcome matrix) | `tests/Feature/Takes/ApplyTakeSnapshotActionTest.php`, `WebhookOutcomeMatrixTest` (lands with #112) |
 | Rate limits, concurrency, overloads, failures after acceptance | required | `[overloaded]`: "Waiting for capacity", then it runs; Cancel works while waiting. A fourth take at once stays "Submitting" until a slot frees | `app/Jobs/SubmitTakeJob.php` (lands with #117), `app/Support/Pixelforge/SubmitGate.php`, `app/Services/Pixelforge/PixelforgeClient.php` | `tests/Feature/Takes/SubmitTakeJobTest.php` (lands with #117), `tests/Feature/Pixelforge/SubmitGateTest.php`, `tests/Feature/Pixelforge/PixelforgeClientTest.php` |
 | Public deployment | required | TBD_APP_URL (Laravel Cloud) | [`docs/deploy.md`](docs/deploy.md) | Smoke test in spec 9 (#80), not Pest |
-| Admin report: spend, provider cost and profit per day and per user | stretch | `/admin` › Billing › Reports, toggle By day / By customer, Export CSV | `app/Filament/Admin/Clusters/Billing/Pages/Reports.php`, `app/Queries/Billing/GetBillingReportQuery.php` (lands with #113) | `tests/Feature/Admin/BillingReportsTest.php` (lands with #113) |
-| Provider cost matches `GET /v1/usage` | stretch | `/admin` › Providers › Pixelforge usage: one "match" per day with data, "N in flight" today | `app/Filament/Admin/Clusters/Providers/Pages/PixelforgeUsage.php` (lands with #64), `app/Console/Commands/VerifyBillingCommand.php` (`--usage`) | `tests/Feature/Billing/VerifyBillingCommandTest.php`; page test (lands with #64) |
-| Per-user credit balances | stretch | Balance pill in the header, `/billing`, `/admin` › Customers (balance, on hold, available, Adjust credits) | `app/Queries/Billing/GetBillingSummaryQuery.php`, `app/Filament/Admin/Resources/Customers/` (lands with #131) | `tests/Feature/Billing/BillingPageTest.php`, `tests/Feature/Admin/AdminCustomersTest.php` (lands with #131) |
-| Fake "Buy credits" | stretch | "Buy credits" in the header or on `/billing`; each purchase issues an invoice | `app/Actions/Billing/PurchaseCreditsAction.php`, `resources/js/components/takes/BuyCreditsModal.vue` (lands with #121) | `tests/Feature/Billing/PurchaseCreditsTest.php`, `tests/Feature/Billing/InvoicesTest.php` |
+| Admin report: spend, provider cost and profit per day and per user | stretch · redeploy evidence | `/admin` › Billing › Reports, toggle By day / By customer, Export CSV | `app/Filament/Admin/Clusters/Billing/Pages/Reports.php`, `app/Queries/Billing/GetBillingReportQuery.php` (lands with #113) | `tests/Feature/Admin/BillingReportsTest.php` (lands with #113) |
+| Provider cost matches `GET /v1/usage` | stretch · redeploy evidence | `/admin` › Providers › Pixelforge usage: one "match" per day with data, "N in flight" today | `app/Filament/Admin/Clusters/Providers/Pages/PixelforgeUsage.php` (lands with #132), `app/Console/Commands/VerifyBillingCommand.php` (`--usage`) | `tests/Feature/Billing/VerifyBillingCommandTest.php`, `tests/Feature/Admin/PixelforgeUsageTest.php` (lands with #132) |
+| Per-user credit balances | stretch · redeploy evidence | Balance pill in the header, `/billing`, `/admin` › Customers (balance, on hold, available, Adjust credits) | `app/Queries/Billing/GetBillingSummaryQuery.php`, `app/Filament/Admin/Resources/Customers/` (lands with #131) | `tests/Feature/Billing/BillingPageTest.php`, `tests/Feature/Admin/AdminCustomersTest.php` (lands with #131) |
+| Fake "Buy credits" | stretch · redeploy evidence | "Buy credits" in the header or on `/billing`; each purchase issues an invoice | `app/Actions/Billing/PurchaseCreditsAction.php`, `resources/js/components/takes/BuyCreditsModal.vue` (lands with #121) | `tests/Feature/Billing/PurchaseCreditsTest.php`, `tests/Feature/Billing/InvoicesTest.php` |
 | Block generation the customer cannot afford | stretch | Spend the welcome credit: the next take is refused with the insufficient-credits message until you buy credits | `app/Policies/TakePolicy.php`, re-checked under the customer lock in `app/Actions/Billing/OpenUsageAction.php` | `tests/Feature/Policies/TakePolicyTest.php`, `tests/Feature/Billing/PurchaseUnblocksTakesTest.php`, `tests/Committed/ConcurrencyTest.php` |
 | Tip: test keywords `[fail]`, `[slow]`, `[duplicate]` | tip | "Try a scenario" chips under the prompt append them | `resources/js/components/takes/ScenarioChips.vue` (wired by #121) | `tests/Feature/Webhooks/WebhookIdempotencyTest.php` (`[duplicate]` fixtures, lands with #112) |
-| Tip: resend from the Pixelforge dashboard | tip | Resend an event: a new `duplicate` delivery, no new charge | `app/Filament/Admin/Clusters/Providers/Resources/WebhookDeliveries/` (lands with #110) | `tests/Feature/Admin/ProviderWebhookDeliveriesTest.php` (lands with #110) |
+| Tip: resend from the Pixelforge dashboard | tip · redeploy evidence | Resend an event: a new `duplicate` delivery, no new charge | `app/Filament/Admin/Clusters/Providers/Resources/WebhookDeliveries/` (lands with #110) | `tests/Feature/Admin/ProviderWebhookDeliveriesTest.php` (lands with #110) |
 | Tip: one API key per environment | tip | n/a | [`docs/deploy.md`](docs/deploy.md), `.env.example` | n/a |
 | Lost webhooks still finish (reconcile + sweeper) | extra | Takes finish even with the tunnel down; nothing stays "Processing" | `app/Jobs/ReconcileTakeJob.php`, `app/Actions/Takes/SweepStaleTakesAction.php` (lands with #112) | `tests/Feature/Webhooks/ReconcileTakeJobTest.php`, `tests/Feature/Webhooks/SweepStaleTakesActionTest.php` (lands with #112) |
 | Polling fallback when the socket drops | extra | Block the websocket in devtools: "Reconnecting…", cards still update | `resources/js/composables/useTakeUpdates.ts` (lands with #112), `resources/js/components/takes/LiveIndicator.vue` (lands with #121) | `tests/Feature/Webhooks/BroadcastingPropTest.php` (lands with #112); rule W-20 is checked by review |
 | Welcome credit, register without email verification, "Try a demo account" | extra | Register: $1.00 is on the pill; or one click on "Try a demo account" | `app/Actions/Billing/GrantWelcomeCreditAction.php`, `app/Actions/Auth/CreateDemoCustomerAction.php` (lands with #117) | `tests/Feature/Auth/RegistrationTest.php`, `tests/Feature/Billing/GrantWelcomeCreditActionTest.php`, `tests/Feature/Demo/TryDemoAccountTest.php` (lands with #117) |
 | Cancel while waiting for capacity; Try again; Remix and Compare with parent | extra | Take card and drawer actions | `app/Actions/Takes/CancelTakeAction.php` (lands with #117), drawer (lands with #121) | `tests/Feature/Takes/CancelTakeTest.php`, `tests/Feature/Takes/TakeRoutesTest.php` (lands with #117) |
-| Invoices per purchase, gapless per year | extra | `/billing` › Invoices, printable invoice | `app/Actions/Billing/IssueInvoiceAction.php` | `tests/Feature/Billing/InvoicesTest.php`, `tests/Committed/InvoiceConcurrencyTest.php` |
-| Describe a change (Claude Haiku 5.5, same ledger) | extra | Open a done take › Describe a change › "warmer, portrait" | `app/Actions/Suggestions/CreateSuggestionAction.php`, `app/Ai/Agents/TakeChangeAgent.php` (lands with #119) | `tests/Feature/Suggestions/CreateSuggestionActionTest.php` (lands with #119) |
-| Admin take view: money trail, deliveries, Reconcile now | extra | `/admin` › Studio › Takes › any take | `app/Filament/Admin/Clusters/Studio/Resources/Takes/` (lands with #110) | `tests/Feature/Admin/StudioTakesTest.php` (lands with #110) |
+| Invoices per purchase, gapless per year | extra · redeploy evidence | `/billing` › Invoices, printable invoice | `app/Actions/Billing/IssueInvoiceAction.php` | `tests/Feature/Billing/InvoicesTest.php`, `tests/Committed/InvoiceConcurrencyTest.php` |
+| Describe a change (Claude Haiku 5.5, same ledger) | extra · redeploy evidence | Open a done take › Describe a change › "warmer, portrait" | `app/Actions/Suggestions/CreateSuggestionAction.php`, `app/Ai/Agents/TakeChangeAgent.php` | `tests/Feature/Suggestions/CreateSuggestionActionTest.php` |
+| Admin take view: money trail, deliveries, Reconcile now | extra · redeploy evidence | `/admin` › Studio › Takes › any take | `app/Filament/Admin/Clusters/Studio/Resources/Takes/` (lands with #110) | `tests/Feature/Admin/StudioTakesTest.php` (lands with #110) |
 | Ledger invariants checkable at any time | extra | `php artisan billing:verify --usage` | `app/Console/Commands/VerifyBillingCommand.php` | `tests/Feature/Billing/LedgerInvariantTest.php`, `tests/Feature/Billing/VerifyBillingCommandTest.php` |
 | Customers never see provider cost, tokens, provider names or margin | extra | Inspect any customer page or the websocket payload | `app/Http/Resources/` (prices only, D-023) | `tests/Feature/Billing/BillingNoProviderLeakTest.php`, `tests/Feature/Customer/NoProviderLeakTest.php` (lands with #112) |
 
@@ -62,7 +62,22 @@ Every requirement, tip and stretch goal of the brief, plus what was added. Paths
 
 The showcase and demo logins share Pixelforge's account-wide limits (3 in flight, 60 requests per minute, 500 per day) with every evaluator, so "Waiting for capacity" is expected under load. Registering your own account keeps your balance to yourself.
 
-**Data left on the deployed app.** The showcase customer holds one take per smoke prompt (normal, `[succeed]`, `[fail]`, `[duplicate] [succeed]`, `[slow]`, `[blocked]`, `[overloaded]`) and one remix, plus one AI change and one purchase with its invoice. Each was a real Pixelforge call on the production key, so the numbers match the Pixelforge dashboard and `/v1/usage`. The Pixelforge account email is in the submission form.
+**Data left on the deployed app.** The showcase customer's history comes from the production smoke test (spec 9): every take is a real Pixelforge call on the production key, so the numbers can be compared with the Pixelforge dashboard and `/v1/usage`. Charges are filled in from the deployed app.
+
+| Prompt | Expected status | Charge |
+|---|---|---|
+| normal prompt | Done | TBD |
+| `[succeed]` | Done | TBD |
+| `[fail]` | Failed: "You were not charged." | $0.00 |
+| `[duplicate] [succeed]` | Done; every event delivered twice, charged once | TBD |
+| `[slow]` | Done after 60 to 90 s | TBD |
+| `[blocked]` | Failed: declined by the content policy | $0.00 |
+| `[overloaded]` | Waiting for capacity, then Done | TBD |
+| Remix of the normal take | Done | TBD |
+| One AI change (redeploy evidence, spec 8) | Suggestion charged, new take Done | TBD (suggestion) + TBD (take) |
+| One purchase (redeploy evidence, spec 6) | Paid, invoice `INV-TBD` | +TBD credit, not a charge |
+
+Pixelforge key label: `TBD_KEY_LABEL` (production key). The Pixelforge account email is in the submission form, not here: contact emails stay out of the public repository (D-081).
 
 <!-- DATA CHECK: `php artisan billing:verify --usage` result and UTC timestamp, filled after the last QA re-verification (spec 10 § Final checks). -->
 
@@ -152,14 +167,23 @@ stateDiagram-v2
     pending --> queued: 202 from Pixelforge
     pending --> processing
     pending --> succeeded
-    pending --> failed: rejection, cancelled, provider_busy, submit_timeout
+    pending --> failed: rejection, cancelled, provider_busy, submit_timeout, internal
     queued --> processing
     queued --> succeeded
     queued --> failed
-    processing --> succeeded: settle (one charge)
-    processing --> failed: void (free)
+    processing --> succeeded
+    processing --> failed
     succeeded --> [*]
     failed --> [*]
+    note right of succeeded
+        Every way in settles the usage in the same
+        transaction: one charge = ceil(cost x 1.25),
+        hold released
+    end note
+    note right of failed
+        Every way in voids the usage: no ledger row,
+        hold released, charge $0.00
+    end note
 ```
 
 Only `ApplyTakeSnapshotAction` and `FailTakeAction` write `takes.status`. Forward jumps are legal; anything else is an ignored outcome, never an exception.
@@ -258,7 +282,7 @@ Production runs on Laravel Cloud (US East): app on Flex compute, Serverless Post
 
 I built Takes with AI agents (Claude Code, Opus 5.5) under a harness that keeps the money correct and the process visible:
 
-1. **Specs first.** Eleven milestone specs in [`.claude/specs/`](.claude/specs/README.md), each with a product and a technical review ([example](.claude/specs/3-domain-foundation/REVIEW.md)), wireframes for every screen ([`wireframes/`](.claude/specs/2-product-design/wireframes/); the volumes on them are illustrative, every amount comes from one [demo dataset](.claude/specs/2-product-design/demo-dataset.md)), and a [decision log](.claude/specs/DECISIONS.md) with the reason for each choice (D-001 … D-080).
+1. **Specs first.** Eleven milestone specs in [`.claude/specs/`](.claude/specs/README.md), each with a product and a technical review ([example](.claude/specs/3-domain-foundation/REVIEW.md)), wireframes for every screen ([`wireframes/`](.claude/specs/2-product-design/wireframes/); the volumes on them are illustrative, every amount comes from one [demo dataset](.claude/specs/2-product-design/demo-dataset.md)), and a [decision log](.claude/specs/DECISIONS.md) with the reason for each choice (D-001 … D-081).
 2. **Project board.** `scripts/plan-to-github.sh` turned each approved spec into a milestone and issues in the public [GitHub Project](https://github.com/users/JVillator0/projects/4). Each issue quotes its spec item and acceptance criteria.
 3. **Parallel agents.** After the domain foundation merged (Gate B), five agents worked at once in a fixed pool of worktrees (`takes-a` … `takes-e`, D-070), each with its own databases and ports ([`.claude/worktree-pool.md`](.claude/worktree-pool.md)). They never call the real Pixelforge API; tests use signed fixtures.
 4. **Pull requests with three reviewers and a judge.** Every change lands through a PR. The [`pr-review` workflow](.claude/workflows/pr-review.js) runs three specialist reviewers ([Laravel backend](.claude/agents/laravel-backend-reviewer.md), [Inertia + Vue](.claude/agents/inertia-vue-reviewer.md), [Filament](.claude/agents/filament-reviewer.md)) against the checklists in [`.claude/rules/`](.claude/rules/), and a [judge](.claude/agents/pr-judge.md) scores the PR and decides whether it merges. Representative threads:
@@ -276,7 +300,7 @@ I built Takes with AI agents (Claude Code, Opus 5.5) under a harness that keeps 
 
 ## Trade-offs and what I'd do next
 
-- **Admin scope cut** (D-080). The console ships the foundation, Studio, Billing › Reports, Providers › Pixelforge usage and Customers with Adjust credits, which cover the brief's stretch goal. Deferred: dashboard widgets and Needs attention ([#67](https://github.com/JVillator0/takes/issues/67)), the ledger invariant widget and Ledger entries ([#63](https://github.com/JVillator0/takes/issues/63)), the Users, Purchases and Invoices resources ([#70](https://github.com/JVillator0/takes/issues/70)), the Anthropic usage and Pricing pages ([#71](https://github.com/JVillator0/takes/issues/71)) and the admin AI suggestions resource ([#76](https://github.com/JVillator0/takes/issues/76)). `billing:verify` still checks the ledger invariant from the command line.
+- **Admin scope cut** (D-080). The console ships the foundation, Studio, Billing › Reports, Providers › Pixelforge usage and Customers with Adjust credits, which cover the brief's stretch goal. Deferred: dashboard widgets and Needs attention ([#67](https://github.com/JVillator0/takes/issues/67)), the ledger invariant widget and Ledger entries ([#63](https://github.com/JVillator0/takes/issues/63)), the Users, Purchases and Invoices resources ([#70](https://github.com/JVillator0/takes/issues/70)), the Anthropic usage and Pricing pages ([#71](https://github.com/JVillator0/takes/issues/71)), and from spec 8 the admin AI suggestions resource and *Edit in composer* ([#76](https://github.com/JVillator0/takes/issues/76)). `billing:verify` still checks the ledger invariant from the command line.
 - **Simulated payments.** "Buy credits" credits the account instantly and issues an invoice; there is no payment provider. A real one would add a pending purchase confirmed by its own signed webhook, through the same `PurchaseCreditsAction`.
 - **Shared Pixelforge quotas.** Limits are per account (3 in flight, 60 rpm, 500 per day) and every evaluator shares them. Takes queues politely ("Waiting for capacity"), caps takes per customer and globally per day (D-050), and throttles the demo button per IP, but a busy review window can still mean waiting.
 - **Anthropic cost is not reconcilable by API.** Each AI charge comes from the exact usage block of the response, but there is no per-key usage endpoint to compare with, so the AI side has no "match" column. A $5 workspace limit and a $1 daily AI budget bound the exposure.
