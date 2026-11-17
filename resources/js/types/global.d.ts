@@ -20,6 +20,7 @@ declare module '@inertiajs/core' {
         sharedPageProps: {
             name: string;
             auth: Auth;
+            pixelforge: { configured: boolean };
             sidebarOpen: boolean;
             copy: Copy;
             [key: string]: unknown;

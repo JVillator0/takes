@@ -56,25 +56,28 @@
             "@php artisan dev"
         ],
         "lint": [
-            "pint --parallel"
-        ],
-        "lint:check": [
             "pint --parallel --test"
         ],
-        "ci:check": [
-            "Composer\\Config::disableProcessTimeout",
-            "npm run check",
-            "npm run types:check",
-            "@test"
+        "lint:fix": [
+            "pint --parallel"
         ],
-        "types:check": [
-            "phpstan analyse"
+        "stan": [
+            "phpstan analyse --memory-limit=1G"
+        ],
+        "filacheck": [
+            "@php -r 'if (! is_dir(\"app/Filament\")) { echo \"filacheck: skipped, app/Filament does not exist yet (D-048).\", PHP_EOL; exit(0); } passthru(\"vendor/bin/filacheck\", $code); exit($code);'"
         ],
         "test": [
             "@php artisan config:clear --ansi",
-            "@lint:check",
-            "@types:check",
-            "@php artisan test"
+            "pest --parallel"
+        ],
+        "check": [
+            "Composer\\Config::disableProcessTimeout",
+            "@lint",
+            "@stan",
+            "@filacheck",
+            "@test",
+            "@composer audit --locked"
         ],
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
@@ -99,8 +102,7 @@
         "laravel": {
             "dont-discover": [],
             "installer": {
-                "post-create-project": [
-                ]
+                "post-create-project": []
             }
         }
     },
@@ -114,5 +116,13 @@
         }
     },
     "minimum-stability": "stable",
-    "prefer-stable": true
+    "prefer-stable": true,
+    "scripts-descriptions": {
+        "lint": "Check PHP formatting with Pint (no changes).",
+        "lint:fix": "Fix PHP formatting with Pint.",
+        "stan": "Run Larastan (level 8, no baseline).",
+        "filacheck": "Run FilaCheck on app/Filament; skipped until Filament exists (M7).",
+        "test": "Run the Pest suite in parallel.",
+        "check": "All PHP gates: lint, stan, filacheck, test, composer audit."
+    }
 }
