@@ -65,9 +65,11 @@ final readonly class SweepStaleTakesAction
 
         $expired = 0;
 
+        // Pending past expires_at (CreateSuggestionAction sets it 2 min out),
+        // the same rule ExpireSuggestionAction re-checks under lock.
         $suggestions = Suggestion::query()
             ->where('status', SuggestionStatus::Pending->value)
-            ->where('created_at', '<=', $staleBefore)
+            ->where('expires_at', '<=', now())
             ->orderBy('created_at')
             ->limit(self::BATCH)
             ->get();

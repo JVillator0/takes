@@ -3,11 +3,13 @@
 declare(strict_types=1);
 
 use App\Actions\Billing\OpenUsageAction;
+use App\Actions\Suggestions\CreateSuggestionAction;
 use App\Actions\Takes\SweepStaleTakesAction;
 use App\DTOs\Takes\SweepResultDTO;
 use App\Enums\Auth\AdminRole;
 use App\Enums\Billing\Provider;
 use App\Enums\Billing\UsageStatus;
+use App\Enums\Suggestions\SuggestionFailureReason;
 use App\Enums\Suggestions\SuggestionStatus;
 use App\Enums\Takes\AttentionReason;
 use App\Enums\Takes\ReconcileStatus;
@@ -59,7 +61,7 @@ function takeAged(string $status, int $minutes): Take
     return $take;
 }
 
-/** A pending suggestion with its AI hold open, created $minutes ago. */
+/** A pending suggestion with its AI hold open, created $minutes ago with spec 8's 2-minute expiry. */
 function pendingSuggestion(int $minutes): Suggestion
 {
     $customer = Billing::fundedCustomer();
@@ -71,7 +73,10 @@ function pendingSuggestion(int $minutes): Suggestion
         Billing::estimate(5_000_000),
         Billing::anthropicRates(),
     ));
-    $suggestion->forceFill(['created_at' => now()->subMinutes($minutes)])->save();
+    $suggestion->forceFill([
+        'created_at' => now()->subMinutes($minutes),
+        'expires_at' => now()->subMinutes($minutes)->addSeconds(CreateSuggestionAction::PENDING_TTL_SECONDS),
+    ])->save();
 
     return $suggestion;
 }
@@ -157,13 +162,13 @@ it('expires a suggestion pending for more than 2 minutes and releases its hold',
     Queue::fake();
     $stale = pendingSuggestion(3);
     $fresh = pendingSuggestion(1);
-    $proposed = Suggestion::factory()->proposed()->create(['created_at' => now()->subMinutes(10)]);
+    $proposed = Suggestion::factory()->proposed()->create(['created_at' => now()->subMinutes(10), 'expires_at' => now()->subMinutes(8)]);
 
     $result = sweep();
 
     expect($result->suggestionsExpired)->toBe(1)
         ->and($stale->refresh()->status)->toBe(SuggestionStatus::Failed)
-        ->and($stale->failure_reason)->toBe('timeout')
+        ->and($stale->failure_reason)->toBe(SuggestionFailureReason::Timeout)
         ->and($stale->usageRecord()->sole()->status)->toBe(UsageStatus::Voided)
         ->and($stale->customer()->sole()->held_nanos)->toBe(0)
         ->and($fresh->refresh()->status)->toBe(SuggestionStatus::Pending)

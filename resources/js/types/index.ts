@@ -4,5 +4,6 @@ export * from './copy';
 export * from './denials';
 export * from './live';
 export * from './navigation';
+export * from './suggestions';
 export * from './takes';
 export * from './ui';

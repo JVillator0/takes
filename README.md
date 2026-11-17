@@ -96,7 +96,15 @@ Tests use the `takes_testing` database (`phpunit.xml`). To point them elsewhere,
 
 ## Deploy
 
-Production runs on Laravel Cloud (US East): app on Flex compute, Serverless Postgres 17, a managed queue, a Reverb cluster and a private object-storage bucket, all scaling to zero except Reverb, under a $15/month spend alert. Resources, build and deploy commands, environment variables, cold-start measurements and key rotation are in [`docs/deploy.md`](docs/deploy.md).
+Live at **<https://takes-production-aodrsk.laravel.cloud>** on Laravel Cloud (US East): app on Flex compute, Serverless Postgres 17, a managed queue, a Reverb cluster and a private object-storage bucket, all scaling to zero except Reverb, under a $15/month spend alert. Every merge to `main` deploys.
+
+| Cold start (2026-11-17) | Result |
+|---|---|
+| `/` after 12 min idle (app and database asleep) | 2.98 s to first byte |
+| `/` warm | 0.33 s |
+| Signed webhook ping after idle | measured with spec 5 |
+
+Resources, build and deploy commands, environment variables and key rotation are in [`docs/deploy.md`](docs/deploy.md).
 
 ## Design notes
 
