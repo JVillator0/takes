@@ -76,12 +76,14 @@ final readonly class CreateTakeAction
         );
 
         [$take, $created] = DB::transaction(function () use ($customer, $project, $data, $quote): array {
-            // Lock order take → customer (M-10): a parent take is locked first.
-            // The insert below takes a key-share lock on it through the
-            // lineage FK, and a non-terminal parent (Try again of a remix whose
-            // parent still runs) may be settling right now under take → customer.
+            // Lock order take → customer (M-10). A parent take (remix, Try
+            // again, AI apply) is locked first with FOR KEY SHARE: exactly what
+            // the lineage FK insert needs, it still waits for a parent being
+            // settled (FOR UPDATE, take → customer), and it is compatible with
+            // the key-share CreateSuggestionAction T1 takes on the same take
+            // after the customer, so no lock cycle exists either way.
             if ($data->parentTakeId !== null
-                && Take::query()->whereKey($data->parentTakeId)->where('customer_id', $customer->id)->lockForUpdate()->first() === null) {
+                && Take::query()->whereKey($data->parentTakeId)->where('customer_id', $customer->id)->lock('for key share')->first() === null) {
                 throw new AuthorizationException;
             }
 
