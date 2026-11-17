@@ -237,8 +237,8 @@ describe('queueDelayViolations', function (): void {
             ->and($violations[0])->toEndWith('3600s > 900s');
     });
 
-    it('ignores unrelated methods and plain function calls', function (): void {
-        $file = ($this->fixture)("<?php\n\$x->delayed(5000);\nrelease(5000);\n\$s = '->delay(5000)';\n\$delay = 5000;\nclass J { public function backoff(): array { return [1]; } }");
+    it('ignores unrelated methods, plain function calls and static calls to instance-only APIs', function (): void {
+        $file = ($this->fixture)("<?php\n\$x->delayed(5000);\nrelease(5000);\n\$s = '->delay(5000)';\n\$delay = 5000;\nclass J { public function backoff(): array { return [1]; } }\nSubmitGateDecision::releaseAfter(\$this->jitter());\nSomeFactory::release(5000);");
 
         expect(SourceScan::queueDelayViolations([$file], 900))->toBe([]);
     });

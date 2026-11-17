@@ -34,17 +34,21 @@ final class SourceScan
 
     /**
      * Queue APIs that take a delay: method => [0-based argument index,
-     * seconds per unit].
+     * seconds per unit, static calls count]. Facade APIs (`Queue::later()`)
+     * are matched on `->` and `::`; instance-only APIs on `->`/`?->` only, so
+     * an app factory such as `SubmitGateDecision::releaseAfter()` is not
+     * mistaken for the queue middleware (its value is checked where it
+     * reaches `release()`).
      *
-     * @var array<string, array{0: int, 1: int}>
+     * @var array<string, array{0: int, 1: int, 2: bool}>
      */
     public const array QUEUE_DELAY_CALLS = [
-        'delay' => [0, 1],          // PendingDispatch, Queueable, Mailable, Notification
-        'release' => [0, 1],        // InteractsWithQueue::release()
-        'releaseafter' => [0, 1],   // RateLimited / WithoutOverlapping middleware
-        'later' => [0, 1],          // Queue::later(), Mail::later(), Mailable::later()
-        'lateron' => [1, 1],        // Queue::laterOn(), Mail::laterOn()
-        'backoff' => [0, 60],       // ThrottlesExceptions::backoff() takes minutes
+        'delay' => [0, 1, true],          // PendingDispatch, Queueable, Mailable, Notification
+        'later' => [0, 1, true],          // Queue::later(), Mail::later(), Mailable::later()
+        'lateron' => [1, 1, true],        // Queue::laterOn(), Mail::laterOn()
+        'release' => [0, 1, false],       // InteractsWithQueue::release()
+        'releaseafter' => [0, 1, false],  // RateLimited / WithoutOverlapping middleware
+        'backoff' => [0, 60, false],      // ThrottlesExceptions::backoff() takes minutes
     ];
 
     /**
@@ -279,7 +283,9 @@ final class SourceScan
                     $value = self::tokensUntil($tokens, $index + 2, ';');
                     $call = 'delay = '.self::source($value);
                     $unit = 1;
-                } elseif (isset(self::QUEUE_DELAY_CALLS[$method]) && $next === '(') {
+                } elseif (isset(self::QUEUE_DELAY_CALLS[$method])
+                    && $next === '('
+                    && (self::QUEUE_DELAY_CALLS[$method][2] || ($tokens[$index - 1][0] ?? null) !== T_DOUBLE_COLON)) {
                     [$position, $unit] = self::QUEUE_DELAY_CALLS[$method];
                     $arguments = self::callArguments($tokens, $index + 1);
                     $value = $arguments[$position] ?? [];
