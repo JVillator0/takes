@@ -33,11 +33,12 @@ Reviewers: a violation of any rule below is a **critical** finding unless the ru
 
 ## Transactions, locks and settlement
 
-- [ ] **M-09 Money actions run inside the caller's transaction.** `OpenUsageAction`, `SettleUsageAction`, `VoidUsageAction` (and `RecordLedgerEntryAction`) start with `TransactionRequiredException::unlessInTransaction()`, a real exception that holds with `zend.assertions` off, and never open their own outer transaction.
+- [ ] **M-09 Money actions run inside the caller's transaction.** `OpenUsageAction`, `SettleUsageAction`, `VoidUsageAction` (and `RecordLedgerEntryAction`, `IssueInvoiceAction`) start with `TransactionRequiredException::unlessInTransaction()`, a real exception that holds with `zend.assertions` off, and never open their own outer transaction.
   Tests: `tests/Committed/TransactionGuardTest.php` (each action throws at transaction level 0 and writes nothing; outside the `RefreshDatabase` suite, which always has a transaction open).
 - [ ] **M-10 Lock order: take | suggestion → customer.** The caller locks the take (or suggestion) first with `lockForUpdate()`; the money actions then lock **only the customer row**; the usage record is **re-read under the customer lock, never locked separately**. Any new caller follows the same order.
   Reject: `lockForUpdate()` on `UsageRecord`; locking the customer before the take/suggestion; reading usage status before taking the customer lock and trusting it afterwards.
-  Tests: `tests/Committed/ConcurrencyTest.php` (group `concurrency`, two real processes, a late worker fails the test: two opens for a balance that covers one ⇒ one `InsufficientCreditsException` and one open usage; two settles of different takes of one customer in parallel ⇒ exact balance); `tests/Arch/ArchitectureTest.php` (no `lockForUpdate` / `sharedLock` on usage records, via `SourceScan::usageRecordLocks`).
+  Purchases (spec 6) lock **customer → invoice counter** and never the reverse: `IssueInvoiceAction` increments the year's `invoice_counters` row under its row lock after the customer lock, so numbers are gapless per year.
+  Tests: `tests/Committed/ConcurrencyTest.php` (group `concurrency`, two real processes, a late worker fails the test: two opens for a balance that covers one ⇒ one `InsufficientCreditsException` and one open usage; two settles of different takes of one customer in parallel ⇒ exact balance); `tests/Arch/ArchitectureTest.php` (no `lockForUpdate` / `sharedLock` on usage records, via `SourceScan::usageRecordLocks`); `tests/Committed/InvoiceConcurrencyTest.php` (group `concurrency`: parallel purchases get consecutive numbers, including the first purchases of a new year; a same-key double-click creates one purchase, one ledger entry and one invoice).
 - [ ] **M-11 Take transitions only in `ApplyTakeSnapshotAction` and `FailTakeAction`.** No other class writes `takes.status`. Both lock the take, set `last_event_at` and return a `TransitionOutcome`.
   Reject: `$take->status = …`, `update(['status' => …])` or `forceFill(['status' => …])` anywhere else (controllers, jobs, listeners, Filament actions, seeders outside factories).
   Tests: `tests/Feature/Takes/ApplyTakeSnapshotActionTest.php` (full transition matrix, every outcome); `tests/Feature/Takes/FailTakeActionTest.php`; `tests/Arch/ArchitectureTest.php` (status writes only in the two actions, via `SourceScan::takeStatusWrites`: TakeStatus cases or their strings anywhere, models included apart from their declared `$attributes` default; any value in a file that references `Take`).
@@ -58,7 +59,7 @@ Reviewers: a violation of any rule below is a **critical** finding unless the ru
 ## Idempotency and authorization
 
 - [ ] **M-18 Every money-creating request is idempotent.** Takes: unique `(customer_id, idempotency_key)`, composer-minted uuid, reused as Pixelforge's `Idempotency-Key`; a replay returns the existing take with no new hold (D-033). Suggestions: unique `(customer_id, request_key)`. Purchases: unique `(customer_id, idempotency_key)`. AI apply: uuid v5 of the suggestion id + partial unique `takes(suggestion_id)`.
-  Tests: `tests/Feature/Takes/CreateTakeIdempotencyTest.php`; `tests/Feature/Billing/PurchaseCreditsTest.php` (replay creates nothing; same key with another pack ⇒ 409); `tests/Feature/Suggestions/ApplySuggestionActionTest.php`.
+  Tests: `tests/Feature/Takes/CreateTakeIdempotencyTest.php`; `tests/Feature/Billing/PurchaseCreditsTest.php` (replay creates nothing; same key with another pack ⇒ 409); `tests/Feature/Suggestions/ApplySuggestionActionTest.php`; `tests/Feature/Billing/InvoicesTest.php` (a replay creates no second invoice; one invoice per purchase).
 - [ ] **M-19 Credits are state, checked twice (D-015).** Policies deny with `Response::deny` and a `DenialReason` code; the action re-checks `available ≥ maxCharge` under the customer lock (`InsufficientCreditsException`). Never grant or revoke a permission because of the balance.
   Tests: `tests/Feature/Takes/TakePolicyTest.php`; `tests/Feature/Billing/UsageActionsTest.php` (open under the lock: exact boundary, 1 nanodollar short ⇒ `InsufficientCreditsException`).
 
@@ -67,11 +68,11 @@ Reviewers: a violation of any rule below is a **critical** finding unless the ru
 - [ ] **M-20 The server formats money; the frontend never does money math.** Resources and broadcast payloads send formatted strings (and, where needed, integer nanos as strings); Vue never parses, sums, rounds or formats an amount.
   Tests: `tests/Feature/Takes/TakeResourceTest.php` (money fields are strings).
 - [ ] **M-21 Exact amounts keep at least 2 decimals.** Money pages (take detail, billing page, invoices) and the admin use `Nanodollars::formatExact()`: trailing zeros trimmed, never fewer than 2 decimals (`$5.00`, `$0.0735`).
-  Tests: `tests/Unit/Money/NanodollarsTest.php` (`formatExact` cases).
+  Tests: `tests/Unit/Money/NanodollarsTest.php` (`formatExact` cases); `tests/Feature/Billing/BillingPageTest.php` and `tests/Feature/Billing/InvoicePageTest.php` (exact amounts whose 4-decimal rounding differs).
 - [ ] **M-22 Rounded display is never 2 decimals (D-042, D-021).** Lists, cards, toasts and the balance pill use `Nanodollars::format(4, …)`: estimate min rounded down, max rounded up, charges half-up; exact value on hover. Totals are rounded from the exact sum, never summed from rounded parts.
   Tests: `tests/Unit/Money/NanodollarsTest.php` (`format` boundaries); `tests/Feature/Takes/TakeResourceTest.php` (rounded fields have 4 decimals).
 - [ ] **M-23 Customers never see provider cost, tokens, provider names or margin (D-023).** Customer-facing Inertia props, resources, broadcast payloads, lang strings and error messages expose prices only (estimate range, amount charged, spend by feature: images, AI suggestions). Provider cost, token counts, `pixelforge` / `anthropic`, markup and margin are admin-only.
-  Tests: `tests/Feature/Customer/NoProviderLeakTest.php` (scans customer page props and the `TakeUpdated` payload for forbidden keys and words).
+  Tests: `tests/Feature/Customer/NoProviderLeakTest.php` (scans customer page props and the `TakeUpdated` payload for forbidden keys and words); `tests/Feature/Billing/BillingNoProviderLeakTest.php` (billing page and invoice props).
 
 ## Adding a billable provider
 

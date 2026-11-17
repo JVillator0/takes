@@ -699,14 +699,26 @@ const label = VERDICT_LABELS[verdict]
 const otherLabels = Object.values(VERDICT_LABELS).filter((l) => l !== label)
 const lastRound = round >= roundLimit
 
+// D-075 next steps once the round limit is reached: after round MAX_ROUNDS the lead fixes
+// and runs the one extra FULL round with escalation "D-075"; after that round, minors go to
+// a follow-up issue and nothing is re-run. Single quotes only: the line is quoted in the prompt.
+const roundLimitDecision = escalation
+  ? {
+      nits: `Decision: not merged. Round ${round} of ${roundLimit} (${escalation}) was the last round: the lead opens a follow-up issue for the open minor findings; no round ${round + 1}.`,
+      notMergeable: `Decision: not merged. Round ${round} of ${roundLimit} (${escalation}) was the last round and the items above remain: the lead decides what happens to the PR and records it there; no round ${round + 1}.`,
+    }
+  : {
+      nits: `Decision: not merged. Round ${round} of ${roundLimit} reached (${ESCALATION_DECISION}): the lead fixes the minor findings in new commits, records the decision on the PR, then runs round ${round + 1} as a full run with escalation '${ESCALATION_DECISION}', the last round.`,
+      notMergeable: `Decision: not merged. Round ${round} of ${roundLimit} reached (${ESCALATION_DECISION}): the lead fixes the items above in new commits, records the decision on the PR, then runs round ${round + 1} as a full run with escalation '${ESCALATION_DECISION}', the last round.`,
+    }
 const decisions = {
   merged: 'Decision: merged with squash.',
   autoMerge: 'Decision: auto-merge enabled (squash); GitHub merges when the required checks pass.',
   nits: lastRound
-    ? `Decision: not merged. Round ${round} of ${roundLimit} reached: the lead escalates${escalation ? ' (extra round already used, ' + escalation + ')' : ''}.`
+    ? roundLimitDecision.nits
     : `Decision: not merged. Fix the minor findings in new commits, reply "Fixed in <sha>" or "Won't fix: …" on each thread, then re-run with judgeOnly (round ${round + 1}).`,
   notMergeable: lastRound
-    ? `Decision: not merged. Round ${round} of ${roundLimit} reached: the lead escalates${escalation ? ' (extra round already used, ' + escalation + ')' : ''}.`
+    ? roundLimitDecision.notMergeable
     : `Decision: not merged. Fix the items above in new commits (no force-push), reply on each thread, then re-run the full workflow (round ${round + 1}).`,
 }
 

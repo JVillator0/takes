@@ -272,6 +272,13 @@ describe('getGeneration and listGenerations', function (): void {
         expect(fn () => client()->getGeneration('../usage'))->toThrow(InvalidArgumentException::class);
     });
 
+    it('fetches every id a snapshot accepts, with the same rule', function (): void {
+        $id = 'gen_01JC2Z8Q4N6V0M3H7X5T9R2B1K-retry_2';
+        Http::fake(["pixelforge.test/v1/generations/{$id}" => Http::response(PixelforgeFixture::generation('succeeded', ['id' => $id]))]);
+
+        expect(client()->getGeneration($id)->id)->toBe($id);
+    });
+
     it('pages through every generation by cursor', function (): void {
         Http::fake(['pixelforge.test/v1/generations*' => Http::sequence()
             ->push([
@@ -398,6 +405,37 @@ describe('getUsage', function (): void {
         }]);
     }
 
+    /**
+     * Zero usage rows for the given dates, in the given order.
+     *
+     * @param  list<string>  $dates
+     * @return list<array<string, int|string>>
+     */
+    function usageRows(array $dates): array
+    {
+        return array_map(fn (string $date): array => [
+            'date' => $date,
+            'generations' => 0,
+            'input_text_tokens' => 0,
+            'input_image_tokens' => 0,
+            'output_tokens' => 0,
+            'reasoning_tokens' => 0,
+            'cost_usd' => '0.000000000',
+        ], $dates);
+    }
+
+    /** @return list<string> every UTC day from $from to $to, inclusive */
+    function usageDates(string $from, string $to): array
+    {
+        $dates = [];
+
+        for ($day = CarbonImmutable::parse($from, 'UTC'); $day->lessThanOrEqualTo(CarbonImmutable::parse($to, 'UTC')); $day = $day->addDay()) {
+            $dates[] = $day->format('Y-m-d');
+        }
+
+        return $dates;
+    }
+
     it('parses the documented usage report with exact nine-decimal costs', function (): void {
         Http::fake(['pixelforge.test/v1/usage*' => Http::response(PixelforgeFixture::json('usage'))]);
 
@@ -454,6 +492,37 @@ describe('getUsage', function (): void {
 
         expect($report->days)->toHaveCount(2);
         Http::assertSent(fn (Request $request): bool => $request->data() === ['start_date' => '2026-11-02', 'end_date' => '2026-11-03']);
+    });
+
+    it('treats an answer for another range or with missing days as unreadable', function (array $answer, string $reason): void {
+        Http::fake(['pixelforge.test/v1/usage*' => Http::response(array_replace([
+            'object' => 'usage',
+            'start_date' => '2026-11-01',
+            'end_date' => '2026-11-03',
+            'total' => [],
+        ], $answer))]);
+
+        $failure = pixelforgeFailure(fn () => client()->getUsage(CarbonImmutable::parse('2026-11-01'), CarbonImmutable::parse('2026-11-03')));
+
+        expect($failure)->toBeInstanceOf(PixelforgeUnavailable::class)
+            ->and($failure->getMessage())->toContain($reason);
+    })->with([
+        'clamped end' => [['end_date' => '2026-11-02', 'data' => usageRows(['2026-11-01', '2026-11-02'])], 'usage covers 2026-11-01 to 2026-11-02, asked for 2026-11-01 to 2026-11-03'],
+        'other start' => [['start_date' => '2026-10-31', 'data' => usageRows(['2026-10-31', '2026-11-01', '2026-11-02', '2026-11-03'])], 'usage covers 2026-10-31 to 2026-11-03'],
+        'gap' => [['data' => usageRows(['2026-11-01', '2026-11-03'])], 'usage day 2026-11-03 where 2026-11-02 was expected'],
+        'duplicate day' => [['data' => usageRows(['2026-11-01', '2026-11-01', '2026-11-02', '2026-11-03'])], 'usage day 2026-11-01 where 2026-11-02 was expected'],
+        'last day missing' => [['data' => usageRows(['2026-11-01', '2026-11-02'])], 'usage stops before 2026-11-03'],
+        'day after the range' => [['data' => usageRows(['2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04'])], 'usage has a row after 2026-11-03'],
+    ]);
+
+    it('checks every chunk of a long range, not only the first', function (): void {
+        Http::fake(['pixelforge.test/v1/usage*' => Http::sequence()
+            ->push(['object' => 'usage', 'start_date' => '2026-01-01', 'end_date' => '2026-04-02', 'data' => usageRows(usageDates('2026-01-01', '2026-04-02')), 'total' => []])
+            ->push(['object' => 'usage', 'start_date' => '2026-04-03', 'end_date' => '2026-06-29', 'data' => usageRows(usageDates('2026-04-03', '2026-06-29')), 'total' => []]),
+        ]);
+
+        expect(pixelforgeFailure(fn () => client()->getUsage(CarbonImmutable::parse('2026-01-01'), CarbonImmutable::parse('2026-06-30'))))
+            ->toBeInstanceOf(PixelforgeUnavailable::class);
     });
 
     it('rejects a range that ends before it starts', function (): void {

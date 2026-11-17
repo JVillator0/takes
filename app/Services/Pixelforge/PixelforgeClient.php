@@ -14,6 +14,7 @@ use App\Exceptions\Pixelforge\PixelforgeException;
 use App\Exceptions\Pixelforge\PixelforgeNotConfigured;
 use App\Exceptions\Pixelforge\PixelforgeRejected;
 use App\Exceptions\Pixelforge\PixelforgeUnavailable;
+use App\Support\Pixelforge\GenerationId;
 use App\Support\Pixelforge\RetryAfter;
 use Carbon\CarbonImmutable;
 use Closure;
@@ -81,7 +82,7 @@ final class PixelforgeClient
      */
     public function getGeneration(string $id): GenerationSnapshotDTO
     {
-        if (preg_match('/^gen_[A-Za-z0-9]+$/', $id) !== 1) {
+        if (! GenerationId::isValid($id)) {
             throw new InvalidArgumentException("Invalid Pixelforge generation id [{$id}].");
         }
 
@@ -162,6 +163,11 @@ final class PixelforgeClient
      * Ranges longer than the API's 92-day limit are fetched in consecutive
      * chunks and merged, so `date_range_too_long` can only mean a bug.
      *
+     * Each chunk must answer exactly the range asked for, with one row per
+     * day in order (days without usage are zero rows). A clamped or gappy
+     * answer is unreadable (PixelforgeUnavailable), never a report with
+     * missing days that reads as zero cost.
+     *
      * @throws PixelforgeBusy|PixelforgeUnavailable|PixelforgeRejected|PixelforgeNotConfigured
      */
     public function getUsage(CarbonImmutable $from, CarbonImmutable $to): UsageReportDTO
@@ -187,12 +193,60 @@ final class PixelforgeClient
             ];
 
             $response = $this->send('GET', 'usage', fn (PendingRequest $http): Response => $http->get('usage', $query));
-            $reports[] = $this->parse($response, UsageReportDTO::fromArray(...));
+            $reports[] = $this->parse(
+                $response,
+                fn (array $data): UsageReportDTO => self::assertUsageCovers(UsageReportDTO::fromArray($data), $chunkStart, $chunkEnd),
+            );
 
             $chunkStart = $chunkEnd->addDay();
         }
 
-        return UsageReportDTO::merge($reports);
+        // The chunks were checked one by one, so merging cannot fail; if it
+        // ever did, it is still a Pixelforge failure, not a raw exception.
+        try {
+            return UsageReportDTO::merge($reports);
+        } catch (InvalidArgumentException $exception) {
+            throw new PixelforgeUnavailable("Pixelforge usage chunks could not be merged: {$exception->getMessage()}", previous: $exception);
+        }
+    }
+
+    /**
+     * The report covers exactly [$start, $end] with one row per UTC day,
+     * ascending and without gaps or duplicates.
+     *
+     * @throws InvalidArgumentException
+     */
+    private static function assertUsageCovers(UsageReportDTO $report, CarbonImmutable $start, CarbonImmutable $end): UsageReportDTO
+    {
+        if (! $report->startDate->equalTo($start) || ! $report->endDate->equalTo($end)) {
+            throw new InvalidArgumentException(sprintf(
+                'Invalid Pixelforge payload: usage covers %s to %s, asked for %s to %s.',
+                $report->startDate->format('Y-m-d'),
+                $report->endDate->format('Y-m-d'),
+                $start->format('Y-m-d'),
+                $end->format('Y-m-d'),
+            ));
+        }
+
+        $expected = $start;
+
+        foreach ($report->days as $day) {
+            if ($expected->greaterThan($end)) {
+                throw new InvalidArgumentException("Invalid Pixelforge payload: usage has a row after {$end->format('Y-m-d')}.");
+            }
+
+            if (! $day->date->equalTo($expected)) {
+                throw new InvalidArgumentException("Invalid Pixelforge payload: usage day {$day->date->format('Y-m-d')} where {$expected->format('Y-m-d')} was expected.");
+            }
+
+            $expected = $expected->addDay();
+        }
+
+        if (! $expected->equalTo($end->addDay())) {
+            throw new InvalidArgumentException("Invalid Pixelforge payload: usage stops before {$expected->format('Y-m-d')}.");
+        }
+
+        return $report;
     }
 
     /**
