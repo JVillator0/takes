@@ -11,6 +11,7 @@ use App\Filament\Admin\Clusters\Billing\BillingCluster;
 use App\Filament\Admin\Clusters\Providers\ProvidersCluster;
 use App\Filament\Admin\Clusters\Studio\StudioCluster;
 use App\Filament\Admin\Pages\Dashboard;
+use App\Filament\Admin\Resources\Customers\CustomerResource;
 use App\Http\Middleware\EnsureAdminMultiFactorAuthentication;
 use App\Listeners\RecordAdminWrites;
 use App\Models\User;
@@ -101,6 +102,7 @@ final class AdminPanelProvider extends PanelProvider
             ->navigation(fn (NavigationBuilder $builder): NavigationBuilder => $builder
                 ->items([
                     ...self::navigationItemsOf(Dashboard::class),
+                    ...self::navigationItemsOf(CustomerResource::class),
                 ])
                 ->group(NavigationGroup::make(__('console.groups.operations'))->collapsible()->items([
                     ...self::navigationItemsOf(StudioCluster::class),
