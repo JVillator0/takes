@@ -9,7 +9,10 @@ export type Customer = {
     name: string;
     email: string;
     available: string;
+    /** Exact amount for the pill's tooltip (D-042). */
+    available_exact: string;
     on_hold: string;
+    on_hold_exact: string;
 };
 
 /** One entry of a `can` object: `{ allowed: false, reason: 'insufficient_credits', message }`. */

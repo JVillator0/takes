@@ -1,33 +1,19 @@
+import type { BalanceSummary, TakeStatus } from '@/types/takes';
+
 /**
  * Live status (spec 5). `take.updated` on `App.Models.Customer.{id}` mirrors
  * App\DTOs\Takes\TakeLiveUpdateDTO field by field. Money arrives formatted by
  * the server (4 decimals plus the exact string for hover); never parse it.
  */
-
-/** App\Enums\Takes\TakeStatus. */
-export type LiveTakeStatus =
-    | 'pending'
-    | 'queued'
-    | 'processing'
-    | 'succeeded'
-    | 'failed';
-
-export type LiveBalance = {
-    available: string;
-    availableExact: string;
-    onHold: string;
-    onHoldExact: string;
-};
-
 export type TakeLiveUpdate = {
     take: {
         id: string;
         projectId: string;
-        status: LiveTakeStatus;
+        status: TakeStatus;
         failureCode: string | null;
         updatedAt: string | null;
     };
-    balance: LiveBalance;
+    balance: BalanceSummary;
 };
 
 /**

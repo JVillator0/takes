@@ -8,11 +8,8 @@ import {
 import { useDebounceFn, useDocumentVisibility } from '@vueuse/core';
 import { computed, ref, shallowRef, toValue, watch } from 'vue';
 import type { ComputedRef, MaybeRefOrGetter, Ref, ShallowRef } from 'vue';
-import type {
-    LiveBalance,
-    LiveConnectionState,
-    TakeLiveUpdate,
-} from '@/types/live';
+import type { LiveConnectionState, TakeLiveUpdate } from '@/types/live';
+import type { BalanceSummary } from '@/types/takes';
 
 /** Props refreshed by every live update, poll and reconnect (W-20). */
 const DEFAULT_ONLY = ['takes', 'counts'];
@@ -37,7 +34,7 @@ export type UseTakeUpdatesReturn = {
     connected: ComputedRef<boolean>;
     polling: ComputedRef<boolean>;
     /** Latest balance pill strings from the server, null until the first update. */
-    balance: ShallowRef<LiveBalance | null>;
+    balance: ShallowRef<BalanceSummary | null>;
     /** The last `take.updated` payload, for the aria-live announcement. */
     lastUpdate: ShallowRef<TakeLiveUpdate | null>;
 };
@@ -62,7 +59,7 @@ export function useTakeUpdates(
     const only = options.only ?? DEFAULT_ONLY;
     const live = echoIsConfigured() && options.customerId !== null;
 
-    const balance = shallowRef<LiveBalance | null>(null);
+    const balance = shallowRef<BalanceSummary | null>(null);
     const lastUpdate = shallowRef<TakeLiveUpdate | null>(null);
 
     const reload = (): void => {
