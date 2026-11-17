@@ -10,7 +10,6 @@ use App\Models\Project;
 use App\Models\Purchase;
 use App\Services\Pixelforge\PixelforgeClient;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
@@ -80,9 +79,9 @@ final class HandleInertiaRequests extends Middleware
      * Customer-facing UI copy read on the client by `useCopy().t()` (D-057).
      *
      * An Inertia once prop: sent on the first page load and kept by the client
-     * across visits. Its once key carries a hash of the lang files (see
-     * copyVersion()), so a deploy that changes only copy re-sends it to tabs
-     * that are already open; the asset version does not cover lang files.
+     * across visits. Its once key carries copyVersion(), so a deploy that
+     * changes only copy re-sends it to tabs that are already open; the asset
+     * version does not cover lang files.
      *
      * @return array<string, mixed>
      */
@@ -98,22 +97,19 @@ final class HandleInertiaRequests extends Middleware
     }
 
     /**
-     * Content hash of the shared lang files in the active locale; it changes
-     * whenever a string does.
-     *
-     * share() runs on every request, so the hash is cached per deploy: the
-     * cache key carries the files' modification times (a stat, no read), and
-     * the files are read and hashed only when one of them changes.
+     * Version of the shared copy in the active locale: the locale plus the
+     * modification time of each lang file. A deploy that changes a string
+     * writes a new file, so the version changes and open tabs get the new
+     * copy. It costs three stat calls per request: no read, no hash, no cache.
      */
     public static function copyVersion(): string
     {
-        $paths = array_map(self::copyPath(...), self::COPY_GROUPS);
-        $mtimes = array_map(fn (string $path): int => File::lastModified($path), $paths);
-
-        return Cache::rememberForever(
-            'inertia-copy-version:'.app()->getLocale().':'.implode('-', $mtimes),
-            fn (): string => hash('xxh128', implode("\0", array_map(File::get(...), $paths))),
+        $mtimes = array_map(
+            fn (string $group): int => File::lastModified(self::copyPath($group)),
+            self::COPY_GROUPS,
         );
+
+        return app()->getLocale().'-'.implode('-', $mtimes);
     }
 
     /**

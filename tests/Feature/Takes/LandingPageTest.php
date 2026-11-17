@@ -56,10 +56,26 @@ it('advertises the configured welcome credit', function (): void {
         ->assertInertia(fn (Assert $page) => $page->where('welcomeCredit', '$2.50'));
 });
 
-it('hashes the active locale and falls back to the fallback locale files', function (): void {
+it('versions the copy by locale, falling back to the fallback locale files', function (): void {
     $english = HandleInertiaRequests::copyVersion();
 
     app()->setLocale('xx');
 
-    expect(HandleInertiaRequests::copyVersion())->toBe($english);
+    expect(HandleInertiaRequests::copyVersion())->toBe('xx'.substr($english, strlen('en')));
+});
+
+it('changes the copy version when a lang file changes', function (): void {
+    $path = lang_path('en/landing.php');
+    $originalMtime = filemtime($path);
+    $before = HandleInertiaRequests::copyVersion();
+
+    try {
+        touch($path, $originalMtime + 60);
+        clearstatcache(true, $path);
+
+        expect(HandleInertiaRequests::copyVersion())->not->toBe($before);
+    } finally {
+        touch($path, $originalMtime);
+        clearstatcache(true, $path);
+    }
 });
