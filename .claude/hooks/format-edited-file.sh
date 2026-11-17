@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # PostToolUse hook (Edit|MultiEdit|Write): format the file Claude just changed.
 #   *.php           -> vendor/bin/pint <file>
-#   *.vue|*.ts|*.tsx|*.js -> vite-plus formatter (vp fmt <file>, oxfmt; the repo has no Prettier)
+#   *.vue|*.ts|*.tsx|*.js|*.mjs -> vite-plus formatter (vp fmt <file>, oxfmt; the repo has no Prettier)
 # Never fails the tool call: missing vendor/ or node_modules/, a file outside the
 # project, or a formatter error all end with exit 0.
 set -u
