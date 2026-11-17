@@ -5,12 +5,14 @@
 #
 # Idempotent: labels, milestones and issues that already exist (issues matched by their "[key] "
 # title prefix) are skipped; Project field values are only filled when empty, so a re-run never
-# undoes a status someone moved by hand.
+# undoes a status someone moved by hand. Exception: if the Status field's options differ from
+# Todo / In progress / In review / Done, the script rewrites them, and GitHub then clears every
+# item's Status; it refuses unless --reset-status is passed.
 #
 # Parsing lives in scripts/plan-to-github.php (prints the plan as JSON); this script only talks
 # to GitHub through `gh` (needs the `repo` and `project` scopes).
 #
-# Usage: scripts/plan-to-github.sh [--dry-run] [--repo owner/name] [--owner login]
+# Usage: scripts/plan-to-github.sh [--dry-run] [--reset-status] [--repo owner/name] [--owner login]
 set -euo pipefail
 
 REPO="JVillator0/takes"
@@ -19,6 +21,7 @@ PROJECT_TITLE="Takes · plan and execution"
 STATUS_OPTIONS=("Todo" "In progress" "In review" "Done")
 STATUS_COLORS=("GRAY" "YELLOW" "BLUE" "GREEN")
 DRY_RUN=0
+RESET_STATUS=0
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MAPPING_FILE="$ROOT/.claude/plan/issues.md"
 
@@ -27,6 +30,7 @@ usage() { sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=1 ;;
+    --reset-status) RESET_STATUS=1 ;;
     --repo) REPO="$2"; shift ;;
     --owner) OWNER="$2"; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -201,6 +205,9 @@ if [[ "$current_status" == "$wanted_status" ]]; then
   say "  exists   field Status ($wanted_status)"
 elif dry; then
   plan "set Status options to $wanted_status (currently: $current_status)"
+elif [[ "$current_status" != "Todo,In Progress,Done" && "$RESET_STATUS" -ne 1 ]]; then
+  echo "Status options are '$current_status', not the GitHub default; rewriting them clears every item's Status. Re-run with --reset-status to do it anyway." >&2
+  exit 1
 else
   status_field_id="$(jq -r '.fields[] | select(.name == "Status") | .id' <<<"$field_json")"
   options=""
