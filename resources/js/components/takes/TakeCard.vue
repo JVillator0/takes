@@ -20,8 +20,8 @@ type Props = {
 const props = defineProps<Props>();
 
 const emit = defineEmits<{
-    open: [id: number];
-    cancel: [id: number];
+    open: [id: string];
+    cancel: [id: string];
 }>();
 
 const { t } = useCopy();
@@ -87,7 +87,7 @@ const moneyClass = computed(() => {
                     @click="emit('open', take.id)"
                 >
                     <span class="sr-only">
-                        {{ t('takes.card.open', { id: take.id }) }}:
+                        {{ t('takes.card.open', { id: take.number ?? '' }) }}:
                     </span>
                     <!-- Clamp on a block inside the button; prompts reach 4,000 characters. -->
                     <span class="line-clamp-2 break-words">
@@ -97,10 +97,10 @@ const moneyClass = computed(() => {
             </h3>
 
             <p
-                v-if="take.parentId"
+                v-if="take.parentNumber"
                 class="text-xs text-muted-foreground tabular-nums"
             >
-                {{ t('takes.card.remix_of', { id: take.parentId }) }}
+                {{ t('takes.card.remix_of', { id: take.parentNumber }) }}
             </p>
 
             <!--
@@ -148,7 +148,7 @@ const moneyClass = computed(() => {
                 >
                     {{ t('takes.actions.cancel') }}
                     <span class="sr-only">
-                        {{ t('takes.card.title', { id: take.id }) }}
+                        {{ t('takes.card.title', { id: take.number ?? '' }) }}
                     </span>
                 </Button>
             </div>
@@ -157,7 +157,7 @@ const moneyClass = computed(() => {
         <p class="sr-only" aria-live="polite" aria-atomic="true">
             {{
                 t('takes.card.announcement', {
-                    id: take.id,
+                    id: take.number ?? '',
                     status: take.statusLabel,
                 })
             }}

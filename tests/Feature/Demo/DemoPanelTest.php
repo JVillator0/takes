@@ -20,11 +20,13 @@ it('shows no demo panel when the flag is off', function (): void {
         ->assertInertia(fn (Assert $page) => $page->component('auth/Login')->where('demoPanel', null));
 });
 
-it('shows no demo panel when nothing was seeded', function (): void {
+it('offers only "Try a demo account" when nothing was seeded (spec 4)', function (): void {
     config(['takes.demo.enabled' => true]);
 
     $this->get(route('login'))
-        ->assertInertia(fn (Assert $page) => $page->where('demoPanel', null));
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('demoPanel.tryDemo', 'Try a demo account')
+            ->has('demoPanel.logins', 0));
 });
 
 it('lists the seeded logins in order when the flag is on', function (): void {
@@ -63,7 +65,7 @@ it('signs in with one click through the normal customer login', function (): voi
     $this->post(route('login.store'), [
         'email' => DemoAccount::LowBalance->email(),
         'password' => config('takes.demo.password'),
-    ])->assertRedirect(route('dashboard', absolute: false));
+    ])->assertRedirect(route('projects.index', absolute: false));
 
     $this->assertAuthenticatedAs(Customer::query()->where('email', DemoAccount::LowBalance->email())->sole(), 'customer');
 });

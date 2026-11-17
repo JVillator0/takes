@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Http\Middleware;
 
 use App\DTOs\Auth\AbilityDTO;
+use App\Http\Resources\Billing\CreditPackResource;
 use App\Models\Customer;
 use App\Models\Project;
 use App\Models\Purchase;
+use App\Queries\Billing\ListCreditPacksQuery;
 use App\Services\Pixelforge\PixelforgeClient;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
@@ -75,6 +77,9 @@ final class HandleInertiaRequests extends Middleware
             'broadcasting' => [
                 'live' => config('broadcasting.default') === 'reverb',
             ],
+            // Buy credits from any customer page (D-026): the packs of spec 3-03
+            // as the billing page shows them (spec 6), exact strings.
+            'creditPacks' => fn (): array => CreditPackResource::collection(app(ListCreditPacksQuery::class)->execute())->resolve($request),
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
             'copy' => Inertia::once(fn (): array => self::copy())->as('copy:'.self::copyVersion()),
         ];

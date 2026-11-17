@@ -79,3 +79,13 @@ it('changes the copy version when a lang file changes', function (): void {
         clearstatcache(true, $path);
     }
 });
+
+it('turns on "Try a demo account" with DEMO_LOGIN_ENABLED and prices the examples with the estimator', function (): void {
+    config(['takes.demo.enabled' => true, 'takes.welcome_credit_nanos' => 2_500_000_000]);
+
+    $this->get(route('home'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('demo.enabled', true)
+            ->where('welcomeCredit', '$2.50')
+            ->where('pricingExamples.1.range', '$0.3577 – $0.4674'));
+});

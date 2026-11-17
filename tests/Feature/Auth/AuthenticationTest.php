@@ -20,7 +20,7 @@ it('signs a customer in on the customer guard, never on web', function (): void 
 
     $this->assertAuthenticatedAs($customer, 'customer');
     $this->assertGuest('web');
-    $response->assertRedirect(route('dashboard', absolute: false));
+    $response->assertRedirect(route('projects.index', absolute: false));
 });
 
 it('does not sign an admin user in through the public login', function (): void {

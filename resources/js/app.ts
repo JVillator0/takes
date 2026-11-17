@@ -17,6 +17,8 @@ void createInertiaApp({
         switch (true) {
             case name === 'Welcome':
             case name.startsWith('dev/'):
+            // The workspace renders StudioLayout itself: live balance and the Live indicator.
+            case name === 'projects/Show':
                 return null;
             case name.startsWith('auth/'):
                 return AuthLayout;
