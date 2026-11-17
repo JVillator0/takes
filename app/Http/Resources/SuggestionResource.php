@@ -6,17 +6,13 @@ namespace App\Http\Resources;
 
 use App\DTOs\Suggestions\SuggestionDetailsDTO;
 use App\DTOs\Suggestions\TakeChangeInputDTO;
-use App\DTOs\Suggestions\TakeChangeProposalDTO;
 use App\Enums\Billing\UsageStatus;
 use App\Enums\Suggestions\SuggestionFailureReason;
 use App\Enums\Suggestions\SuggestionStatus;
-use App\Enums\Takes\TakeQuality;
-use App\Enums\Takes\TakeSize;
-use App\Models\Take;
 use App\Support\Money\Nanodollars;
 use App\Support\Money\RoundingMode;
 use App\Support\Suggestions\ProposalReferences;
-use App\Support\Suggestions\WordDiff;
+use App\Support\Suggestions\SuggestionDiff;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -58,7 +54,7 @@ final class SuggestionResource extends JsonResource
             'noChange' => $noChange,
             'hold' => $this->hold(),
             'charge' => $this->charge(),
-            'diff' => $proposal === null ? null : $this->diff($proposal, $details->baseTake),
+            'diff' => $proposal === null ? null : SuggestionDiff::build($proposal, $details->baseTake),
             'newTake' => $this->newTake(),
             // The proposal adds the base image but it has no usable URL: apply is refused.
             'baseImageUnavailable' => $proposal !== null && ProposalReferences::baseImageUnavailable($proposal, $details->baseTake),
@@ -108,38 +104,6 @@ final class SuggestionResource extends JsonResource
     }
 
     /**
-     * @return array<string, mixed>
-     */
-    private function diff(TakeChangeProposalDTO $proposal, Take $base): array
-    {
-        $baseReferences = count($base->reference_images);
-        $keptReferences = $proposal->keepReferences ? $baseReferences : 0;
-        // Same resolver as apply and the estimate (spec 4 remix source order).
-        $imageUnavailable = ProposalReferences::baseImageUnavailable($proposal, $base);
-        $afterReferences = $proposal->addBaseImageAsReference && ! $imageUnavailable
-            ? __('suggestions.diff.references_with_image', ['count' => $keptReferences])
-            : (string) $keptReferences;
-
-        return [
-            'prompt' => [
-                'changed' => $proposal->prompt !== $base->prompt,
-                'segments' => WordDiff::segments($base->prompt, $proposal->prompt),
-            ],
-            'rows' => [
-                self::row('size', self::sizeLabel($base->size), self::sizeLabel($proposal->size), $base->size !== $proposal->size),
-                self::row('quality', self::qualityLabel($base->quality), self::qualityLabel($proposal->quality), $base->quality !== $proposal->quality),
-                self::row(
-                    'references',
-                    (string) $baseReferences,
-                    $afterReferences,
-                    $proposal->referenceCount($baseReferences) !== $baseReferences || $proposal->addBaseImageAsReference,
-                    $imageUnavailable ? self::copy('takes.image_unavailable') : null,
-                ),
-            ],
-        ];
-    }
-
-    /**
      * @return array{range: string, generate: string, canAfford: bool}|null
      */
     private function newTake(): ?array
@@ -160,31 +124,6 @@ final class SuggestionResource extends JsonResource
             'generate' => __('takes.composer.submit_with_max', ['amount' => $max]),
             'canAfford' => $this->resource->available->greaterThanOrEqual($estimate->maxCharge),
         ];
-    }
-
-    /**
-     * @return array{key: string, label: string, before: string, after: string, changed: bool, note: string|null}
-     */
-    private static function row(string $key, string $before, string $after, bool $changed, ?string $note = null): array
-    {
-        return [
-            'key' => $key,
-            'label' => __("suggestions.diff.{$key}"),
-            'before' => $before,
-            'after' => $after,
-            'changed' => $changed,
-            'note' => $note,
-        ];
-    }
-
-    private static function sizeLabel(TakeSize $size): string
-    {
-        return __("takes.sizes.{$size->value}").' '.str_replace('x', '×', $size->value);
-    }
-
-    private static function qualityLabel(TakeQuality $quality): string
-    {
-        return __("takes.quality.{$quality->value}");
     }
 
     /** A lang line as a string (a group key would return an array). */

@@ -211,7 +211,7 @@ final readonly class CreateSuggestionAction
 
             if ($suggestion->status !== SuggestionStatus::Pending) {
                 // Expired by the sweeper while the call ran: already failed and voided.
-                Log::warning('suggestions.closed_before_result', ['suggestion_id' => $suggestion->id, 'status' => $suggestion->status->value]);
+                Log::warning('suggestions.closed_before_result', ['suggestion_id' => $suggestion->id, 'suggestion_status' => $suggestion->status->value]);
 
                 return $suggestion;
             }

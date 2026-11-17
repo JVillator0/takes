@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Dev;
 
+use App\Enums\Suggestions\SuggestionStatus;
 use App\Http\Controllers\Controller;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -68,7 +69,7 @@ final class ComponentGalleryController extends Controller
     {
         $proposed = [
             'id' => '01JGALLERYSUGGESTION0000001',
-            'status' => 'proposed',
+            'status' => SuggestionStatus::Proposed->value,
             'instruction' => 'Make it portrait, golden hour, more detail on the waves',
             'rationale' => 'Switched to portrait and high quality for wave detail; kept your composition.',
             'message' => null,
@@ -114,7 +115,7 @@ final class ComponentGalleryController extends Controller
             'unaffordable' => [...$proposed, 'newTake' => [...$proposed['newTake'], 'canAfford' => false]],
             'failed' => [
                 ...$proposed,
-                'status' => 'failed',
+                'status' => SuggestionStatus::Failed->value,
                 'rationale' => null,
                 'message' => __('suggestions.failed'),
                 'charge' => null,
