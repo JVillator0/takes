@@ -720,7 +720,7 @@ ${
    - ci is fail or none -> outcome "refused-ci", Decision: "Decision: not merged, CI is not green at merge time (<failing check names, or 'no checks'>)."
    - otherwise (open, not draft, head = ${SHA}, every check passed) merge:
      a. \`gh pr merge ${PR} -R ${REPO} --squash --auto --delete-branch --match-head-commit ${SHA}\`.
-     b. If (a) fails with "clean status" (the PR is already mergeable and there are no pending required checks, so GitHub refuses to enable auto-merge) or "auto-merge is not allowed", merge directly: \`gh pr merge ${PR} -R ${REPO} --squash --delete-branch --match-head-commit ${SHA}\`.
+     b. If (a) fails with any error from enablePullRequestAutoMerge (GitHub says e.g. "clean status", "Protected branch rules not configured for this branch" or "Auto merge is not allowed for this repository": auto-merge has nothing to wait for or is unavailable), merge directly (the checks were already confirmed green above): \`gh pr merge ${PR} -R ${REPO} --squash --delete-branch --match-head-commit ${SHA}\`.
      c. Whatever (a) or (b) printed or exited with (e.g. "could not determine current branch" is printed AFTER a successful merge when gh cannot delete a local branch), re-read \`gh pr view ${PR} -R ${REPO} --json state,autoMergeRequest,mergeCommit\` and decide from it: state MERGED -> outcome "merged", Decision: "${decisions.merged}"; autoMergeRequest set -> outcome "auto-merge-enabled", Decision: "${decisions.autoMerge}"; otherwise -> outcome "merge-error", Decision: "Decision: not merged, gh pr merge failed: <one-line error>." and put the error in "error".`
     : `   - Do NOT merge. outcome "not-merged-verdict", Decision: "${verdict === 'MERGEABLE AFTER NITS' ? decisions.nits : decisions.notMergeable}"`
 }
