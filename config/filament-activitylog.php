@@ -2,12 +2,13 @@
 
 declare(strict_types=1);
 
-use Rmsramos\Activitylog\Resources\Activitylog\ActivitylogResource;
+use App\Filament\Admin\Audit\AdminAuditResource;
 
 return [
     'resources' => [
-        'label' => 'Activity Log',
-        'plural_label' => 'Activity Logs',
+        // Fallbacks only: the panel sets both labels from lang/en/console.php (console.audit.*).
+        'label' => 'Admin audit entry',
+        'plural_label' => 'Activity log',
         'hide_restore_action' => true,
         'restore_action_label' => 'Restore',
         'hide_resource_action' => false,
@@ -20,7 +21,7 @@ return [
         'default_sort_column' => 'id',
         'default_sort_direction' => 'desc',
         'navigation_count_badge' => false,
-        'resource' => ActivitylogResource::class,
+        'resource' => AdminAuditResource::class,
     ],
     'date_format' => 'Y-m-d',
     'datetime_format' => 'Y-m-d H:i:s',

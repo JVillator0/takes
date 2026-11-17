@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 use App\Enums\Auth\AdminPermission;
 use App\Enums\Auth\AdminRole;
+use App\Filament\Admin\Audit\AdminAuditResource;
 use App\Models\User;
 use BezhanSalleh\FilamentShield\Resources\Roles\Pages\ListRoles;
 use Database\Seeders\AdminRolesSeeder;
+use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Livewire\Livewire;
-use Rmsramos\Activitylog\Resources\Activitylog\ActivitylogResource;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
@@ -65,34 +66,56 @@ it('lets the super admin pass every ability without holding a permission', funct
         ->and($auditor->can('Create:Role'))->toBeFalse();
 });
 
-it('shows the auditor and the operator no write action on roles, and the super admin the create action', function (AdminRole $role, bool $canCreate): void {
+it('keeps roles read-only for every role, the super admin included', function (AdminRole $role): void {
     $this->actingAs(User::factory()->admin($role)->withAppAuthentication()->create());
+    $auditorRole = Role::findByName(AdminRole::Auditor->value, AdminRole::GUARD);
 
-    $list = Livewire::test(ListRoles::class)->assertOk();
+    Livewire::test(ListRoles::class)->assertOk()->assertActionHidden('create');
 
-    $canCreate ? $list->assertActionVisible('create') : $list->assertActionHidden('create');
+    $this->get('/admin/shield/roles/create')->assertForbidden();
+    $this->get('/admin/shield/roles/'.$auditorRole->id.'/edit')->assertForbidden();
+    $this->get('/admin/shield/roles/'.$auditorRole->id)->assertOk();
+    expect(auth()->user()?->can('delete', $auditorRole))->toBeFalse()
+        ->and(Permission::query()->whereIn('name', ['Create:Role', 'Update:Role', 'Delete:Role'])->exists())->toBeFalse();
 })->with([
-    'auditor' => [AdminRole::Auditor, false],
-    'operator' => [AdminRole::Operator, false],
-    'super admin' => [AdminRole::SuperAdmin, true],
+    'auditor' => [AdminRole::Auditor],
+    'operator' => [AdminRole::Operator],
+    'super admin' => [AdminRole::SuperAdmin],
 ]);
+
+it('refuses an empty cluster by URL', function (): void {
+    $this->actingAs(User::factory()->admin(AdminRole::SuperAdmin)->withAppAuthentication()->create())
+        ->get('/admin/billing')
+        ->assertForbidden();
+});
 
 it('keeps the audit read-only, even for the super admin', function (): void {
     $this->actingAs(User::factory()->admin(AdminRole::SuperAdmin)->withAppAuthentication()->create())
         ->get('/admin/activitylogs')
         ->assertOk();
 
-    expect(Filament::getPanel('admin')->getResources())->toContain(ActivitylogResource::class)
-        ->and(ActivitylogResource::hasPage('create'))->toBeFalse()
-        ->and(ActivitylogResource::hasPage('edit'))->toBeFalse();
+    expect(Filament::getPanel('admin')->getResources())->toContain(AdminAuditResource::class)
+        ->and(AdminAuditResource::hasPage('create'))->toBeFalse()
+        ->and(AdminAuditResource::hasPage('edit'))->toBeFalse();
 });
 
 it('lists the sidebar in the spec order and hides what the admin may not open', function (): void {
     $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create())
         ->get('/admin')
         ->assertOk()
-        ->assertSeeInOrder(['Dashboard', 'System', 'Roles', 'Activity Log'])
+        ->assertSeeInOrder(['Dashboard', 'System', 'Roles', 'Activity log'])
         // Empty clusters hide themselves until a page or resource lands in them.
         ->assertDontSee('Studio')
         ->assertDontSee('Billing');
+});
+
+it('creates the admin roles from the deploy seeder', function (): void {
+    Role::query()->where('guard_name', AdminRole::GUARD)->delete();
+
+    $this->seed(RolesAndPermissionsSeeder::class);
+
+    expect(Role::query()->where('guard_name', AdminRole::GUARD)->pluck('name')->sort()->values()->all())
+        ->toBe(['auditor', 'operator', 'super_admin'])
+        ->and(permissionsOf(AdminRole::Operator))->toContain(...AdminPermission::values())
+        ->and(permissionsOf(AdminRole::Auditor))->toContain('ViewAny:Role', 'ViewAny:Activity');
 });

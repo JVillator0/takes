@@ -9,7 +9,7 @@ namespace App\Enums\Auth;
  *
  * `SuperAdmin` may do everything through a `Gate::before` in the panel provider, so it holds no permission rows.
  * `Operator` reads everything and runs the audited write actions. `Auditor` only reads (the evaluator's demo login)
- * and is the one role exempt from multi-factor authentication.
+ * and is the one role exempt from multi-factor authentication (the rule lives only in the panel's MFA closure).
  */
 enum AdminRole: string
 {
@@ -18,11 +18,6 @@ enum AdminRole: string
     case Auditor = 'auditor';
 
     public const string GUARD = 'web';
-
-    public function requiresMultiFactorAuthentication(): bool
-    {
-        return $this !== self::Auditor;
-    }
 
     /**
      * The permissions this role holds, picked from the panel's Shield permission keys (`ViewAny:Take`,
