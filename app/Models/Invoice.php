@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\Billing\InvoiceStatus;
+use App\Exceptions\Billing\ImmutableInvoiceException;
 use App\Support\Money\Nanodollars;
 use Carbon\CarbonImmutable;
 use Database\Factories\InvoiceFactory;
@@ -15,7 +16,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * The invoice of one paid purchase (spec 6, D-022): numbered
- * `INV-{YYYY}-{NNNNNN}` by IssueInvoiceAction, the only writer.
+ * `INV-{YYYY}-{NNNNNN}` by IssueInvoiceAction, the only writer. Issued
+ * invoices are immutable: saving changes to or deleting a model instance
+ * throws ImmutableInvoiceException, so no resource or stray delete can leave a
+ * gap in the numbering or rewrite a billed snapshot.
  *
  * @property string $id
  * @property string $number
@@ -58,6 +62,17 @@ final class Invoice extends Model
     public function total(): Nanodollars
     {
         return Nanodollars::fromInt($this->total_nanos);
+    }
+
+    protected static function booted(): void
+    {
+        self::updating(function (): never {
+            throw ImmutableInvoiceException::forUpdate();
+        });
+
+        self::deleting(function (): never {
+            throw ImmutableInvoiceException::forDelete();
+        });
     }
 
     /**

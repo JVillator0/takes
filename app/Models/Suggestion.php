@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\Suggestions\SuggestionFailureReason;
 use App\Enums\Suggestions\SuggestionStatus;
 use Carbon\CarbonImmutable;
 use Database\Factories\SuggestionFactory;
@@ -29,7 +30,7 @@ use Illuminate\Database\Eloquent\Relations\MorphOne;
  * @property string|null $rationale
  * @property string|null $model
  * @property SuggestionStatus $status
- * @property string|null $failure_reason
+ * @property SuggestionFailureReason|null $failure_reason
  * @property string|null $resulting_take_id
  * @property CarbonImmutable $expires_at
  * @property CarbonImmutable|null $created_at
@@ -101,6 +102,7 @@ final class Suggestion extends Model
         return [
             'proposal' => 'array',
             'status' => SuggestionStatus::class,
+            'failure_reason' => SuggestionFailureReason::class,
             'expires_at' => 'immutable_datetime',
             'created_at' => 'immutable_datetime',
             'updated_at' => 'immutable_datetime',

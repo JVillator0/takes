@@ -64,6 +64,9 @@ final class AdminPanelProvider extends PanelProvider
 {
     public const string ID = 'admin';
 
+    /** The ability rmsramos/activitylog checks before restoring a logged change. */
+    public const string AUDIT_RESTORE_ABILITY = 'restore_activitylog';
+
     public function panel(Panel $panel): Panel
     {
         return $panel
@@ -117,6 +120,9 @@ final class AdminPanelProvider extends PanelProvider
                     ->resource(AdminAuditResource::class)
                     ->datetimeFormat('Y-m-d H:i:s \U\T\C')
                     ->isResourceActionHidden(true)
+                    // The audit never writes back: no restore of a logged change, for anyone.
+                    ->isRestoreActionHidden(true)
+                    ->isRestoreModelActionHidden(true)
                     ->label(fn (): string => __('console.audit.entry'))
                     ->pluralLabel(fn (): string => __('console.audit.title')),
                 EnvironmentIndicatorPlugin::make()
@@ -180,8 +186,8 @@ final class AdminPanelProvider extends PanelProvider
     }
 
     /**
-     * The super admin's `Gate::before`: true for every ability, except writes on a role or an audit entry, which
-     * are false for everyone (the console defines roles in code and never edits its own audit).
+     * The super admin's `Gate::before`: true for every ability, except writes on a role or an audit entry and the
+     * audit's restore, which are false for everyone (the console defines roles in code and never edits its audit).
      *
      * @param  array<int, mixed>  $arguments
      */
@@ -191,6 +197,11 @@ final class AdminPanelProvider extends PanelProvider
         $subjectClass = is_object($subject) ? $subject::class : (is_string($subject) ? $subject : null);
 
         if (in_array($subjectClass, [Role::class, Activity::class], true) && ! in_array($ability, ['viewAny', 'view'], true)) {
+            return false;
+        }
+
+        // The activity-log plugin authorizes its restore actions with this ability and no subject.
+        if ($ability === self::AUDIT_RESTORE_ABILITY) {
             return false;
         }
 

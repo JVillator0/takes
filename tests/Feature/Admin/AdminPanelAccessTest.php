@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Enums\Auth\AdminRole;
 use App\Filament\Admin\Auth\SetUpRequiredMultiFactorAuthentication;
+use App\Http\Middleware\EnsureAdminMultiFactorAuthentication;
 use App\Models\User;
 use Database\Seeders\AdminRolesSeeder;
 use Filament\Auth\MultiFactor\App\AppAuthentication;
@@ -140,4 +141,17 @@ it('still shows the MFA set-up page to an operator without an app', function ():
     $this->actingAs(User::factory()->admin(AdminRole::Operator)->create())
         ->get('/admin/multi-factor-authentication/set-up')
         ->assertOk();
+});
+
+it('fails closed when the MFA middleware runs without a current panel', function (): void {
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
+    Filament::setCurrentPanel(null);
+
+    try {
+        $result = app(EnsureAdminMultiFactorAuthentication::class)->handle(request(), fn (): string => 'passed');
+    } catch (Throwable) {
+        $result = 'refused';
+    }
+
+    expect($result)->not->toBe('passed');
 });
