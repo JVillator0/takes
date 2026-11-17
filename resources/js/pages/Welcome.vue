@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { Head, Link, usePage } from '@inertiajs/vue3';
+import { Form, Head, Link, usePage } from '@inertiajs/vue3';
 import { computed } from 'vue';
+import InputError from '@/components/InputError.vue';
 import TakeStatusBadge from '@/components/takes/TakeStatusBadge.vue';
 import TakesMark from '@/components/takes/TakesMark.vue';
 import { Button } from '@/components/ui/button';
@@ -114,7 +115,7 @@ const tiles = [
                     <p class="max-w-md text-lg text-muted-foreground">
                         {{ t('landing.hero.lead') }}
                     </p>
-                    <div class="flex flex-col gap-3 sm:flex-row">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-start">
                         <Button as-child size="lg">
                             <Link :href="register()">
                                 {{
@@ -124,16 +125,33 @@ const tiles = [
                                 }}
                             </Link>
                         </Button>
-                        <Button
+                        <!--
+                            A throttled or refused demo answers with errors.denial
+                            (2-01 rate_limited); the landing page has no toaster,
+                            so the sentence is shown and announced here (F-19).
+                        -->
+                        <Form
                             v-if="demo.enabled"
-                            as-child
-                            variant="outline"
-                            size="lg"
+                            v-bind="tryDemo.form()"
+                            v-slot="{ errors, processing }"
+                            class="flex flex-col gap-1"
+                            data-test="try-demo"
                         >
-                            <Link :href="tryDemo()" as="button">
+                            <Button
+                                type="submit"
+                                variant="outline"
+                                size="lg"
+                                :disabled="processing"
+                            >
                                 {{ t('landing.hero.demo') }}
-                            </Link>
-                        </Button>
+                            </Button>
+                            <div role="status" aria-live="polite">
+                                <InputError
+                                    class="max-w-xs"
+                                    :message="errors.denial"
+                                />
+                            </div>
+                        </Form>
                     </div>
                     <p class="text-sm text-muted-foreground">
                         {{ t('landing.hero.no_card') }}
