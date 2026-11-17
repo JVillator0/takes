@@ -18,6 +18,7 @@ use App\Jobs\ReconcileTakeJob;
 use App\Models\LedgerEntry;
 use App\Models\Take;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
@@ -93,15 +94,21 @@ describe('outcome matrix', function (): void {
         ['failed', 'succeeded', TransitionOutcome::IgnoredConflict, 'failed'],
     ]);
 
-    it('sets last_event_at for every valid snapshot, applied or ignored', function (): void {
-        $take = Takes::in('succeeded');
+    it('advances last_event_at only when a snapshot advances or confirms the state (D-077)', function (string $from, string $incoming, TransitionOutcome $outcome, bool $advances): void {
+        $take = Takes::in($from);
         $before = $take->last_event_at;
 
         $this->travel(5)->minutes();
 
-        expect(applySnapshot($take, Takes::snapshot($take, 'processing')))->toBe(TransitionOutcome::IgnoredStale)
-            ->and($take->refresh()->last_event_at?->greaterThan($before))->toBeTrue();
-    });
+        expect(applySnapshot($take, Takes::snapshot($take, $incoming)))->toBe($outcome)
+            ->and($take->refresh()->last_event_at?->greaterThan($before))->toBe($advances);
+    })->with([
+        'applied' => ['queued', 'processing', TransitionOutcome::Applied, true],
+        'same state' => ['processing', 'processing', TransitionOutcome::IgnoredSameState, true],
+        // A late queued redelivery must not keep a stalled processing take out of the stuck rule.
+        'stale' => ['processing', 'queued', TransitionOutcome::IgnoredStale, false],
+        'conflict' => ['succeeded', 'failed', TransitionOutcome::IgnoredConflict, false],
+    ]);
 
     it('flags a succeeded take contradicted by a failed snapshot and keeps the charge', function (): void {
         Log::spy();
@@ -162,6 +169,69 @@ describe('orphan success vs conflict', function (): void {
 
         expect(applySnapshot($take, Takes::snapshot($take, 'succeeded')))->toBe(TransitionOutcome::OrphanSuccess)
             ->and(Takes::usage($take)->flags)->toBe(['orphan']);
+    });
+
+    it('records a late success after an internal failure of an accepted take as an orphan (D-077)', function (): void {
+        $take = Takes::in('processing');
+        app(FailTakeAction::class)->execute($take, FailureCode::Internal, 'Revoked key while reconciling.');
+
+        expect(applySnapshot($take, Takes::snapshot($take, 'succeeded')))->toBe(TransitionOutcome::OrphanSuccess);
+
+        $take->refresh();
+        $usage = Takes::usage($take);
+
+        expect($take->status)->toBe(TakeStatus::Failed)
+            ->and($take->failure_code)->toBe(FailureCode::Internal)
+            ->and($take->attention_reason)->toBe(AttentionReason::OrphanSuccess)
+            ->and($usage->status)->toBe(UsageStatus::Voided)
+            ->and($usage->flags)->toBe(['orphan'])
+            ->and($take->customer->refresh()->balance_nanos)->toBe(Takes::FUNDED_NANOS)
+            ->and($take->customer->held_nanos)->toBe(0)
+            ->and(chargeCount())->toBe(0);
+    });
+
+    it('keeps an orphan after an internal failure of an accepted take on replay', function (): void {
+        $take = Takes::in('processing');
+        app(FailTakeAction::class)->execute($take, FailureCode::Internal, 'Revoked key while reconciling.');
+        $snapshot = Takes::snapshot($take->refresh(), 'succeeded');
+
+        expect(applySnapshot($take, $snapshot))->toBe(TransitionOutcome::OrphanSuccess)
+            ->and(applySnapshot($take, $snapshot))->toBe(TransitionOutcome::OrphanSuccess)
+            ->and(Takes::usage($take)->flags)->toBe(['orphan']);
+    });
+
+    it('never turns an internal failure before acceptance into an orphan, whatever arrives first', function (array $leadIn, array $expected): void {
+        $take = Takes::pendingWithHold();
+        app(FailTakeAction::class)->execute($take, FailureCode::Internal, 'Rejected at submit.');
+
+        $outcomes = [];
+
+        foreach ([...$leadIn, 'succeeded', 'succeeded'] as $status) {
+            $outcomes[] = applySnapshot($take, Takes::snapshot($take, $status));
+        }
+
+        $take->refresh();
+
+        expect($outcomes)->toBe([...$expected, TransitionOutcome::IgnoredConflict, TransitionOutcome::IgnoredConflict])
+            // The failed take never adopts the late generation, so every replay reads the same fact.
+            ->and($take->pixelforge_id)->toBeNull()
+            ->and($take->attention_reason)->toBe(AttentionReason::InternalFailure)
+            ->and(Takes::usage($take)->flags)->toBe([])
+            ->and(Takes::usage($take)->status)->toBe(UsageStatus::Voided)
+            ->and(chargeCount())->toBe(0);
+    })->with([
+        'success applied twice' => [[], []],
+        'late queued first' => [['queued'], [TransitionOutcome::IgnoredStale]],
+        'late provider failure first' => [['failed'], [TransitionOutcome::IgnoredSameState]],
+    ]);
+
+    it('never lets a weaker finding replace orphan_success', function (): void {
+        $take = Takes::pendingWithHold(['last_submit_error_kind' => SubmitErrorKind::Ambiguous]);
+        app(FailTakeAction::class)->execute($take, FailureCode::SubmitTimeout, 'Submit window expired.');
+        applySnapshot($take, Takes::snapshot($take, 'succeeded'));
+
+        expect(applySnapshot($take, Takes::snapshot($take, 'succeeded', ['id' => 'gen_someoneelse'])))->toBe(TransitionOutcome::InvalidSnapshot)
+            ->and($take->refresh()->attention_reason)->toBe(AttentionReason::OrphanSuccess);
     });
 
     it('treats a late success after any other local failure as a conflict', function (FailureCode $code): void {
@@ -265,6 +335,10 @@ describe('settlement', function (): void {
 
         expect(fn () => applySnapshot($take, $snapshot))->toThrow(SnapshotRatesMissingException::class);
 
+        // The caller's model carries no unsaved transition it could persist later.
+        expect($take->isDirty())->toBeFalse()
+            ->and($take->status)->toBe(TakeStatus::Pending);
+
         $take->refresh();
 
         expect($take->status)->toBe(TakeStatus::Pending)
@@ -276,6 +350,45 @@ describe('settlement', function (): void {
 
         Queue::assertNothingPushed();
         Event::assertNotDispatched(TakeUpdated::class);
+    });
+
+    it('leaves the caller model clean when settlement throws mid-transition', function (): void {
+        $take = Takes::pendingWithHold();
+        $usage = Takes::usage($take);
+        // A charge row already exists for this usage: SettleUsageAction's insert
+        // hits the unique (usage_record_id) where type = charge index and throws.
+        DB::table('ledger_entries')->insert([
+            'customer_id' => $take->customer_id,
+            'type' => 'charge',
+            'amount_nanos' => -1,
+            'usage_record_id' => $usage->id,
+        ]);
+
+        expect(fn () => applySnapshot($take, Takes::snapshot($take, 'succeeded')))->toThrow(QueryException::class);
+
+        // advance() had already set status = succeeded on the model: the guard discarded it.
+        expect($take->isDirty())->toBeFalse()
+            ->and($take->status)->toBe(TakeStatus::Pending)
+            ->and($take->pixelforge_id)->toBeNull()
+            ->and($take->refresh()->status)->toBe(TakeStatus::Pending)
+            ->and(Takes::usage($take)->status)->toBe(UsageStatus::Open);
+    });
+
+    it('leaves the caller model clean when saving the take throws after the void', function (): void {
+        $take = Takes::in('processing');
+        Take::saving(fn (): never => throw new RuntimeException('Saving the take failed.'));
+
+        try {
+            expect(fn () => applySnapshot($take, Takes::snapshot($take, 'failed')))->toThrow(RuntimeException::class);
+        } finally {
+            Take::flushEventListeners();
+        }
+
+        expect($take->isDirty())->toBeFalse()
+            ->and($take->status)->toBe(TakeStatus::Processing)
+            ->and($take->failure_code)->toBeNull()
+            ->and(Takes::usage($take)->status)->toBe(UsageStatus::Open)
+            ->and($take->customer->refresh()->held_nanos)->toBe(Billing::DEFAULT_MAX_CHARGE);
     });
 
     it('does not need rates when nothing settles', function (): void {

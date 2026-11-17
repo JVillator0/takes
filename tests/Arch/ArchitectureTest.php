@@ -122,28 +122,6 @@ test('money code never uses floats', function (): void {
     expect(SourceScan::floatViolations(MONEY_PATHS))->toBe([]);
 });
 
-// M-11: a take's status changes only in ApplyTakeSnapshotAction and
-// FailTakeAction (spec 3-02). A tripwire for the obvious shapes, a TakeStatus
-// case written as a value (`'status' => TakeStatus::…`, `->status = TakeStatus::…`);
-// review catches the rest.
-test('only the transition actions write a take status', function (): void {
-    $allowed = [
-        SourceScan::root().'/app/Actions/Takes/ApplyTakeSnapshotAction.php',
-        SourceScan::root().'/app/Actions/Takes/FailTakeAction.php',
-    ];
-    $writes = [];
-
-    foreach (SourceScan::phpFiles(['app']) as $file) {
-        $source = (string) file_get_contents($file);
-
-        if (! in_array($file, $allowed, true) && preg_match('/(\'status\'\s*=>|->status\s*=(?!=))\s*\\\\?(App\\\\Enums\\\\Takes\\\\)?TakeStatus::(?!class\b)/', $source) === 1) {
-            $writes[] = $file;
-        }
-    }
-
-    expect($writes)->toBe([]);
-});
-
 // money.md M-07: RecordLedgerEntryAction owns balance_nanos; Open/Settle/Void own
 // held_nanos. Models declare the columns; factories and tests set fixtures.
 test('cached money columns are written only from App\Actions\Billing', function (): void {
@@ -178,5 +156,42 @@ test('the usage-record lock scan sees Eloquent and query-builder locks', functio
         expect(SourceScan::usageRecordLocks(['storage/framework/testing-usage-locks.php']))->toHaveCount(2);
     } finally {
         unlink($file);
+    }
+});
+
+// money.md M-11: a take's status changes only in ApplyTakeSnapshotAction and
+// FailTakeAction (spec 3-02). Models are scanned too; only their declared
+// `$attributes` default and the `TakeStatus::class` cast are allowed.
+test('only the transition actions write a take status', function (): void {
+    expect(SourceScan::takeStatusWrites(
+        ['app', 'routes', 'database/seeders'],
+        except: ['app/Actions/Takes/ApplyTakeSnapshotAction.php', 'app/Actions/Takes/FailTakeAction.php'],
+    ))->toBe([]);
+});
+
+test('the take-status scan allows a model default but not a model write', function (): void {
+    $model = SourceScan::root().'/storage/framework/testing-status-model.php';
+    file_put_contents($model, "<?php\nclass Take {\n    protected \$attributes = [\n        'status' => 'pending',\n    ];\n    protected function casts(): array { return ['status' => TakeStatus::class]; }\n    public function markFailed(): void { \$this->forceFill(['status' => TakeStatus::Failed])->save(); }\n}\n");
+
+    try {
+        expect(SourceScan::takeStatusWrites(['storage/framework/testing-status-model.php'], modelPaths: ['storage/framework/testing-status-model.php']))
+            ->toBe(['storage/framework/testing-status-model.php:7 writes a take status: \'status\' => TakeStatus::']);
+    } finally {
+        unlink($model);
+    }
+});
+
+test('the take-status scan sees enum cases, string values and variables next to a Take', function (): void {
+    $plain = SourceScan::root().'/storage/framework/testing-status-plain.php';
+    $take = SourceScan::root().'/storage/framework/testing-status-take.php';
+    file_put_contents($plain, "<?php\n\$a->forceFill(['status' => TakeStatus::Failed]);\n\$b->update(['status' => 'succeeded']);\n\$c->status = \\App\\Enums\\Takes\\TakeStatus::Queued;\n\$d->update(['status' => \$next]);\nif (\$e->status === TakeStatus::Failed) {}\n");
+    file_put_contents($take, "<?php\nuse App\\Models\\Take;\n\$t->forceFill(['status' => \$snapshot->status]);\n\$u->forceFill(['status' => UsageStatus::Voided]);\n\$t->status = \$next;\n");
+
+    try {
+        expect(SourceScan::takeStatusWrites(['storage/framework/testing-status-plain.php']))->toHaveCount(3)
+            ->and(SourceScan::takeStatusWrites(['storage/framework/testing-status-take.php']))->toHaveCount(2);
+    } finally {
+        unlink($plain);
+        unlink($take);
     }
 });

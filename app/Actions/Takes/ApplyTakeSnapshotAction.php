@@ -21,6 +21,7 @@ use App\Jobs\ReconcileTakeJob;
 use App\Models\Take;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Applies what Pixelforge says about a generation (create response, webhook,
@@ -49,6 +50,19 @@ final readonly class ApplyTakeSnapshotAction
      */
     public function execute(Take $take, GenerationSnapshotDTO $snapshot): TransitionOutcome
     {
+        try {
+            return $this->apply($take, $snapshot);
+        } catch (Throwable $exception) {
+            // The rollback undoes the database, not the caller's model: never
+            // hand back a take that still carries an unsaved transition.
+            $take->discardChanges();
+
+            throw $exception;
+        }
+    }
+
+    private function apply(Take $take, GenerationSnapshotDTO $snapshot): TransitionOutcome
+    {
         return DB::transaction(function () use ($take, $snapshot): TransitionOutcome {
             // Lock order: the take first; Settle/Void then lock only the
             // customer (spec 3-03 §6). Everything below decides on the row as
@@ -62,21 +76,42 @@ final readonly class ApplyTakeSnapshotAction
             if ($invalidReason !== null) {
                 // No state change, no last_event_at: a snapshot we cannot trust
                 // must not make the take look alive (D-053). Durable flag (D-054).
-                $take->forceFill(['attention_reason' => AttentionReason::InvalidSnapshot])->save();
+                $this->flag($take, AttentionReason::InvalidSnapshot);
+                $take->save();
                 $this->afterCommit(TransitionOutcome::InvalidSnapshot, $take, $snapshot, $from, $invalidReason);
 
                 return TransitionOutcome::InvalidSnapshot;
             }
 
             $outcome = $this->decide($take, $snapshot);
+
+            // Never settle without the generation's own rates (D-055, D-077).
+            // Checked before any write: the caller fetches the generation
+            // (GET /v1/generations/{id}, outside any transaction) and applies that.
+            if ($outcome === TransitionOutcome::Applied && $snapshot->status === TakeStatus::Succeeded && $snapshot->rates === null) {
+                throw new SnapshotRatesMissingException($take->id, $snapshot->id);
+            }
+
             $firstAccepted = $take->pixelforge_id === null;
 
-            // Facts every valid snapshot may fill, whatever the outcome (spec 5 step 2).
-            $take->forceFill([
-                'pixelforge_id' => $snapshot->id,
-                'started_at' => $take->started_at ?? $snapshot->startedAt,
-                'last_event_at' => now(),
-            ]);
+            // Missing facts (spec 5 step 2). A terminal take keeps the
+            // generation id it had when it finished: mayHideAGeneration()
+            // reads it as "Pixelforge had accepted it when we failed it", so
+            // only the orphan, the one outcome that adopts the late
+            // generation, may add it. Otherwise a replay could reclassify.
+            if (! $from->isTerminal() || $outcome === TransitionOutcome::OrphanSuccess) {
+                $take->forceFill([
+                    'pixelforge_id' => $snapshot->id,
+                    'started_at' => $take->started_at ?? $snapshot->startedAt,
+                ]);
+            }
+
+            // Only a snapshot that advances or confirms the state proves the
+            // take is alive; a stale or contradicting one must not hide a stuck
+            // take from the 15-minute rule (spec 5 step 2, D-053, D-077).
+            if ($outcome === TransitionOutcome::Applied || $outcome === TransitionOutcome::IgnoredSameState) {
+                $take->forceFill(['last_event_at' => now()]);
+            }
 
             if ($outcome === TransitionOutcome::Applied) {
                 $this->advance($take, $snapshot);
@@ -84,7 +119,7 @@ final readonly class ApplyTakeSnapshotAction
                 $this->recordOrphan($take);
             } elseif ($outcome === TransitionOutcome::IgnoredConflict) {
                 // A terminal take contradicted by the provider: always flagged (spec 5 matrix).
-                $take->forceFill(['attention_reason' => AttentionReason::InternalFailure]);
+                $this->flag($take, AttentionReason::InternalFailure);
             }
 
             $take->save();
@@ -132,11 +167,26 @@ final readonly class ApplyTakeSnapshotAction
             $from->canBecome($to) => TransitionOutcome::Applied,
             // Backwards: processing after succeeded, queued after processing.
             ! $to->isTerminal() => TransitionOutcome::IgnoredStale,
-            // Terminal → the other terminal. Only an expired ambiguous submit
-            // can hide a generation Pixelforge really ran (D-025, D-049).
-            $to === TakeStatus::Succeeded && $take->failure_code === FailureCode::SubmitTimeout => TransitionOutcome::OrphanSuccess,
+            // Terminal → the other terminal: an orphan when our local failure
+            // may have hidden a generation Pixelforge really ran.
+            $to === TakeStatus::Succeeded && $this->mayHideAGeneration($take) => TransitionOutcome::OrphanSuccess,
             default => TransitionOutcome::IgnoredConflict,
         };
+    }
+
+    /**
+     * submit_timeout: the ambiguous submit window expired (D-025, D-049).
+     * internal on a take Pixelforge had accepted: we failed it free, e.g. on
+     * a revoked key (D-062), while it kept running (D-077). "Accepted" is the
+     * pixelforge_id the take had when it failed, a fact frozen at failure
+     * time: a failed take adopts a generation id only as an orphan, so every
+     * replay of the same late success classifies the same way. Every other
+     * local code means nothing was created.
+     */
+    private function mayHideAGeneration(Take $take): bool
+    {
+        return $take->failure_code === FailureCode::SubmitTimeout
+            || ($take->failure_code === FailureCode::Internal && $take->pixelforge_id !== null);
     }
 
     /**
@@ -156,16 +206,12 @@ final readonly class ApplyTakeSnapshotAction
 
     private function settle(Take $take, GenerationSnapshotDTO $snapshot): void
     {
+        // invalidReason() rejected a succeeded snapshot without usage, image
+        // or completion time, and apply() threw before any write without rates.
+        assert($snapshot->usage !== null && $snapshot->rates !== null && $snapshot->imageUrl !== null && $snapshot->completedAt !== null);
+
         // Only the rates of this terminal snapshot, never the cached
-        // /v1/pricing used for the estimate (D-055, W-14). Nothing is written
-        // yet, so throwing leaves the take untouched for the caller to refetch.
-        if ($snapshot->rates === null) {
-            throw new SnapshotRatesMissingException($take->id, $snapshot->id);
-        }
-
-        // invalidReason() rejected a succeeded snapshot without these.
-        assert($snapshot->usage !== null && $snapshot->imageUrl !== null && $snapshot->completedAt !== null);
-
+        // /v1/pricing used for the estimate (D-055, W-14).
         // Charges cost × 1.25 once and releases the hold; a no-op if the
         // usage is not open (spec 3-03 §6).
         $this->settleUsage->execute(
@@ -200,14 +246,15 @@ final readonly class ApplyTakeSnapshotAction
     }
 
     /**
-     * Pixelforge ran a generation we had already failed, free, after the
-     * ambiguous submit window (D-025). The customer keeps "failed, not
-     * charged": the usage stays voided and the cost is absorbed. Both rows
+     * Pixelforge ran a generation we had already failed, free: after the
+     * ambiguous submit window (D-025), or after an internal failure of a take
+     * it had accepted (D-077). The customer keeps "failed, not charged": the
+     * usage stays voided and the cost is absorbed. Both rows
      * carry a durable flag for Needs attention and reconciliation (D-054, D-058).
      */
     private function recordOrphan(Take $take): void
     {
-        $take->forceFill(['attention_reason' => AttentionReason::OrphanSuccess]);
+        $this->flag($take, AttentionReason::OrphanSuccess);
 
         $usage = $take->usageRecord()->firstOrFail();
 
@@ -215,6 +262,17 @@ final readonly class ApplyTakeSnapshotAction
         // and the take lock serializes every writer of this take's usage.
         if (! in_array(UsageFlag::Orphan->value, $usage->flags, true)) {
             $usage->forceFill(['flags' => [...$usage->flags, UsageFlag::Orphan->value]])->save();
+        }
+    }
+
+    /**
+     * Sets the durable Needs attention flag (D-054) unless it would hide an
+     * orphan success: that one carries absorbed provider cost (D-058).
+     */
+    private function flag(Take $take, AttentionReason $reason): void
+    {
+        if ($reason->replaces($take->attention_reason)) {
+            $take->forceFill(['attention_reason' => $reason]);
         }
     }
 

@@ -97,7 +97,7 @@ final readonly class ReconcileTakeAction
 
         Log::warning('Reconcile stopped: Pixelforge has no such generation.', [
             'take_id' => $take->id,
-            'status' => $exception->status,
+            'http_status' => $exception->status,
             'error_code' => $exception->errorCode,
         ]);
         $this->flagAttention->execute($take, AttentionReason::ReconcileExhausted);

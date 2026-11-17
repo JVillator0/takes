@@ -99,7 +99,7 @@ final class ReconcileTakeJob implements ShouldBeUniqueUntilProcessing, ShouldQue
         if (! array_key_exists($next, self::DELAYS)) {
             Log::warning('Reconcile exhausted: the take is still not finished.', [
                 'take_id' => $take->id,
-                'status' => $take->status->value,
+                'take_status' => $take->status->value,
             ]);
             $flagAttention->execute($take, AttentionReason::ReconcileExhausted);
 

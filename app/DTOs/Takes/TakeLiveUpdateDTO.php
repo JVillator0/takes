@@ -4,9 +4,6 @@ declare(strict_types=1);
 
 namespace App\DTOs\Takes;
 
-use App\Models\Customer;
-use App\Models\Take;
-
 /**
  * The `take.updated` broadcast payload (spec 5, W-19): which take changed and
  * the customer's balance pill, money as server-formatted strings (M-20).
@@ -32,21 +29,6 @@ final readonly class TakeLiveUpdateDTO
         public string $onHold,
         public string $onHoldExact,
     ) {}
-
-    public static function fromTake(Take $take, Customer $customer): self
-    {
-        return new self(
-            takeId: $take->id,
-            projectId: $take->project_id,
-            status: $take->status->value,
-            failureCode: $take->failure_code?->value,
-            updatedAt: $take->updated_at?->toIso8601ZuluString(),
-            available: $customer->available()->format(4),
-            availableExact: $customer->available()->formatExact(),
-            onHold: $customer->held()->format(4),
-            onHoldExact: $customer->held()->formatExact(),
-        );
-    }
 
     /**
      * @param  TakeLiveUpdatePayload  $data
