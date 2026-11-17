@@ -4,7 +4,7 @@ import { computed } from 'vue';
 import Breadcrumbs from '@/components/Breadcrumbs.vue';
 import BalancePill from '@/components/takes/BalancePill.vue';
 import TakesMark from '@/components/takes/TakesMark.vue';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
     DropdownMenu,
@@ -53,7 +53,7 @@ defineSlots<{
 }>();
 
 const page = usePage();
-const user = computed(() => page.props.auth?.user ?? null);
+const user = computed(() => page.props.auth.customer);
 const { t } = useCopy();
 </script>
 
@@ -115,11 +115,6 @@ const { t } = useCopy();
                                 <Avatar
                                     class="size-8 overflow-hidden rounded-full"
                                 >
-                                    <AvatarImage
-                                        v-if="user.avatar"
-                                        :src="user.avatar"
-                                        :alt="user.name"
-                                    />
                                     <AvatarFallback
                                         class="rounded-full bg-muted text-xs font-semibold"
                                     >
