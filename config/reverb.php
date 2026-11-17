@@ -55,7 +55,9 @@ return [
                     'scheme' => env('REVERB_SCHEME', 'https'),
                     'useTLS' => env('REVERB_SCHEME', 'https') === 'https',
                 ],
-                'allowed_origins' => ['*'],
+                // Browsers may only connect from the app's own host; private
+                // channel auth protects the data, this keeps other sites off.
+                'allowed_origins' => [parse_url((string) env('APP_URL', 'http://localhost'), PHP_URL_HOST) ?: 'localhost'],
                 'ping_interval' => 60,
                 'activity_timeout' => 30,
                 'max_connections' => null,

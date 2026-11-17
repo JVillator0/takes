@@ -51,10 +51,17 @@ DB_HOST=pgsql
 DB_PORT=5432
 DB_USERNAME=sail
 DB_PASSWORD=password
+# Live status (optional; without it pages poll). PHP containers reach Reverb by
+# service name, browsers through the published port on localhost.
+BROADCAST_CONNECTION=reverb
+REVERB_HOST=reverb
+VITE_REVERB_HOST=localhost
 ```
 
+Set `REVERB_APP_ID`, `REVERB_APP_KEY` and `REVERB_APP_SECRET` to any values of your choice.
+
 ```bash
-./vendor/bin/sail up -d                 # app, Postgres 17 and a queue worker (compose.yaml)
+./vendor/bin/sail up -d                 # app, Postgres 17, a queue worker and Reverb (compose.yaml)
 ./vendor/bin/sail artisan key:generate
 ./vendor/bin/sail artisan migrate --seed
 ./vendor/bin/sail npm ci && ./vendor/bin/sail npm run dev
