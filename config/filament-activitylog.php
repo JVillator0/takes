@@ -11,7 +11,7 @@ return [
         'plural_label' => 'Activity log',
         'hide_restore_action' => true,
         'restore_action_label' => 'Restore',
-        'hide_resource_action' => false,
+        'hide_resource_action' => true,
         'hide_restore_model_action' => true,
         'resource_action_label' => 'View',
         'navigation_item' => true,
@@ -24,5 +24,5 @@ return [
         'resource' => AdminAuditResource::class,
     ],
     'date_format' => 'Y-m-d',
-    'datetime_format' => 'Y-m-d H:i:s',
+    'datetime_format' => 'Y-m-d H:i:s \U\T\C',
 ];

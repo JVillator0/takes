@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
+use App\Actions\Billing\RecordLedgerEntryAction;
 use App\Enums\Auth\DemoAccount;
 use App\Enums\Billing\LedgerEntryType;
 use App\Enums\Billing\PurchaseStatus;
 use App\Models\Customer;
-use App\Models\LedgerEntry;
 use App\Models\Purchase;
+use App\Support\Money\Nanodollars;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
@@ -82,46 +83,41 @@ final class DemoAccountsSeeder extends Seeder
     }
 
     /**
-     * Writes the ledger entry and the cached balance together (D-024). The
-     * caller holds the customer row lock.
-     *
-     * TODO(3-03): switch to RecordLedgerEntryAction (and PurchaseCreditsAction
-     * for the production purchase) once spec 3-03's ledger actions are merged,
-     * so the ledger keeps a single writer (money rule M-07).
+     * Credits through RecordLedgerEntryAction, the single writer of the ledger
+     * and the cached balance (money rule M-07). The caller holds the customer
+     * row lock inside its transaction.
      */
     private function credit(Customer $customer, int $amountNanos): void
     {
-        $entry = new LedgerEntry;
+        $amount = Nanodollars::fromInt($amountNanos);
+        $recordLedgerEntry = app(RecordLedgerEntryAction::class);
 
-        if (app()->isProduction()) {
-            $purchase = new Purchase;
-            $purchase->forceFill([
-                'customer_id' => $customer->id,
-                'reference' => 'DEMO-'.Str::upper(Str::random(10)),
-                'amount_nanos' => $amountNanos,
-                'status' => PurchaseStatus::Paid,
-                'paid_at' => now(),
-                'idempotency_key' => (string) Str::uuid(),
-            ])->save();
+        if (! app()->isProduction()) {
+            $recordLedgerEntry->execute(
+                customer: $customer,
+                type: LedgerEntryType::PromoGrant,
+                amount: $amount,
+                reason: self::SEED_REASON,
+            );
 
-            $entry->forceFill([
-                'type' => LedgerEntryType::Purchase,
-                'purchase_id' => $purchase->id,
-            ]);
-        } else {
-            $entry->forceFill([
-                'type' => LedgerEntryType::PromoGrant,
-                'reason' => self::SEED_REASON,
-            ]);
+            return;
         }
 
-        $entry->forceFill([
+        $purchase = new Purchase;
+        $purchase->forceFill([
             'customer_id' => $customer->id,
+            'reference' => 'DEMO-'.Str::upper(Str::random(10)),
             'amount_nanos' => $amountNanos,
+            'status' => PurchaseStatus::Paid,
+            'paid_at' => now(),
+            'idempotency_key' => (string) Str::uuid(),
         ])->save();
 
-        $customer->forceFill([
-            'balance_nanos' => $customer->balance_nanos + $amountNanos,
-        ])->save();
+        $recordLedgerEntry->execute(
+            customer: $customer,
+            type: LedgerEntryType::Purchase,
+            amount: $amount,
+            purchase: $purchase,
+        );
     }
 }

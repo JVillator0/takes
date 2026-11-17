@@ -121,3 +121,40 @@ arch('Illuminate\Support\Env is only used from config/')
 test('money code never uses floats', function (): void {
     expect(SourceScan::floatViolations(MONEY_PATHS))->toBe([]);
 });
+
+// money.md M-07: RecordLedgerEntryAction owns balance_nanos; Open/Settle/Void own
+// held_nanos. Models declare the columns; factories and tests set fixtures.
+test('cached money columns are written only from App\Actions\Billing', function (): void {
+    expect(SourceScan::columnWrites(
+        ['app', 'routes', 'config', 'database/seeders'],
+        ['balance_nanos', 'held_nanos'],
+        except: ['app/Actions/Billing/', 'app/Models/'],
+    ))->toBe([]);
+});
+
+test('the column-write scan sees assignments, array keys and increments', function (): void {
+    $file = SourceScan::root().'/storage/framework/testing-column-writes.php';
+    file_put_contents($file, "<?php\n\$c->held_nanos = 1;\n\$q->update(['customers.balance_nanos' => 2]);\n\$q->increment('held_nanos');\n\$q->select('balance_nanos');\n");
+
+    try {
+        expect(SourceScan::columnWrites(['storage/framework/testing-column-writes.php'], ['balance_nanos', 'held_nanos']))->toHaveCount(3);
+    } finally {
+        unlink($file);
+    }
+});
+
+// money.md M-10: the customer row is the only money lock; a usage is re-read under it.
+test('no code locks a usage record row', function (): void {
+    expect(SourceScan::usageRecordLocks(['app']))->toBe([]);
+});
+
+test('the usage-record lock scan sees Eloquent and query-builder locks', function (): void {
+    $file = SourceScan::root().'/storage/framework/testing-usage-locks.php';
+    file_put_contents($file, "<?php\nUsageRecord::query()->lockForUpdate()->find(1);\nDB::table('usage_records')->sharedLock()->get();\nCustomer::query()->lockForUpdate()->find(1);\nUsageRecord::query()->find(1);\n");
+
+    try {
+        expect(SourceScan::usageRecordLocks(['storage/framework/testing-usage-locks.php']))->toHaveCount(2);
+    } finally {
+        unlink($file);
+    }
+});
