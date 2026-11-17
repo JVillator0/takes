@@ -77,8 +77,9 @@ export type UseTakeUpdatesReturn = {
  * broadcasts missed meanwhile (W-20). There is no env switch.
  *
  * Every reload also refreshes `auth`, which carries the balance pill; the
- * socket's balance is only shown until the next `auth` refresh, and an older
- * payload never replaces a newer one.
+ * socket's balance is only shown until the next `auth` refresh. An older
+ * balance (by `balanceAt`) never replaces a newer one, and an older update of
+ * a take (by its `updatedAt`) never replaces a newer one of the same take.
  *
  * Call it once per page, from `setup`; listeners, the poll, the grace timer
  * and any pending reload are dropped when the page's scope is disposed.
@@ -108,13 +109,41 @@ export function useTakeUpdates(
         },
     );
 
-    /** Queued broadcasts may arrive out of order: keep the newest by `updatedAt`. */
-    const isOlderThanLast = (payload: TakeLiveUpdate): boolean => {
-        const last = lastUpdate.value?.take.updatedAt ?? null;
+    /*
+     * Queued broadcasts may arrive out of order. Freshness is tracked per take
+     * (`take.updatedAt`) and, separately, for the balance (`balanceAt`, when
+     * the server read it): a newer balance is never dropped because another
+     * take's update was newer, and an older one never replaces it. ISO-8601
+     * Zulu strings of one format sort as time.
+     */
+    const takeUpdatedAt = new Map<string, string>();
+    let balanceAt: string | null = null;
+
+    const isNewerTakeUpdate = (payload: TakeLiveUpdate): boolean => {
+        const last = takeUpdatedAt.get(payload.take.id);
         const incoming = payload.take.updatedAt;
 
-        // ISO-8601 Zulu strings of one format sort as time.
-        return last !== null && incoming !== null && incoming < last;
+        if (incoming === null) {
+            return last === undefined;
+        }
+
+        if (last !== undefined && incoming < last) {
+            return false;
+        }
+
+        takeUpdatedAt.set(payload.take.id, incoming);
+
+        return true;
+    };
+
+    const isNewerBalance = (payload: TakeLiveUpdate): boolean => {
+        if (balanceAt !== null && payload.balanceAt < balanceAt) {
+            return false;
+        }
+
+        balanceAt = payload.balanceAt;
+
+        return true;
     };
 
     let disposed = false;
@@ -155,8 +184,11 @@ export function useTakeUpdates(
             `App.Models.Customer.${String(options.customerId)}`,
             '.take.updated',
             (payload) => {
-                if (!isOlderThanLast(payload)) {
+                if (isNewerBalance(payload)) {
                     balance.value = payload.balance;
+                }
+
+                if (isNewerTakeUpdate(payload)) {
                     lastUpdate.value = payload;
                 }
 

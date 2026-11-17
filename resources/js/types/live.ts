@@ -14,6 +14,8 @@ export type TakeLiveUpdate = {
         updatedAt: string | null;
     };
     balance: BalanceSummary;
+    /** When the server read the balance (ISO-8601, microseconds, UTC). */
+    balanceAt: string;
 };
 
 /**
