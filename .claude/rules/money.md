@@ -37,7 +37,7 @@ Reviewers: a violation of any rule below is a **critical** finding unless the ru
   Tests: `tests/Feature/Billing/MoneyActionsTest.php` (each action throws outside a transaction).
 - [ ] **M-10 Lock order: take | suggestion → customer.** The caller locks the take (or suggestion) first with `lockForUpdate()`; the money actions then lock **only the customer row**; the usage record is **re-read under the customer lock, never locked separately**. Any new caller follows the same order.
   Reject: `lockForUpdate()` on `UsageRecord`; locking the customer before the take/suggestion; reading usage status before taking the customer lock and trusting it afterwards.
-  Tests: `tests/Feature/Billing/MoneyConcurrencyTest.php` (group `concurrency`: two opens for a balance that covers one ⇒ one `InsufficientCreditsException` and one open usage; two settles of different takes of one customer in parallel ⇒ exact balance); `tests/Arch/ArchitectureTest.php` (no `lockForUpdate` on usage records).
+  Tests: `tests/Feature/Billing/MoneyConcurrencyTest.php` (group `concurrency`: two opens for a balance that covers one ⇒ one `InsufficientCreditsException` and one open usage; two settles of different takes of one customer in parallel ⇒ exact balance); `tests/Arch/ArchitectureTest.php` (no `lockForUpdate` on usage records); `tests/Committed/SuggestionConcurrencyTest.php` (group `concurrency`: two suggestions racing on a balance that covers one hold ⇒ one `proposed`, one `insufficient_credits`).
 - [ ] **M-11 Take transitions only in `ApplyTakeSnapshotAction` and `FailTakeAction`.** No other class writes `takes.status`. Both lock the take, set `last_event_at` and return a `TransitionOutcome`.
   Reject: `$take->status = …`, `update(['status' => …])` or `forceFill(['status' => …])` anywhere else (controllers, jobs, listeners, Filament actions, seeders outside factories).
   Tests: `tests/Feature/Takes/ApplyTakeSnapshotActionTest.php` (full transition matrix, every outcome); `tests/Feature/Takes/FailTakeActionTest.php`; `tests/Arch/ArchitectureTest.php` (status writes only in the two actions).
@@ -51,7 +51,7 @@ Reviewers: a violation of any rule below is a **critical** finding unless the ru
   Tests: `tests/Feature/Billing/SettleUsageActionTest.php` (over-estimate case).
 - [ ] **M-16 No HTTP call inside a database transaction.** Provider calls (Pixelforge create/get, Anthropic) happen with no transaction open and no row locked; the result is applied in a new transaction afterwards (submit job, reconcile job, `CreateSuggestionAction` T1 → call → T2).
   Reject: `Http::`, `PixelforgeClient`, or the AI agent called inside `DB::transaction()` or after `lockForUpdate()`.
-  Tests: `tests/Feature/Billing/NoHttpInTransactionTest.php` (`Http::fake` callbacks assert `DB::transactionLevel() === 0` for submit, reconcile and suggestions).
+  Tests: `tests/Feature/Billing/NoHttpInTransactionTest.php` (`Http::fake` callbacks assert `DB::transactionLevel() === 0` for submit and reconcile); suggestions: `tests/Feature/Suggestions/CreateSuggestionActionTest.php` (the Messages API fake asserts the call adds no transaction and the hold is already placed).
 - [ ] **M-17 No queue delay above 900 s.** Every `delay`, `backoff`, `release()` and `retryUntil` step is ≤ 900 s (Laravel Cloud managed-queue limit). Long waits are chains of short delays (reconcile: 60, 120, 300, 600, 840 s).
   Tests: `tests/Arch/RepositoryTest.php` (max job delay/backoff 900 s for every job).
 

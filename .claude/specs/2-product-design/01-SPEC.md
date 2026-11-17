@@ -241,3 +241,29 @@ UI chrome strings added with the UI foundation (PR #99). Keys are the full `lang
 | `landing.pricing.landscape_high_two_refs` | P01 landing | "Landscape · high · 2 references" |
 | `landing.footer` | P01 landing | "Takes is a take-home project. Payments are simulated." |
 | `landing.shell.skip_to_content` | app shell skip link | "Skip to content" |
+
+Describe a change (P07) chrome added with spec 8. Prices reuse `takes.money.on_hold`, `takes.estimate.range` and `takes.composer.submit_with_max`; Buy credits reuses `billing.buy_credits`; the 2-01 AI strings above are `suggestions.failed`, `suggestions.unavailable`, `suggestions.no_change`, `suggestions.charge_disclosure`, `suggestions.already_pending` and `suggestions.chips.*`.
+
+| Key | Where | Copy |
+|---|---|---|
+| `suggestions.label` | P07 ask | "What should change?" |
+| `suggestions.count` | P07 ask | ":count / :max" |
+| `suggestions.quote` | P07 ask, price before action | "AI suggestion · up to :amount on hold" |
+| `suggestions.quote_note` | P07 ask | "Charged even if you discard the suggestion." |
+| `suggestions.suggest` | P07 ask button | "Suggest change" |
+| `suggestions.thinking` | P07 thinking | "Thinking…" |
+| `suggestions.review` | P07 proposal | "Review the proposal" |
+| `suggestions.diff.prompt` | P07 proposal | "Prompt" |
+| `suggestions.diff.setting` | P07 proposal table | "Setting" |
+| `suggestions.diff.before` | P07 proposal table | "Before" |
+| `suggestions.diff.after` | P07 proposal table | "After" |
+| `suggestions.diff.size` | P07 proposal table | "Size" |
+| `suggestions.diff.quality` | P07 proposal table | "Quality" |
+| `suggestions.diff.references` | P07 proposal table | "References" |
+| `suggestions.diff.references_with_image` | P07 proposal table | ":count + take image" |
+| `suggestions.new_take` | P07 proposal | "New take: :range" |
+| `suggestions.discard` | P07 proposal | "Discard" |
+| `suggestions.discarded` | P07 result | "Suggestion discarded." |
+| `suggestions.applied` | P07 result | "Your new take has started." |
+| `suggestions.base_not_ready` | P07, take not finished | "Describe a change works on finished takes." |
+| `suggestions.apply_unavailable` | P07, apply before spec 4 | "Generating a take from a suggestion is not available yet. Your suggestion is saved." |
