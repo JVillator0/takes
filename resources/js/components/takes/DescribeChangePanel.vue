@@ -90,6 +90,10 @@ const notice = computed(
 
 /** One polite sentence per state change (F-19). */
 const announcement = computed(() => {
+    if (instructionError.value) {
+        return instructionError.value;
+    }
+
     if (rejection.value) {
         return rejection.value.message;
     }
@@ -130,9 +134,18 @@ onMounted(() => {
 
 /** Each step's heading; focus moves there when the step changes (F-20). */
 const stepHeading = ref<HTMLElement | null>(null);
+const instructionField = ref<HTMLTextAreaElement | null>(null);
 
 watch(step, async () => {
     await nextTick();
+
+    // A validation error sends focus to the field it is about instead.
+    if (instructionError.value) {
+        instructionField.value?.focus();
+
+        return;
+    }
+
     stepHeading.value?.focus();
 });
 
@@ -199,10 +212,12 @@ const priceBox = 'rounded-md border border-dashed px-3 py-2.5 text-sm';
             </label>
             <textarea
                 :id="ids.instruction"
+                ref="instructionField"
                 v-model="form.instruction"
                 name="instruction"
                 rows="3"
-                :readonly="step === 'thinking'"
+                :maxlength="MAX_INSTRUCTION_CHARACTERS"
+                :readonly="step === 'thinking' || uncertain"
                 :aria-invalid="instructionError ? true : undefined"
                 :aria-describedby="
                     [ids.count, ids.quote, instructionError ? ids.error : '']
@@ -439,6 +454,16 @@ const priceBox = 'rounded-md border border-dashed px-3 py-2.5 text-sm';
             >
                 {{ rejection.message }}
             </p>
+            <!-- not_proposed: "Describe a new change" needs a way back to the ask step. -->
+            <Button
+                v-if="rejection?.reason === 'not_proposed'"
+                type="button"
+                variant="outline"
+                class="self-start"
+                @click="startOver"
+            >
+                {{ t('takes.actions.describe_change') }}
+            </Button>
 
             <div class="flex flex-wrap gap-2">
                 <Button

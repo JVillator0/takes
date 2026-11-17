@@ -223,13 +223,27 @@ export function useDescribeChange(takeId: Ref<string>) {
     }
 
     /** POSTs the draft; a server sentence is final, a lost answer is null. */
+    /**
+     * POSTs the draft: the suggestion, a server sentence, 'invalid' for a
+     * 422 (field errors show inline; nothing ran), or null for a lost answer.
+     */
     async function post(): Promise<
-        SuggestionData | SuggestionRejection | null
+        SuggestionData | SuggestionRejection | 'invalid' | null
     > {
-        try {
-            const data = await form.post(storeRoute.url(takeId.value));
+        // Known from this request's own 422, never from errors left by an older one.
+        let invalid = false;
 
-            // useHttp resolves a 422 to undefined: field errors show inline.
+        try {
+            const data = await form.post(storeRoute.url(takeId.value), {
+                onError: () => {
+                    invalid = true;
+                },
+            });
+
+            if (invalid) {
+                return 'invalid';
+            }
+
             return data ?? null;
         } catch (error) {
             if (error instanceof HttpCancelledError) {
@@ -248,6 +262,7 @@ export function useDescribeChange(takeId: Ref<string>) {
         appliedMessage.value = null;
         pollFailed.value = false;
         pollAttempts = 0;
+        form.clearErrors();
 
         try {
             let result = await post();
@@ -255,7 +270,7 @@ export function useDescribeChange(takeId: Ref<string>) {
             // No answer (network, 5xx, 419): the call may have run and been
             // charged. Replay once with the same key; the server returns the
             // same suggestion and never pays twice (D-033).
-            if (result === null && !form.hasErrors && current === generation) {
+            if (result === null && current === generation) {
                 result = await post();
             }
 
@@ -263,10 +278,12 @@ export function useDescribeChange(takeId: Ref<string>) {
                 return;
             }
 
+            if (result === 'invalid') {
+                return;
+            }
+
             if (result === null) {
-                if (!form.hasErrors) {
-                    rejection.value = clientRejection('uncertain');
-                }
+                rejection.value = clientRejection('uncertain');
             } else if ('status' in result) {
                 receive(result);
             } else {
@@ -380,14 +397,21 @@ export function useDescribeChange(takeId: Ref<string>) {
         }
     };
 
-    watch(takeId, () => {
-        // Everything in flight belongs to the previous take.
+    /** Everything in flight belongs to a take this panel no longer shows. */
+    const abandonInFlight = (): void => {
         generation++;
         form.cancel();
         quoteHttp.cancel();
         pollHttp.cancel();
         actionHttp.cancel();
+        stopPolling();
         busy.value = false;
+    };
+
+    watch(takeId, () => {
+        abandonInFlight();
+        // The previous take's price must never show, even while loading (F-15).
+        quote.value = null;
         startOver();
         form.instruction = '';
         form.request_key = crypto.randomUUID();
@@ -406,6 +430,12 @@ export function useDescribeChange(takeId: Ref<string>) {
             }
 
             void loadQuote();
+
+            // canAfford is computed by the server: re-read a proposal so
+            // Generate take returns after a purchase (spec 8 States).
+            if (suggestion.value?.status === 'proposed') {
+                void refresh();
+            }
         },
     );
 
@@ -413,7 +443,7 @@ export function useDescribeChange(takeId: Ref<string>) {
         document.addEventListener('visibilitychange', onVisibilityChange),
     );
     onBeforeUnmount(() => {
-        stopPolling();
+        abandonInFlight();
         document.removeEventListener('visibilitychange', onVisibilityChange);
     });
 
