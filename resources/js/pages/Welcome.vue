@@ -26,7 +26,7 @@ withDefaults(defineProps<Props>(), {
 });
 
 const page = usePage();
-const signedIn = computed(() => Boolean(page.props.auth.user));
+const signedIn = computed(() => page.props.auth.customer !== null);
 const { t } = useCopy();
 
 const steps = (['describe', 'take', 'remix'] as const).map((step) => ({

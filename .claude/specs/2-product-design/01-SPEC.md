@@ -81,6 +81,7 @@ Specs 3-01, 3-03, 4, 5, 6 and 8 reference these tables and never restate strings
 | `rate_limited` | "You are going too fast. Try again in a moment." |
 | `ai_paused` | "Describe a change is paused right now. You can still generate takes." |
 | `ai_daily_limit` | "You reached today's limit for Describe a change. It resets at 00:00 UTC." |
+| `demo_account_locked` (shared demo login, settings page; D-072) | "Shared demo accounts can't change their name, email or password. Register your own account to do that." |
 
 ## Billing, take and AI strings (single source)
 | Key | Copy |

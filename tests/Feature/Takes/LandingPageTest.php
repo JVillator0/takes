@@ -6,6 +6,8 @@ use App\Http\Middleware\HandleInertiaRequests;
 use Inertia\Testing\AssertableInertia as Assert;
 
 it('renders the landing page with the demo button off by default', function (): void {
+    config()->set('takes.welcome_credit_nanos', 1_000_000_000);
+
     $this->get(route('home'))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
@@ -45,4 +47,11 @@ it('re-sends the copy only when the client does not hold the current version', f
 
     expect($inertiaVisit($current)->json('props'))->not->toHaveKey('copy');
     expect($inertiaVisit('copy:stale-hash')->json('props'))->toHaveKey('copy');
+});
+
+it('advertises the configured welcome credit', function (): void {
+    config()->set('takes.welcome_credit_nanos', 2_500_000_000);
+
+    $this->get(route('home'))
+        ->assertInertia(fn (Assert $page) => $page->where('welcomeCredit', '$2.50'));
 });

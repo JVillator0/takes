@@ -4,7 +4,7 @@ import { computed } from 'vue';
 import Breadcrumbs from '@/components/Breadcrumbs.vue';
 import BalancePill from '@/components/takes/BalancePill.vue';
 import TakesMark from '@/components/takes/TakesMark.vue';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
     DropdownMenu,
@@ -53,7 +53,7 @@ defineSlots<{
 }>();
 
 const page = usePage();
-const user = computed(() => page.props.auth?.user ?? null);
+const customer = computed(() => page.props.auth.customer);
 const { t } = useCopy();
 </script>
 
@@ -104,32 +104,27 @@ const { t } = useCopy();
                         {{ t('billing.buy_credits') }}
                     </Button>
 
-                    <DropdownMenu v-if="user">
+                    <DropdownMenu v-if="customer">
                         <DropdownMenuTrigger :as-child="true">
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                class="size-9 rounded-full p-0.5"
-                                :aria-label="user.name"
+                                class="size-9 shrink-0 rounded-full p-0.5"
+                                :aria-label="customer.name"
                             >
                                 <Avatar
                                     class="size-8 overflow-hidden rounded-full"
                                 >
-                                    <AvatarImage
-                                        v-if="user.avatar"
-                                        :src="user.avatar"
-                                        :alt="user.name"
-                                    />
                                     <AvatarFallback
                                         class="rounded-full bg-muted text-xs font-semibold"
                                     >
-                                        {{ getInitials(user.name) }}
+                                        {{ getInitials(customer.name) }}
                                     </AvatarFallback>
                                 </Avatar>
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" class="w-56">
-                            <UserMenuContent :user="user" />
+                            <UserMenuContent :user="customer" />
                         </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
