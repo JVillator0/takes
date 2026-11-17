@@ -77,6 +77,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
             Inertia::flash('denial', (new AbilityDTO(allowed: false, reason: $reason))->toArray());
 
-            return back(303);
+            // Also an error, so Inertia runs the form's error path (no reset-on-success).
+            return back(303)->withErrors(['denial' => $reason->message()]);
         });
     })->create();

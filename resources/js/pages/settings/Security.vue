@@ -2,6 +2,7 @@
 import { Form, Head } from '@inertiajs/vue3';
 import SecurityController from '@/actions/App/Http/Controllers/Settings/SecurityController';
 import Heading from '@/components/Heading.vue';
+import { useAccountLock } from '@/composables/useAccountLock';
 import InputError from '@/components/InputError.vue';
 import PasswordInput from '@/components/PasswordInput.vue';
 import { Button } from '@/components/ui/button';
@@ -14,6 +15,7 @@ type Props = {
 };
 
 const props = defineProps<Props>();
+const { locked, message: lockMessage } = useAccountLock();
 
 defineOptions({
     layout: {
@@ -39,6 +41,15 @@ defineOptions({
             description="Ensure your account is using a long, random password to stay secure"
         />
 
+        <p
+            v-if="locked"
+            role="status"
+            class="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground"
+            data-test="account-locked-notice"
+        >
+            {{ lockMessage }}
+        </p>
+
         <Form
             v-bind="SecurityController.update.form()"
             :options="{
@@ -53,52 +64,54 @@ defineOptions({
             class="space-y-6"
             v-slot="{ errors, processing }"
         >
-            <div class="grid gap-2">
-                <Label for="current_password">Current password</Label>
-                <PasswordInput
-                    id="current_password"
-                    name="current_password"
-                    class="mt-1 block w-full"
-                    autocomplete="current-password"
-                    placeholder="Current password"
-                />
-                <InputError :message="errors.current_password" />
-            </div>
+            <fieldset :disabled="locked" class="space-y-6">
+                <div class="grid gap-2">
+                    <Label for="current_password">Current password</Label>
+                    <PasswordInput
+                        id="current_password"
+                        name="current_password"
+                        class="mt-1 block w-full"
+                        autocomplete="current-password"
+                        placeholder="Current password"
+                    />
+                    <InputError :message="errors.current_password" />
+                </div>
 
-            <div class="grid gap-2">
-                <Label for="password">New password</Label>
-                <PasswordInput
-                    id="password"
-                    name="password"
-                    class="mt-1 block w-full"
-                    autocomplete="new-password"
-                    placeholder="New password"
-                    :passwordrules="props.passwordRules"
-                />
-                <InputError :message="errors.password" />
-            </div>
+                <div class="grid gap-2">
+                    <Label for="password">New password</Label>
+                    <PasswordInput
+                        id="password"
+                        name="password"
+                        class="mt-1 block w-full"
+                        autocomplete="new-password"
+                        placeholder="New password"
+                        :passwordrules="props.passwordRules"
+                    />
+                    <InputError :message="errors.password" />
+                </div>
 
-            <div class="grid gap-2">
-                <Label for="password_confirmation">Confirm password</Label>
-                <PasswordInput
-                    id="password_confirmation"
-                    name="password_confirmation"
-                    class="mt-1 block w-full"
-                    autocomplete="new-password"
-                    placeholder="Confirm password"
-                    :passwordrules="props.passwordRules"
-                />
-                <InputError :message="errors.password_confirmation" />
-            </div>
+                <div class="grid gap-2">
+                    <Label for="password_confirmation">Confirm password</Label>
+                    <PasswordInput
+                        id="password_confirmation"
+                        name="password_confirmation"
+                        class="mt-1 block w-full"
+                        autocomplete="new-password"
+                        placeholder="Confirm password"
+                        :passwordrules="props.passwordRules"
+                    />
+                    <InputError :message="errors.password_confirmation" />
+                </div>
 
-            <div class="flex items-center gap-4">
-                <Button
-                    :disabled="processing"
-                    data-test="update-password-button"
-                >
-                    Save
-                </Button>
-            </div>
+                <div class="flex items-center gap-4">
+                    <Button
+                        :disabled="processing"
+                        data-test="update-password-button"
+                    >
+                        Save
+                    </Button>
+                </div>
+            </fieldset>
         </Form>
     </div>
 </template>

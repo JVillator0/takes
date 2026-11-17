@@ -3,6 +3,7 @@ import { Form, Head, usePage } from '@inertiajs/vue3';
 import { computed } from 'vue';
 import ProfileController from '@/actions/App/Http/Controllers/Settings/ProfileController';
 import Heading from '@/components/Heading.vue';
+import { useAccountLock } from '@/composables/useAccountLock';
 import InputError from '@/components/InputError.vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,6 +23,7 @@ defineOptions({
 
 const page = usePage();
 const customer = computed(() => page.props.auth.customer);
+const { locked, message: lockMessage } = useAccountLock();
 </script>
 
 <template>
@@ -36,45 +38,58 @@ const customer = computed(() => page.props.auth.customer);
             description="Update your name and email address"
         />
 
+        <p
+            v-if="locked"
+            role="status"
+            class="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground"
+            data-test="account-locked-notice"
+        >
+            {{ lockMessage }}
+        </p>
+
         <Form
             v-bind="ProfileController.update.form()"
             class="space-y-6"
             v-slot="{ errors, processing }"
         >
-            <div class="grid gap-2">
-                <Label for="name">Name</Label>
-                <Input
-                    id="name"
-                    class="mt-1 block w-full"
-                    name="name"
-                    :default-value="customer?.name"
-                    required
-                    autocomplete="name"
-                    placeholder="Full name"
-                />
-                <InputError class="mt-2" :message="errors.name" />
-            </div>
+            <fieldset :disabled="locked" class="space-y-6">
+                <div class="grid gap-2">
+                    <Label for="name">Name</Label>
+                    <Input
+                        id="name"
+                        class="mt-1 block w-full"
+                        name="name"
+                        :default-value="customer?.name"
+                        required
+                        autocomplete="name"
+                        placeholder="Full name"
+                    />
+                    <InputError class="mt-2" :message="errors.name" />
+                </div>
 
-            <div class="grid gap-2">
-                <Label for="email">Email address</Label>
-                <Input
-                    id="email"
-                    type="email"
-                    class="mt-1 block w-full"
-                    name="email"
-                    :default-value="customer?.email"
-                    required
-                    autocomplete="username"
-                    placeholder="Email address"
-                />
-                <InputError class="mt-2" :message="errors.email" />
-            </div>
+                <div class="grid gap-2">
+                    <Label for="email">Email address</Label>
+                    <Input
+                        id="email"
+                        type="email"
+                        class="mt-1 block w-full"
+                        name="email"
+                        :default-value="customer?.email"
+                        required
+                        autocomplete="username"
+                        placeholder="Email address"
+                    />
+                    <InputError class="mt-2" :message="errors.email" />
+                </div>
 
-            <div class="flex items-center gap-4">
-                <Button :disabled="processing" data-test="update-profile-button"
-                    >Save</Button
-                >
-            </div>
+                <div class="flex items-center gap-4">
+                    <Button
+                        :disabled="processing"
+                        data-test="update-profile-button"
+                        >Save</Button
+                    >
+                </div>
+            </fieldset>
         </Form>
     </div>
 </template>

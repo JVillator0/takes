@@ -11,6 +11,7 @@ use App\Models\Customer;
 use Database\Seeders\DemoAccountsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\Hash;
+use Inertia\Testing\AssertableInertia as Assert;
 
 /*
 | D-072: the seeded demo logins are public (P02 panel, README), so nobody
@@ -79,4 +80,16 @@ it('lets a regular customer change their own account through the actions', funct
     expect($customer->name)->toBe('Ana López')
         ->and($customer->email)->toBe('ana@example.com')
         ->and(Hash::check('new-password', $customer->password))->toBeTrue();
+});
+
+it('shares updateAccount as denied for a shared demo login and allowed otherwise', function (): void {
+    $this->actingAs(sharedDemo(), 'customer')
+        ->get(route('profile.edit'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('auth.can.updateAccount.allowed', false)
+            ->where('auth.can.updateAccount.reason', DenialReason::DemoAccountLocked->value));
+
+    $this->actingAs(Customer::factory()->create(), 'customer')
+        ->get(route('profile.edit'))
+        ->assertInertia(fn (Assert $page) => $page->where('auth.can.updateAccount.allowed', true));
 });

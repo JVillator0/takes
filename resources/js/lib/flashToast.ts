@@ -16,8 +16,9 @@ export function initializeFlashToast(): void {
         }
 
         // A policy denial sent back by the server (spec 3-01), with 2-01 copy.
+        // Neutral, never an error: 2-01 says denials are not failures.
         if (denial?.message) {
-            toast.error(denial.message);
+            toast.info(denial.message);
         }
     });
 }

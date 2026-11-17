@@ -23,6 +23,8 @@ export type Ability = {
 export type SharedAbilities = {
     createProject: Ability;
     purchaseCredits: Ability;
+    /** Denied with `demo_account_locked` for shared demo logins (D-072). */
+    updateAccount: Ability;
 };
 
 /** Shared `auth`: page-level `can` props never clash with `auth.can`. */

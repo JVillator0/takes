@@ -109,5 +109,7 @@ it('sends a policy denial back to the Inertia page with its reason code', functi
         ->from(route('dashboard'))
         ->post('/_test/deny', [], ['X-Inertia' => 'true'])
         ->assertRedirect(route('dashboard'))
-        ->assertSessionHas('inertia.flash_data.denial.reason', 'account_restricted');
+        ->assertSessionHas('inertia.flash_data.denial.reason', 'account_restricted')
+        // An error too, so the form takes Inertia's error path, not success.
+        ->assertSessionHasErrors(['denial' => 'Your account is restricted. Email support@example.com for help.']);
 });
