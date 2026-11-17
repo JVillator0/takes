@@ -1,7 +1,7 @@
 version: 2
 
 # Spec 1-01: weekly, grouped updates. Minor/patch bumps are grouped per
-# ecosystem; majors arrive as individual PRs so they get a real review.
+# ecosystem; majors are ignored until v1.0.0 is tagged (D-083).
 updates:
   - package-ecosystem: "composer"
     directory: "/"
@@ -12,7 +12,7 @@ updates:
     commit-message:
       prefix: "chore"
       include: "scope"
-    # Release freeze (D-031): majors are reviewed by hand after v1.0.0
+    # Majors are ignored until v1.0.0 is tagged and reviewed by hand afterwards (D-083)
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
@@ -31,13 +31,10 @@ updates:
     commit-message:
       prefix: "chore"
       include: "scope"
-    # Release freeze (D-031): majors are reviewed by hand after v1.0.0
+    # Majors are ignored until v1.0.0 is tagged and reviewed by hand afterwards (D-083)
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
-      # @types/node stays on the Node 24 runtime line
-      - dependency-name: "@types/node"
-        versions: [">=25"]
     groups:
       npm:
         update-types:
@@ -52,7 +49,7 @@ updates:
       default-days: 5
     commit-message:
       prefix: "ci"
-    # Release freeze (D-031): majors are reviewed by hand after v1.0.0
+    # Majors are ignored until v1.0.0 is tagged and reviewed by hand afterwards (D-083)
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
