@@ -37,6 +37,9 @@ final class TakeFlow
 
     public const int MIN_CHARGE = 58_156_250;
 
+    /** @var array<string, SubmitTakeJob> one job per take, re-run after each release like the queue does */
+    private static array $submitJobs = [];
+
     public static function configure(): void
     {
         config([
@@ -117,8 +120,10 @@ final class TakeFlow
     }
 
     /**
-     * Runs the job's handle() on a fake queue job and returns the release
-     * delay it asked for (null when it did not release).
+     * Runs the take's submit job's handle() on a fake queue job and returns
+     * the release delay it asked for (null when it did not release). Every
+     * run of a take reuses the same job, as a released job is re-run with
+     * its gate token.
      */
     public static function runSubmit(Take $take): ?int
     {
@@ -132,7 +137,7 @@ final class TakeFlow
         $queueJob->shouldReceive('isDeleted')->andReturn(false);
         $queueJob->shouldReceive('hasFailed')->andReturn(false);
 
-        $job = new SubmitTakeJob($take->id);
+        $job = self::$submitJobs[$take->id] ??= new SubmitTakeJob($take->id);
         $job->setJob($queueJob);
         app()->call([$job, 'handle']);
 

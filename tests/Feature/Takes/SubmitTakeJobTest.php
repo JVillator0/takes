@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Actions\Takes\ApplyTakeSnapshotAction;
 use App\Actions\Takes\CancelTakeAction;
 use App\Actions\Takes\ReconcileTakeAction;
+use App\Actions\Takes\RecordSubmitAttemptAction;
 use App\Enums\Billing\UsageStatus;
 use App\Enums\Takes\AttentionReason;
 use App\Enums\Takes\FailureCode;
@@ -18,7 +19,6 @@ use App\Models\Take;
 use App\Support\Pixelforge\SubmitGate;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use GuzzleHttp\Promise\PromiseInterface;
-use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Http\Client\Request;
 use Illuminate\Queue\MaxAttemptsExceededException;
 use Illuminate\Support\Facades\DB;
@@ -337,13 +337,64 @@ it('holds no transaction open and no row locked during the create call', functio
     expect($take->refresh()->status)->toBe(TakeStatus::Queued);
 });
 
-it('drops a duplicate dispatch while one is waiting (unique per take)', function (): void {
-    $job = new SubmitTakeJob('01jc2z8q4n6v0m3h7x5t9r2b1k');
+it('keeps one job per take for the whole window: a re-dispatch after 960 s is dropped', function (): void {
+    $take = Takes::pendingWithHold(['last_submit_error_kind' => SubmitErrorKind::Capacity]);
+    Http::preventStrayRequests();
+    $reconcile = app(ReconcileTakeAction::class);
 
-    expect($job)->toBeInstanceOf(ShouldBeUnique::class)
-        ->and($job->uniqueId())->toBe('01jc2z8q4n6v0m3h7x5t9r2b1k')
-        ->and($job->uniqueFor)->toBeGreaterThan(SubmitTakeJob::MAX_DELAY_SECONDS)
-        ->and($job->backoff())->each->toBeLessThanOrEqual(SubmitTakeJob::MAX_DELAY_SECONDS);
+    // The first dispatch takes the unique lock, as at create time.
+    SubmitTakeJob::dispatch($take->id);
+
+    // Waiting for capacity well past a single release; the sweeper and the
+    // reconcile chain re-dispatch the submit meanwhile.
+    // 961 s, then up to 36 min after create, still inside window + one release.
+    foreach ([961, 600, 600] as $seconds) {
+        $this->travel($seconds)->seconds();
+        $reconcile->execute($take);
+    }
+
+    Queue::assertPushed(SubmitTakeJob::class, 1);
+    expect((new SubmitTakeJob($take->id))->uniqueFor())
+        ->toBeGreaterThanOrEqual(30 * 60 + SubmitTakeJob::MAX_DELAY_SECONDS);
+});
+
+it('never lets a second job free the first job\'s gate slot', function (): void {
+    $take = Takes::pendingWithHold();
+    $first = new SubmitTakeJob($take->id);
+    $second = new SubmitTakeJob($take->id);
+    $gate = app(SubmitGate::class);
+
+    expect($gate->acquire($take, $first->holder)->allowed)->toBeTrue()
+        ->and($gate->acquire($take, $second->holder)->allowed)->toBeFalse();
+
+    $gate->finish($take, $second->holder);
+
+    expect($gate->isSubmitting($take))->toBeTrue();
+});
+
+it('treats a counted attempt after a capacity answer as in doubt until it reports back', function (): void {
+    $take = Takes::pendingWithHold();
+    fakeCreate(TakeFlow::error('concurrency_limit_exceeded', 429, '5'));
+    TakeFlow::runSubmit($take);
+    expect($take->refresh()->last_submit_error_kind)->toBe(SubmitErrorKind::Capacity);
+
+    // The next attempt is counted, then the worker dies before any answer.
+    app(RecordSubmitAttemptAction::class)->execute($take);
+
+    expect($take->refresh()->last_submit_error_kind)->toBeNull()
+        ->and($take->submit_attempts)->toBe(2);
+
+    // Its gate slot has expired; the cancel is still refused.
+    $this->travel(31)->seconds();
+    $this->actingAs($take->customer()->firstOrFail(), 'customer')
+        ->postJson(route('takes.cancel', $take))
+        ->assertStatus(422)
+        ->assertJsonPath('code', 'cannot_cancel');
+
+    $this->travel(31)->minutes();
+    (new SubmitTakeJob($take->id))->failed(new MaxAttemptsExceededException('retryUntil passed'));
+
+    expect($take->refresh()->failure_code)->toBe(FailureCode::SubmitTimeout);
 });
 
 it('is re-dispatched by reconcile for a pending take that never got a generation', function (): void {

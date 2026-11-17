@@ -101,7 +101,6 @@ it('ignores a submit-phase failure once Pixelforge accepted the take', function 
 })->with(['queued', 'processing'])->with([
     FailureCode::SubmitTimeout,
     FailureCode::ProviderBusy,
-    FailureCode::Cancelled,
     FailureCode::ContentPolicy,
 ]);
 
@@ -152,6 +151,35 @@ it('refuses to cancel unless the take waits for capacity', function (?SubmitErro
     'ambiguous submit in doubt' => SubmitErrorKind::Ambiguous,
     'never attempted' => null,
 ]);
+
+it('refuses to cancel a take that left the capacity state, without flagging it', function (string $status): void {
+    $take = Takes::in($status);
+    $before = $take->only(['status', 'failure_code', 'attention_reason', 'last_event_at']);
+
+    expect(fn () => failTake($take, FailureCode::Cancelled))->toThrow(TakeTransitionNotAllowedException::class);
+
+    expect($take->refresh()->only(array_keys($before)))->toEqual($before)
+        ->and($take->attention_reason)->toBeNull();
+})->with(['queued', 'processing', 'succeeded', 'failed']);
+
+it('leaves the caller model clean when saving the take throws', function (): void {
+    $take = Takes::pendingWithHold();
+    Take::saving(fn (): never => throw new RuntimeException('Saving the take failed.'));
+
+    try {
+        expect(fn () => failTake($take, FailureCode::ContentPolicy))->toThrow(RuntimeException::class);
+    } finally {
+        Take::flushEventListeners();
+    }
+
+    expect($take->isDirty())->toBeFalse()
+        ->and($take->status)->toBe(TakeStatus::Pending)
+        ->and($take->failure_code)->toBeNull()
+        ->and(Takes::usage($take)->status)->toBe(UsageStatus::Open)
+        ->and($take->customer->refresh()->held_nanos)->toBe(Billing::DEFAULT_MAX_CHARGE);
+
+    Event::assertNotDispatched(TakeUpdated::class);
+});
 
 it('refuses provider outcome codes', function (FailureCode $code): void {
     $take = Takes::pendingWithHold();

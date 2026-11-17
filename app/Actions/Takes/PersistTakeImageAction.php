@@ -64,7 +64,7 @@ final readonly class PersistTakeImageAction
         }
 
         if (! $response->successful()) {
-            Log::warning('Take image not persisted: the provider URL answered an error.', ['take_id' => $take->id, 'status' => $response->status()]);
+            Log::warning('Take image not persisted: the provider URL answered an error.', ['take_id' => $take->id, 'http_status' => $response->status()]);
 
             return ImagePersistOutcome::Unavailable;
         }
