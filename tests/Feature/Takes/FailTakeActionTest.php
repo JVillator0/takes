@@ -162,6 +162,25 @@ it('refuses to cancel a take that left the capacity state, without flagging it',
         ->and($take->attention_reason)->toBeNull();
 })->with(['queued', 'processing', 'succeeded', 'failed']);
 
+it('leaves the caller model clean when saving the take throws', function (): void {
+    $take = Takes::pendingWithHold();
+    Take::saving(fn (): never => throw new RuntimeException('Saving the take failed.'));
+
+    try {
+        expect(fn () => failTake($take, FailureCode::ContentPolicy))->toThrow(RuntimeException::class);
+    } finally {
+        Take::flushEventListeners();
+    }
+
+    expect($take->isDirty())->toBeFalse()
+        ->and($take->status)->toBe(TakeStatus::Pending)
+        ->and($take->failure_code)->toBeNull()
+        ->and(Takes::usage($take)->status)->toBe(UsageStatus::Open)
+        ->and($take->customer->refresh()->held_nanos)->toBe(Billing::DEFAULT_MAX_CHARGE);
+
+    Event::assertNotDispatched(TakeUpdated::class);
+});
+
 it('refuses provider outcome codes', function (FailureCode $code): void {
     $take = Takes::pendingWithHold();
 

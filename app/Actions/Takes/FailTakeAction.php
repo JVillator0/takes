@@ -15,6 +15,7 @@ use App\Exceptions\Takes\TakeTransitionNotAllowedException;
 use App\Models\Take;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Fails a take for a local reason, free (spec 3-02): a definite rejection at
@@ -38,6 +39,19 @@ final readonly class FailTakeAction
             throw TakeTransitionNotAllowedException::providerCode($code);
         }
 
+        try {
+            return $this->fail($take, $code, $message);
+        } catch (Throwable $exception) {
+            // The rollback undoes the database, not the caller's model: never
+            // hand back a take that still carries an unsaved transition.
+            $take->discardChanges();
+
+            throw $exception;
+        }
+    }
+
+    private function fail(Take $take, FailureCode $code, string $message): TransitionOutcome
+    {
         return DB::transaction(function () use ($take, $code, $message): TransitionOutcome {
             // Lock order: the take first; VoidUsageAction then locks only the customer (spec 3-03 §6).
             Take::query()->whereKey($take->id)->lockForUpdate()->firstOrFail();
