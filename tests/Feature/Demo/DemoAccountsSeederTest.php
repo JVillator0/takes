@@ -7,11 +7,13 @@ use App\Enums\Auth\DemoAccount;
 use App\Enums\Billing\LedgerEntryType;
 use App\Enums\Billing\PurchaseStatus;
 use App\Models\Customer;
+use App\Models\Invoice;
 use App\Models\LedgerEntry;
 use App\Models\Purchase;
 use App\Models\Take;
 use App\Models\UsageRecord;
 use Database\Seeders\DemoAccountsSeeder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 function demoCustomer(DemoAccount $account): Customer
@@ -114,4 +116,39 @@ it('seeds a paid $10 purchase and no takes or usage in production', function ():
         ->and($demo->balance_nanos)->toBe(10_000_000_000)
         ->and(Take::query()->count())->toBe(0)
         ->and(UsageRecord::query()->count())->toBe(0);
+
+    // Spec 6: every seeded purchase (Demo, Low balance) has its invoice,
+    // issued through IssueInvoiceAction with gapless numbers.
+    $invoice = Invoice::query()->where('purchase_id', $entry->purchase_id)->sole();
+    $paid = Purchase::query()->where('status', PurchaseStatus::Paid->value)->count();
+
+    expect($invoice->customer_id)->toBe($demo->id)
+        ->and($invoice->total_nanos)->toBe(10_000_000_000)
+        ->and(Invoice::query()->count())->toBe($paid)
+        ->and(Invoice::query()->orderBy('number')->pluck('number')->all())->toBe(array_map(
+            fn (int $n): string => sprintf('INV-%d-%06d', now()->utc()->year, $n),
+            range(1, $paid),
+        ));
+
+    // Re-running creates no second purchase and no second invoice.
+    app(DemoAccountsSeeder::class)->setContainer(app())->__invoke();
+
+    expect(Purchase::query()->count())->toBe($paid)
+        ->and(Invoice::query()->count())->toBe($paid);
+});
+
+it('backfills the invoice of a paid purchase that has none, once, oldest payment first', function (): void {
+    // Purchases from before invoices existed: paid, credited, no invoice.
+    $customer = Customer::factory()->create();
+    $older = Purchase::factory()->create(['customer_id' => $customer->id, 'paid_at' => '2026-11-10T09:00:00Z']);
+    $newer = Purchase::factory()->create(['customer_id' => $customer->id, 'paid_at' => '2026-11-12T09:00:00Z']);
+    Purchase::factory()->pending()->create(['customer_id' => $customer->id]);
+
+    $this->seed(DemoAccountsSeeder::class);
+    $this->seed(DemoAccountsSeeder::class);
+
+    expect(Invoice::query()->count())->toBe(2)
+        ->and($older->invoice()->sole()->number)->toBe('INV-2026-000001')
+        ->and($newer->invoice()->sole()->number)->toBe('INV-2026-000002')
+        ->and(DB::table('invoice_counters')->where('year', 2026)->value('last_number'))->toBe(2);
 });

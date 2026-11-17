@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Enums\Billing\InvoiceStatus;
 use App\Enums\Billing\LedgerEntryType;
 use App\Enums\Billing\Provider;
 use App\Enums\Billing\PurchaseStatus;
@@ -31,7 +32,8 @@ function checkConstraintValues(string $constraint): array
 
     expect($definition)->toBeString("Missing CHECK constraint [{$constraint}].");
 
-    preg_match_all("/'([^']+)'::character varying/", (string) $definition, $matches);
+    // A one-value IN list is stored as `= 'value'::text`, longer ones as varchar arrays.
+    preg_match_all("/'([^']+)'::(?:character varying|text)/", (string) $definition, $matches);
 
     $values = $matches[1];
     sort($values);
@@ -56,6 +58,7 @@ it('keeps each CHECK list identical to its enum', function (string $constraint, 
     ['suggestions_status_check', SuggestionStatus::class],
     ['webhook_deliveries_outcome_check', WebhookOutcome::class],
     ['purchases_status_check', PurchaseStatus::class],
+    ['invoices_status_check', InvoiceStatus::class],
     ['usage_records_provider_check', Provider::class],
     ['usage_records_status_check', UsageStatus::class],
     ['ledger_entries_type_check', LedgerEntryType::class],

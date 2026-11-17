@@ -56,6 +56,14 @@ php artisan db:seed --class=RolesAndPermissionsSeeder --force
 
 The roles seeder is idempotent (`findOrCreate` + `syncPermissions`, D-068). Demo data (`DemoAccountsSeeder`, showcase customer) is seeded by hand, never on deploy. There is no scheduler (D-036).
 
+**One-off after the deploy that ships invoices (spec 6, PR #115):** run the demo seeder once by hand:
+
+```sh
+php artisan db:seed --class=DemoAccountsSeeder --force
+```
+
+It is idempotent: it creates nothing that already exists and issues the missing invoice of every paid purchase made before invoices existed (the seeded Demo purchase, and any purchase bought while #94 was live without #115), oldest payment first. Purchases made after the deploy are invoiced at payment. A backfilled purchase gets a number after those already issued that year, so number order can differ from payment order for those few rows.
+
 ## Environment variables
 
 Trusted proxies need no setting: on Cloud (`laravel_cloud()`), the framework's `TrustProxies` middleware trusts `'*'` when no proxies are configured, so `TRUSTED_PROXIES` is not used.

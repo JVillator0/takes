@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Link, router } from '@inertiajs/vue3';
-import { LogOut, Settings } from '@lucide/vue';
+import { CreditCard, LogOut, Settings } from '@lucide/vue';
 import {
     DropdownMenuGroup,
     DropdownMenuItem,
@@ -8,7 +8,9 @@ import {
     DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import UserInfo from '@/components/UserInfo.vue';
+import { useCopy } from '@/composables/useCopy';
 import { logout } from '@/routes';
+import { show as billing } from '@/routes/billing';
 import { edit } from '@/routes/profile';
 import type { Customer } from '@/types';
 
@@ -21,6 +23,8 @@ const handleLogout = () => {
 };
 
 defineProps<Props>();
+
+const { t } = useCopy();
 </script>
 
 <template>
@@ -31,6 +35,16 @@ defineProps<Props>();
     </DropdownMenuLabel>
     <DropdownMenuSeparator />
     <DropdownMenuGroup>
+        <DropdownMenuItem :as-child="true">
+            <Link
+                class="block w-full cursor-pointer"
+                :href="billing()"
+                prefetch
+            >
+                <CreditCard class="mr-2 h-4 w-4" />
+                {{ t('billing.page_title') }}
+            </Link>
+        </DropdownMenuItem>
         <DropdownMenuItem :as-child="true">
             <Link class="block w-full cursor-pointer" :href="edit()" prefetch>
                 <Settings class="mr-2 h-4 w-4" />
