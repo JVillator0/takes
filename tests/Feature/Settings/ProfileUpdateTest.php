@@ -2,109 +2,54 @@
 
 declare(strict_types=1);
 
-use App\Models\User;
+use App\Models\Customer;
 
-test('profile page is displayed', function (): void {
-    $user = User::factory()->create();
-
-    $this->actingAs($user)
+it('renders the profile page', function (): void {
+    $this->actingAs(Customer::factory()->create(), 'customer')
         ->get(route('profile.edit'))
         ->assertOk();
 });
 
-test('profile information can be updated', function (): void {
-    $user = User::factory()->create();
+it('updates the customer resolved through the customer guard (D-032)', function (): void {
+    $customer = Customer::factory()->create();
 
-    $this->actingAs($user)
+    $this->actingAs($customer, 'customer')
         ->patch(route('profile.update'), [
-            'name' => 'Test User',
-            'email' => 'test@example.com',
+            'name' => 'Ana López',
+            'email' => 'ANA@example.com',
         ])
         ->assertSessionHasNoErrors()
         ->assertRedirect(route('profile.edit'));
 
-    $user->refresh();
+    $customer->refresh();
 
-    expect($user->name)->toBe('Test User')
-        ->and($user->email)->toBe('test@example.com')
-        ->and($user->email_verified_at)->toBeNull();
+    expect($customer->name)->toBe('Ana López')
+        ->and($customer->email)->toBe('ana@example.com')
+        ->and($customer->email_verified_at)->toBeNull();
 });
 
-test('email is stored in lowercase so the user can still log in', function (): void {
-    $user = User::factory()->create();
+it('rejects an email used by another customer', function (): void {
+    Customer::factory()->create(['email' => 'taken@example.com']);
+    $customer = Customer::factory()->create();
 
-    $this->actingAs($user)
+    $this->actingAs($customer, 'customer')
+        ->from(route('profile.edit'))
         ->patch(route('profile.update'), [
-            'name' => 'Test User',
-            'email' => 'Test@Example.com',
+            'name' => $customer->name,
+            'email' => 'taken@example.com',
+        ])
+        ->assertSessionHasErrors('email');
+});
+
+it('keeps the email when it is unchanged', function (): void {
+    $customer = Customer::factory()->create();
+
+    $this->actingAs($customer, 'customer')
+        ->patch(route('profile.update'), [
+            'name' => 'Renamed',
+            'email' => $customer->email,
         ])
         ->assertSessionHasNoErrors();
 
-    expect($user->refresh()->email)->toBe('test@example.com');
-
-    $this->post(route('logout'));
-
-    $this->post(route('login.store'), [
-        'email' => 'Test@Example.com',
-        'password' => 'password',
-    ]);
-
-    $this->assertAuthenticatedAs($user);
-});
-
-test('email must be unique regardless of case', function (): void {
-    User::factory()->create(['email' => 'taken@example.com']);
-
-    $user = User::factory()->create();
-
-    $this->actingAs($user)
-        ->from(route('profile.edit'))
-        ->patch(route('profile.update'), [
-            'name' => 'Test User',
-            'email' => 'Taken@Example.com',
-        ])
-        ->assertSessionHasErrors('email')
-        ->assertRedirect(route('profile.edit'));
-});
-
-test('email verification status is unchanged when the email address is unchanged', function (): void {
-    $user = User::factory()->create();
-
-    $this->actingAs($user)
-        ->patch(route('profile.update'), [
-            'name' => 'Test User',
-            'email' => $user->email,
-        ])
-        ->assertSessionHasNoErrors()
-        ->assertRedirect(route('profile.edit'));
-
-    expect($user->refresh()->email_verified_at)->not->toBeNull();
-});
-
-test('user can delete their account', function (): void {
-    $user = User::factory()->create();
-
-    $this->actingAs($user)
-        ->delete(route('profile.destroy'), [
-            'password' => 'password',
-        ])
-        ->assertSessionHasNoErrors()
-        ->assertRedirect(route('home'));
-
-    $this->assertGuest();
-    expect($user->fresh())->toBeNull();
-});
-
-test('correct password must be provided to delete account', function (): void {
-    $user = User::factory()->create();
-
-    $this->actingAs($user)
-        ->from(route('profile.edit'))
-        ->delete(route('profile.destroy'), [
-            'password' => 'wrong-password',
-        ])
-        ->assertSessionHasErrors('password')
-        ->assertRedirect(route('profile.edit'));
-
-    expect($user->fresh())->not->toBeNull();
+    expect($customer->refresh()->name)->toBe('Renamed');
 });

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Models\Customer;
 use App\Models\User;
 
 return [
@@ -44,6 +45,12 @@ return [
             'driver' => 'session',
             'provider' => 'users',
         ],
+
+        // Public app accounts (D-012, spec 3-01). Admins stay on `web`.
+        'customer' => [
+            'driver' => 'session',
+            'provider' => 'customers',
+        ],
     ],
 
     /*
@@ -67,6 +74,11 @@ return [
         'users' => [
             'driver' => 'eloquent',
             'model' => env('AUTH_MODEL', User::class),
+        ],
+
+        'customers' => [
+            'driver' => 'eloquent',
+            'model' => Customer::class,
         ],
 
         // 'users' => [
@@ -98,6 +110,14 @@ return [
         'users' => [
             'provider' => 'users',
             'table' => env('AUTH_PASSWORD_RESET_TOKEN_TABLE', 'password_reset_tokens'),
+            'expire' => 60,
+            'throttle' => 60,
+        ],
+
+        // Separate token table: a customer reset never touches an admin's (spec 3-01).
+        'customers' => [
+            'provider' => 'customers',
+            'table' => 'customer_password_reset_tokens',
             'expire' => 60,
             'throttle' => 60,
         ],
