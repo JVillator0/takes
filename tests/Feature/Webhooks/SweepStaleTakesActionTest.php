@@ -15,6 +15,7 @@ use App\Enums\Takes\AttentionReason;
 use App\Enums\Takes\ReconcileStatus;
 use App\Events\TakeUpdated;
 use App\Jobs\ReconcileTakeJob;
+use App\Jobs\SweepStaleTakesJob;
 use App\Models\Customer;
 use App\Models\Suggestion;
 use App\Models\Take;
@@ -29,6 +30,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Spatie\Activitylog\Models\Activity;
 use Tests\Support\Billing;
 use Tests\Support\PixelforgeWebhook;
 use Tests\Support\Takes;
@@ -177,28 +179,57 @@ it('expires a suggestion pending for more than 2 minutes and releases its hold',
     Billing::assertCachedColumnsMatch($stale->customer()->sole());
 });
 
-it('sweeps after a customer page load', function (): void {
+/** Runs the sweep job the middleware queued, as a worker would. */
+function runQueuedSweep(): void
+{
+    $sweeps = Queue::pushed(SweepStaleTakesJob::class);
+    expect($sweeps)->toHaveCount(1);
+    app()->call([$sweeps->first(), 'handle']);
+}
+
+it('queues one sweep after a customer page load, throttled', function (): void {
     $this->seed(RolesAndPermissionsSeeder::class);
     $customer = Customer::factory()->withRole()->create();
-    takeAged('processing', 5);
+    $take = takeAged('processing', 5);
     Queue::fake();
     Cache::flush();
 
     $this->actingAs($customer, 'customer')->get(route('billing.show'))->assertOk();
+    $this->actingAs($customer, 'customer')->get(route('billing.show'))->assertOk();
 
-    Queue::assertPushed(ReconcileTakeJob::class, 1);
+    runQueuedSweep();
+    Queue::assertPushed(ReconcileTakeJob::class, fn (ReconcileTakeJob $job): bool => $job->takeId === $take->id);
 });
 
-it('sweeps after an admin console page load', function (): void {
+it('queues one sweep after an admin console page load', function (): void {
     $this->seed(AdminRolesSeeder::class);
     Filament::setCurrentPanel('admin');
-    takeAged('processing', 5);
+    $take = takeAged('processing', 5);
     Queue::fake();
     Cache::flush();
 
     $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create())->get('/admin')->assertOk();
 
-    Queue::assertPushed(ReconcileTakeJob::class, 1);
+    runQueuedSweep();
+    Queue::assertPushed(ReconcileTakeJob::class, fn (ReconcileTakeJob $job): bool => $job->takeId === $take->id);
+});
+
+it('does not record the sweep as the admin who opened the console (FI-08, FI-09)', function (): void {
+    $this->seed(AdminRolesSeeder::class);
+    Filament::setCurrentPanel('admin');
+    $stale = pendingSuggestion(3);
+    Queue::fake();
+    Cache::flush();
+
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create())->get('/admin')->assertOk();
+
+    // Worst case, as with the `sync` driver: the job runs in the same process
+    // right after the console response, while Filament still says it is serving.
+    expect(Filament::isServing())->toBeTrue();
+    runQueuedSweep();
+
+    expect($stale->refresh()->status)->toBe(SuggestionStatus::Failed)
+        ->and(Activity::query()->where('log_name', 'admin')->count())->toBe(0);
 });
 
 it('does not sweep for a guest page load or a write', function (): void {
@@ -211,7 +242,8 @@ it('does not sweep for a guest page load or a write', function (): void {
     $this->actingAs(Customer::factory()->withRole()->create(), 'customer')
         ->post(route('billing.purchases.store'), []);
 
-    Queue::assertNothingPushed();
+    Queue::assertNotPushed(SweepStaleTakesJob::class);
+    Queue::assertNotPushed(ReconcileTakeJob::class);
 });
 
 it('never lets definitive stops crowd out newer stale takes', function (): void {

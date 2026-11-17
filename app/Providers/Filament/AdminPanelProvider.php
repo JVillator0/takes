@@ -149,7 +149,8 @@ final class AdminPanelProvider extends PanelProvider
             ])
             ->authMiddleware([
                 Authenticate::class,
-                // Admin dashboard and Needs attention loads run the throttled sweeper (D-036, W-16).
+                // Every authenticated console GET (dashboard, Needs attention, resources) queues the
+                // throttled sweeper, at most once per 2 min (D-036, W-16); it runs as the system.
                 SweepStaleTakes::class,
             ]);
     }

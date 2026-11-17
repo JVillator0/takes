@@ -20,10 +20,13 @@ use Illuminate\Support\Facades\Cache;
 /**
  * The opportunistic sweeper (D-036, W-16): no scheduler, so lost reconcile
  * chains and stuck suggestions are picked up whenever someone looks. Page
- * loads (SweepStaleTakes middleware) and `takes:reconcile --stale` call it.
+ * loads (SweepStaleTakes middleware, through SweepStaleTakesJob) and
+ * `takes:reconcile --stale` call it.
  *
  * Throttled with a cache lock that is never released: it simply expires, so
- * the sweep runs at most once per THROTTLE_SECONDS whatever the traffic.
+ * the sweep runs at most once per THROTTLE_SECONDS whatever the traffic. The
+ * middleware takes the lock itself before queuing the job, which then runs
+ * with $force.
  * Idempotent: ReconcileTakeJob is unique per take, and expiring a
  * suggestion re-checks its status under lock.
  */

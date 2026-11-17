@@ -58,8 +58,9 @@ final class ReconcileTakeJob implements ShouldBeUniqueUntilProcessing, ShouldQue
     ) {}
 
     /**
-     * Starts a fresh chain for a take Pixelforge just accepted (spec 4 calls
-     * this after the create response; ApplyTakeSnapshotAction does the same).
+     * Starts a fresh chain for a take Pixelforge just accepted:
+     * ApplyTakeSnapshotAction calls it when a take first gets its
+     * `pixelforge_id` (create response, webhook or reconcile).
      */
     public static function start(string $takeId): void
     {
