@@ -11,13 +11,13 @@ Reviewers: a violation of any rule below is a **critical** finding unless the ru
 
 - [ ] **M-01 Integer nanodollars.** Every amount is an `int` of nanodollars (10⁻⁹ USD) in PHP and a `bigint` in Postgres, wrapped in `App\Support\Money\Nanodollars` when it travels. Columns end in `_nanos`.
   Reject: `float`, `decimal`, `double`, cents, or a USD string stored or passed between layers.
-  Tests: `tests/Unit/Support/Money/NanodollarsTest.php`.
+  Tests: `tests/Unit/Money/NanodollarsTest.php`.
 - [ ] **M-02 No floats in money code.** No `float` type, `floatval`, `(float)`, `round(`, `number_format(`, `/` on amounts, or `bcmath` in `App\Support\Money`, `App\Actions\Billing`, `App\Actions\Takes`, `App\Actions\Suggestions`. Display rounding exists only in `Nanodollars::format()`, built with `intdiv` + remainder.
-  Tests: `tests/Arch/ArchitectureTest.php` (money float scan); `tests/Unit/Support/Money/NanodollarsTest.php` (rounding boundaries x.49999, x.5, exact).
+  Tests: `tests/Arch/ArchitectureTest.php` (money float scan); `tests/Unit/Money/NanodollarsTest.php` (rounding boundaries x.49999, x.5, exact).
 - [ ] **M-03 Rates and USD config are strings.** Rates in `config/ai-pricing.php` and USD env values (`WELCOME_CREDIT_USD`, `AI_DAILY_BUDGET_USD`) are decimal strings parsed once through `Nanodollars::fromDecimalString` / `perMillionFromDecimalString` (D-066). Nothing downstream sees a float or a USD string.
   Tests: `tests/Arch/RepositoryTest.php` (float scan over `config/`); `tests/Unit/Config/TakesConfigTest.php` (`AI_DAILY_BUDGET_USD=0.5` gives `500_000_000`).
 - [ ] **M-04 SQL sums go through `Nanodollars::fromInt(int|string)`.** Postgres `SUM(bigint)` returns `numeric`, which PDO gives as a string; never cast it with `(int)` after a float, never `(float)`.
-  Tests: `tests/Unit/Support/Money/NanodollarsTest.php` (`fromInt` with integer strings).
+  Tests: `tests/Unit/Money/NanodollarsTest.php` (`fromInt` with integer strings).
 - [ ] **M-05 Cost and charge formulas.** `cost = ceil(Σ(units_k × rate_k) / 1_000_000)`; `charge = ceil(cost × (10_000 + markup_bps) / 10_000)` with `markup_bps = 2500` snapshotted on the usage record. Integer arithmetic only. Failed work: cost 0, charge 0.
   Tests: `tests/Unit/Billing/TakeEstimatorTest.php` (docs worked example: 400 chars, high, 1536×1024, 2 refs ⇒ cost 373,875,000; markup exactness for every kind; ceil guard with a synthetic odd rate; `mb_strlen` with accents and emoji); `tests/Feature/Billing/SettleUsageActionTest.php`.
 
@@ -67,9 +67,9 @@ Reviewers: a violation of any rule below is a **critical** finding unless the ru
 - [ ] **M-20 The server formats money; the frontend never does money math.** Resources and broadcast payloads send formatted strings (and, where needed, integer nanos as strings); Vue never parses, sums, rounds or formats an amount.
   Tests: `tests/Feature/Takes/TakeResourceTest.php` (money fields are strings).
 - [ ] **M-21 Exact amounts keep at least 2 decimals.** Money pages (take detail, billing page, invoices) and the admin use `Nanodollars::formatExact()`: trailing zeros trimmed, never fewer than 2 decimals (`$5.00`, `$0.0735`).
-  Tests: `tests/Unit/Support/Money/NanodollarsTest.php` (`formatExact` cases).
+  Tests: `tests/Unit/Money/NanodollarsTest.php` (`formatExact` cases).
 - [ ] **M-22 Rounded display is never 2 decimals (D-042, D-021).** Lists, cards, toasts and the balance pill use `Nanodollars::format(4, …)`: estimate min rounded down, max rounded up, charges half-up; exact value on hover. Totals are rounded from the exact sum, never summed from rounded parts.
-  Tests: `tests/Unit/Support/Money/NanodollarsTest.php` (`format` boundaries); `tests/Feature/Takes/TakeResourceTest.php` (rounded fields have 4 decimals).
+  Tests: `tests/Unit/Money/NanodollarsTest.php` (`format` boundaries); `tests/Feature/Takes/TakeResourceTest.php` (rounded fields have 4 decimals).
 - [ ] **M-23 Customers never see provider cost, tokens, provider names or margin (D-023).** Customer-facing Inertia props, resources, broadcast payloads, lang strings and error messages expose prices only (estimate range, amount charged, spend by feature: images, AI suggestions). Provider cost, token counts, `pixelforge` / `anthropic`, markup and margin are admin-only.
   Tests: `tests/Feature/Customer/NoProviderLeakTest.php` (scans customer page props and the `TakeUpdated` payload for forbidden keys and words).
 
