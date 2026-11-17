@@ -40,7 +40,7 @@ This spec owns the matrix tests and the wiring; the action itself is built in 3-
 | `succeeded` | `processing`/`queued` | none | `ignored_stale` |
 | `succeeded` | `failed` | none, warning log, `attention_reason = internal_failure` | `ignored_conflict` |
 | `failed` (any cause) | `failed` | none | `ignored_same_state` |
-| `failed` locally with `failure_code = submit_timeout` (ambiguous window expired, D-025/D-049), or `internal` on a take that has a `pixelforge_id` (accepted, then failed free, e.g. revoked key D-062; D-077) | `succeeded` | usage stays voided, cost absorbed, `attention_reason = orphan_success` | `orphan_success` |
+| `failed` locally with `failure_code = submit_timeout` (ambiguous window expired, D-025/D-049), or `internal` on a take that had a `pixelforge_id` when it failed (accepted, then failed free, e.g. revoked key D-062; a failed take adopts a generation id only as an orphan; D-077) | `succeeded` | usage stays voided, cost absorbed, `attention_reason = orphan_success` | `orphan_success` |
 | `failed` with any other code (`provider_busy`, `cancelled`, content/validation, `internal` before Pixelforge accepted it, or provider `failed`) | `succeeded` | none, warning log, `attention_reason = internal_failure` (`provider_busy`/`cancelled` mean nothing was created, so this is unexpected) | `ignored_conflict` |
 
 The Pest outcome tests are driven from this table. `ignored_conflict` always writes a warning log and sets `takes.attention_reason` (the flag is a durable column, not a log line).
