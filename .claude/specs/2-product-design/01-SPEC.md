@@ -343,3 +343,17 @@ Describe a change (P07) chrome added with spec 8. Prices reuse `takes.money.on_h
 | `suggestions.uncertain` | P07, connection lost or server error after Suggest (the call may have finished and been charged): no charge claim | "We couldn't confirm the result yet. Check again to see it." |
 | `suggestions.check_again` | P07 button for `suggestions.uncertain` (replays the same request key, never pays twice) | "Check again" |
 | `suggestions.action_failed` | P07, Generate take or Discard failed without a server reason (the suggestion was already charged): no charge claim | "That didn't go through. Try again in a moment." |
+
+Strings added with spec 4 (takes and generation). Same rules: keys are the full `lang/en/<file>.php` paths, `:name` is a server-filled placeholder.
+
+| Key | Where | Copy |
+|---|---|---|
+| `takes.drawer.references` | P06 parameters line (pluralised) | "no references" · "1 reference" · ":count references" |
+| `takes.drawer.ai_change_from` | P06 parameters line | "AI change from #:id" |
+| `takes.drawer.version` | P06 version strip | "#:id" |
+| `takes.drawer.version_current` | P06 version strip | "#:id this take" |
+| `takes.cancel_unavailable` | P04 card, P06 (Cancel refused, 422 `cannot_cancel`) | "This take can no longer be cancelled. It is already being sent." |
+| `takes.projects.untitled` | P03 default project (first visit, demo account) | "Untitled project" |
+| `takes.projects.archived` | composer and Describe a change when the project was archived meanwhile (`project_archived`) | "This project is archived. Takes can't be added to it." |
+| `takes.projects.sample_prompt` | P03/P04 empty state, pre-filled composer | "A lighthouse on a cliff at dusk, warm light, cinematic wide shot" |
+| `demo.ephemeral_name` | name of a "Try a demo account" customer | "Demo account" |

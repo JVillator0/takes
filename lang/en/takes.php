@@ -80,6 +80,7 @@ return [
     'empty_filter' => 'No takes match this filter.',
     'low_balance' => 'Your available credits are below the smallest take (:amount). Buy credits to keep generating.',
     'image_unavailable' => 'This image is no longer available',
+    'cancel_unavailable' => 'This take can no longer be cancelled. It is already being sent.',
 
     'connection' => [
         'live' => 'Live',
@@ -188,6 +189,17 @@ return [
         'on_hold' => 'on hold',
         'charged' => 'charged',
         'not_charged' => 'not charged',
+        'references' => '{0} no references|{1} 1 reference|[2,*] :count references',
+        'ai_change_from' => 'AI change from #:id',
+        'version' => '#:id',
+        'version_current' => '#:id this take',
+    ],
+
+    /* Projects (P03). */
+    'projects' => [
+        'untitled' => 'Untitled project',
+        'archived' => "This project is archived. Takes can't be added to it.",
+        'sample_prompt' => 'A lighthouse on a cliff at dusk, warm light, cinematic wide shot',
     ],
 
     /* Take timeline lines (P06). */

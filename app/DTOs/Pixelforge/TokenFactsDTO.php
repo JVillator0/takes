@@ -59,6 +59,29 @@ final readonly class TokenFactsDTO
         }
     }
 
+    /** The token facts of a parsed GET /v1/pricing (or its config fallback). */
+    public static function fromPricing(PricingDTO $pricing): self
+    {
+        $output = [];
+        $reasoning = [];
+
+        foreach (TakeQuality::cases() as $quality) {
+            foreach (TakeSize::cases() as $size) {
+                $output[$quality->value][$size->value] = $pricing->outputTokensFor($quality, $size);
+            }
+
+            $reasoning[$quality->value] = $pricing->reasoningRangeFor($quality);
+        }
+
+        return new self(
+            $pricing->charactersPerTextToken,
+            $pricing->textTokenVarianceBps,
+            $pricing->tokensPerReferenceImage,
+            $output,
+            $reasoning,
+        );
+    }
+
     /** The documented token table (PixelforgeTokenTable), the fallback when /v1/pricing is unavailable. */
     public static function defaults(): self
     {
