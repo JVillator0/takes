@@ -9,26 +9,21 @@ use App\Exceptions\Billing\IdempotencyKeyReusedException;
 use App\Models\Customer;
 use App\Models\LedgerEntry;
 use App\Models\Purchase;
+use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Database\UniqueConstraintViolationException;
-use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Tests\Support\Billing;
 
 /*
- * PurchaseCreditsAction and POST /billing/purchases (spec 3-03 issue 6).
- * Until spec 3-01 lands, these tests declare the `customer` guard and the
- * `credits.purchase` ability themselves.
+ * PurchaseCreditsAction and POST /billing/purchases (spec 3-03 issue 6),
+ * with the real customer guard and roles from spec 3-01.
  */
 
 beforeEach(function (): void {
-    config([
-        'auth.guards.customer' => ['driver' => 'session', 'provider' => 'customers'],
-        'auth.providers.customers' => ['driver' => 'eloquent', 'model' => Customer::class],
-    ]);
-    Gate::define('credits.purchase', fn (Customer $customer): bool => true);
+    $this->seed(RolesAndPermissionsSeeder::class);
 
-    $this->customer = Customer::factory()->create();
+    $this->customer = Customer::factory()->withRole()->create();
 });
 
 describe('action', function (): void {
@@ -143,8 +138,18 @@ describe('POST /billing/purchases', function (): void {
         'key not a uuid' => [['package' => 5, 'idempotency_key' => 'abc'], 'idempotency_key'],
     ]);
 
+    it('lets a restricted customer buy credits (spec 3-01 role table)', function (): void {
+        $restricted = Customer::factory()->restricted()->create();
+
+        $this->actingAs($restricted, 'customer')
+            ->post(route('billing.purchases.store'), ['package' => 5, 'idempotency_key' => (string) Str::uuid()])
+            ->assertRedirect();
+
+        expect($restricted->refresh()->balance_nanos)->toBe(5_000_000_000);
+    });
+
     it('is forbidden without the credits.purchase permission', function (): void {
-        Gate::define('credits.purchase', fn (Customer $customer): bool => false);
+        $this->customer = Customer::factory()->create();
 
         $this->actingAs($this->customer, 'customer')
             ->post(route('billing.purchases.store'), ['package' => 5, 'idempotency_key' => (string) Str::uuid()])
