@@ -159,6 +159,16 @@ describe('formatting', function (): void {
     ]);
 });
 
+it('converts whole dollars, the credit-pack unit, without leaving integers', function (): void {
+    expect(Nanodollars::fromWholeDollars(10)->toInt())->toBe(10_000_000_000)
+        ->and(Nanodollars::fromWholeDollars(0)->toInt())->toBe(0)
+        ->and(Nanodollars::fromWholeDollars(-5)->toInt())->toBe(-5_000_000_000)
+        ->and(Nanodollars::fromWholeDollars(9_223_372_036)->toInt())->toBe(9_223_372_036_000_000_000);
+
+    expect(fn () => Nanodollars::fromWholeDollars(9_223_372_037))->toThrow(OverflowException::class)
+        ->and(fn () => Nanodollars::fromWholeDollars(PHP_INT_MIN))->toThrow(OverflowException::class);
+});
+
 it('contains no float or built-in rounding helpers', function (): void {
     $tokens = token_get_all((string) file_get_contents(dirname(__DIR__, 3).'/app/Support/Money/Nanodollars.php'));
     $code = array_map(

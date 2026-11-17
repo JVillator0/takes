@@ -4,4 +4,6 @@ export * from './denials';
 export * from './navigation';
 export * from './takes';
 export * from './ui';
+export * from './billing';
+export * from './suggestions';
 export * from './live';

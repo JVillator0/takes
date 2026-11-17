@@ -106,17 +106,38 @@ final readonly class PricingDTO
     }
 
     /**
-     * "0.15" (or the decoded JSON number, through its shortest string form)
-     * ⇒ 1500. At most 4 decimals, so the result is always an exact integer.
+     * "0.15" (or the decoded JSON number 0.15) ⇒ 1500. At most 4 decimals,
+     * so the result is always an exact integer.
      */
     private static function basisPoints(mixed $value): int
     {
-        $string = is_string($value) || is_int($value) || is_float($value) ? (string) $value : '';
+        $string = match (true) {
+            is_string($value) => $value,
+            is_int($value) => (string) $value,
+            is_float($value) => self::fourDecimals($value),
+            default => '',
+        };
 
         if (preg_match('/^(\d)(?:\.(\d{1,4}))?$/', $string, $matches) !== 1) {
             throw Payload::invalid('text_token_variance', 'a ratio with at most 4 decimals');
         }
 
         return (int) $matches[1] * 10_000 + (int) str_pad($matches[2] ?? '', 4, '0');
+    }
+
+    /**
+     * The decimal a decoded JSON number came from, when it has at most 4
+     * decimals; '' otherwise. A `(string)` cast would depend on the
+     * `precision` ini (17 turns 0.15 into "0.14999999999999999"), while
+     * sprintf with a fixed precision and `F` is ini- and locale-independent.
+     * Parsing that string back gives the same double only if the JSON number
+     * had no more than 4 decimals (0.15001 does not round-trip), so nothing
+     * is silently rounded.
+     */
+    private static function fourDecimals(float $value): string
+    {
+        $string = rtrim(rtrim(sprintf('%.4F', $value), '0'), '.');
+
+        return (float) $string === $value ? $string : '';
     }
 }

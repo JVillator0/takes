@@ -42,7 +42,14 @@ final class SuggestionFactory extends Factory
     {
         return $this->state(fn (): array => [
             'status' => SuggestionStatus::Proposed,
-            'proposal' => ['size' => '1024x1536', 'prompt_append' => 'warm golden-hour light'],
+            'proposal' => [
+                'prompt' => 'Lighthouse at golden hour, warm light, cinematic portrait shot, detailed crashing waves',
+                'size' => '1024x1536',
+                'quality' => 'medium',
+                'keep_references' => true,
+                'add_base_image_as_reference' => false,
+                'rationale' => 'Portrait framing and warmer light.',
+            ],
             'rationale' => 'Portrait framing and warmer light.',
             'model' => 'claude-haiku-5-5',
         ]);

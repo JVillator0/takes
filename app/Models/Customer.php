@@ -126,6 +126,12 @@ final class Customer extends Authenticatable
         return $this->hasMany(Purchase::class);
     }
 
+    /** @return HasMany<Invoice, $this> */
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class);
+    }
+
     /**
      * @return array<string, string>
      */

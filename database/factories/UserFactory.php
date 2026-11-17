@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Database\Factories;
 
+use App\Enums\Auth\AdminRole;
 use App\Models\User;
+use Filament\Auth\MultiFactor\App\AppAuthentication;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -57,6 +59,24 @@ class UserFactory extends Factory
             'two_factor_secret' => encrypt('secret'),
             'two_factor_recovery_codes' => encrypt(json_encode(['recovery-code-1'])),
             'two_factor_confirmed_at' => now(),
+        ]);
+    }
+
+    /**
+     * An admin of the console holding the given role (the roles must be seeded: AdminRolesSeeder).
+     */
+    public function admin(AdminRole $role): static
+    {
+        return $this->afterCreating(fn (User $user) => $user->assignRole($role->value));
+    }
+
+    /**
+     * An admin who has set up an authenticator app (Filament MFA).
+     */
+    public function withAppAuthentication(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'app_authentication_secret' => AppAuthentication::make()->generateSecret(),
         ]);
     }
 }

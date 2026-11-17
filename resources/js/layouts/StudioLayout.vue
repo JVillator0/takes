@@ -99,13 +99,13 @@ const { t } = useCopy();
     <div class="flex min-h-svh flex-col bg-background">
         <a
             href="#main"
-            class="sr-only z-50 rounded-md bg-background px-3 py-2 text-sm font-medium focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:ring-[3px] focus:ring-ring/50"
+            class="sr-only z-50 rounded-md bg-background px-3 py-2 text-sm font-medium focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:ring-[3px] focus:ring-ring/50 print:hidden"
         >
             {{ t('landing.shell.skip_to_content') }}
         </a>
 
         <header
-            class="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80"
+            class="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 print:hidden"
         >
             <div class="mx-auto flex h-14 w-full items-center gap-3 px-4">
                 <Link
@@ -184,6 +184,9 @@ const { t } = useCopy();
         </main>
 
         <BuyCreditsModal v-if="customer" />
-        <Toaster />
+        <!-- A live toast (e.g. "View invoice") never prints on the invoice. -->
+        <div class="print:hidden">
+            <Toaster />
+        </div>
     </div>
 </template>

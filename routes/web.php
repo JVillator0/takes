@@ -26,3 +26,4 @@ Route::get('_ui', ComponentGalleryController::class)->name('dev.gallery');
 require __DIR__.'/takes.php';
 require __DIR__.'/settings.php';
 require __DIR__.'/billing.php';
+require __DIR__.'/suggestions.php';

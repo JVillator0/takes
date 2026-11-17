@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Support\Money\TokenCost;
 use Psr\Log\LogLevel;
 use Tests\Support\RecordingLogger;
+use Tests\Support\SourceScan;
 
 beforeEach(function (): void {
     $this->logger = new RecordingLogger;
@@ -78,15 +79,6 @@ it('refuses to overflow instead of silently turning into a float', function (): 
 });
 
 it('contains no float or built-in rounding helpers', function (): void {
-    $tokens = token_get_all((string) file_get_contents(dirname(__DIR__, 3).'/app/Support/Money/TokenCost.php'));
-    $code = implode('', array_map(
-        fn (array|string $token): string => is_array($token)
-            ? (in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true) ? '' : $token[1])
-            : $token,
-        $tokens,
-    ));
-
-    foreach (['float', 'round(', 'floatval', 'number_format(', 'floor(', 'ceil(', 'bcmath', '**'] as $forbidden) {
-        expect(str_contains($code, $forbidden))->toBeFalse("TokenCost must not use [{$forbidden}].");
-    }
+    expect(SourceScan::phpFiles(['app/Support/Money/TokenCost.php']))->toHaveCount(1)
+        ->and(SourceScan::floatViolations(['app/Support/Money/TokenCost.php']))->toBe([]);
 });

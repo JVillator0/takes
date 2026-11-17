@@ -54,6 +54,16 @@ final class Purchase extends Model
     }
 
     /**
+     * The invoice issued for this purchase (spec 6): at most one.
+     *
+     * @return HasOne<Invoice, $this>
+     */
+    public function invoice(): HasOne
+    {
+        return $this->hasOne(Invoice::class);
+    }
+
+    /**
      * @return array<string, string>
      */
     protected function casts(): array

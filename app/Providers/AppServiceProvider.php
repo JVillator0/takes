@@ -4,18 +4,20 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
-use App\Contracts\Billing\PixelforgeUsageSource;
+use App\Contracts\Takes\CreatesSuggestedTake;
 use App\Enums\Auth\DenialReason;
 use App\Http\Responses\DenialResponse;
 use App\Models\Customer;
 use App\Models\Suggestion;
 use App\Models\Take;
 use App\Models\User;
-use App\Services\Billing\UnconfiguredPixelforgeUsageSource;
+use App\Support\Takes\SuggestedTakeCreator;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
@@ -30,8 +32,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        // billing:verify --usage; spec 3-04 rebinds it to the Pixelforge client.
-        $this->app->bindIf(PixelforgeUsageSource::class, UnconfiguredPixelforgeUsageSource::class);
+        // Applying an AI suggestion creates its take through spec 4's
+        // CreateTakeAction (spec 8 step 4): estimate, hold, submit, reconcile.
+        $this->app->bind(CreatesSuggestedTake::class, SuggestedTakeCreator::class);
     }
 
     /**
@@ -41,19 +44,19 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureDefaults();
         $this->configureMorphMap();
-        $this->configureRateLimiting();
+        $this->configureRateLimiters();
     }
 
     /**
-     * Route throttles that answer with the `rate_limited` denial (D-050,
-     * 2-01 copy): JSON callers get 429 `{code, message}`, Inertia visits go
-     * back with the denial like any other.
-     *
-     * - `takes`: 10 creates per minute per customer (spec 4 "Create take").
-     * - `demo`: "Try a demo account" per IP and hour (D-045, D-065).
+     * "Describe a change" requests per customer per minute (D-050): over the
+     * limit is a `rate_limited` denial with its 2-01 copy, not an error page.
      */
-    protected function configureRateLimiting(): void
+    protected function configureRateLimiters(): void
     {
+        // Spec 4: `rate_limited` denials (D-050, 2-01 copy). JSON callers get
+        // 429 `{code, message}`, Inertia visits go back with the denial.
+        // `takes`: 10 creates per minute per customer; `demo`: "Try a demo
+        // account" per IP and hour (D-045, D-065).
         $denied = fn (Request $request, array $headers): Response => DenialResponse::make($request, DenialReason::RateLimited, 429)
             ->withHeaders($headers);
 
@@ -61,9 +64,16 @@ class AppServiceProvider extends ServiceProvider
             ->by('takes:'.($request->user()?->getAuthIdentifier() ?? $request->ip()))
             ->response($denied));
 
-        RateLimiter::for('demo', fn (Request $request): Limit => Limit::perHour(config()->integer('takes.demo.throttle_per_ip_per_hour'))
+        RateLimiter::for('demo', fn (Request $request): Limit => Limit::perHour(Config::integer('takes.demo.throttle_per_ip_per_hour'))
             ->by('demo:'.$request->ip())
             ->response($denied));
+
+        RateLimiter::for('ai-suggestions', fn (Request $request): Limit => Limit::perMinute(Config::integer('takes.ai.throttle_per_minute'))
+            ->by('ai-suggestions:'.($request->user()?->getAuthIdentifier() ?? $request->ip()))
+            ->response(fn (): JsonResponse => response()->json([
+                'reason' => DenialReason::RateLimited->value,
+                'message' => DenialReason::RateLimited->message(),
+            ], 429)));
     }
 
     /**
