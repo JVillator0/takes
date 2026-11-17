@@ -1,4 +1,4 @@
-import type { BalanceSummary, TakeStatus } from '@/types/takes';
+import type { BalanceSummary, FailureCode, TakeStatus } from '@/types/takes';
 
 /**
  * Live status (spec 5). `take.updated` on `App.Models.Customer.{id}` mirrors
@@ -10,7 +10,7 @@ export type TakeLiveUpdate = {
         id: string;
         projectId: string;
         status: TakeStatus;
-        failureCode: string | null;
+        failureCode: FailureCode | null;
         updatedAt: string | null;
     };
     balance: BalanceSummary;

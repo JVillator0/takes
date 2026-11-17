@@ -1,12 +1,12 @@
-import { router, usePoll } from '@inertiajs/vue3';
+import { router, usePage, usePoll } from '@inertiajs/vue3';
 import type { ConnectionStatus } from '@laravel/echo-vue';
 import {
     echoIsConfigured,
     useConnectionStatus,
     useEcho,
 } from '@laravel/echo-vue';
-import { useDebounceFn, useDocumentVisibility } from '@vueuse/core';
-import { computed, ref, shallowRef, toValue, watch } from 'vue';
+import { useDocumentVisibility } from '@vueuse/core';
+import { computed, onScopeDispose, ref, shallowRef, toValue, watch } from 'vue';
 import type { ComputedRef, MaybeRefOrGetter, Ref, ShallowRef } from 'vue';
 import type { LiveConnectionState, TakeLiveUpdate } from '@/types/live';
 import type { BalanceSummary } from '@/types/takes';
@@ -44,35 +44,64 @@ export type UseTakeUpdatesReturn = {
  *
  * Listens to `take.updated` on `App.Models.Customer.{id}` and refreshes the
  * cards with a scoped partial reload, so the card copy and money lines keep
- * one source (the server's take resource). Whenever the socket is not
- * connected (Reverb down, reconnecting, or Echo not configured at all, as
- * with `BROADCAST_CONNECTION=log`) and a take is in flight and the tab is
- * visible, it polls the same props every 4 s instead. When the socket comes
- * back it stops polling and reloads once. There is no env switch.
+ * one source (the server's take resource).
  *
- * Call it once per page, from `setup`; listeners are removed on unmount.
+ * The page counts as live only while the socket is connected AND the private
+ * channel is subscribed: a rejected `/broadcasting/auth`, the window before
+ * `subscription_succeeded`, a dropped socket, a server that does not
+ * broadcast (`broadcasting.live` false) or Echo not configured at all all
+ * mean "not live". Then, while a take is in flight and the tab is visible,
+ * it polls the same props every 4 s. Every successful subscription (the
+ * first one and each one after a reconnect) reloads once to catch up on
+ * broadcasts missed meanwhile (W-20). There is no env switch.
+ *
+ * Call it once per page, from `setup`; listeners, the poll and any pending
+ * reload are dropped when the page's scope is disposed.
  */
 export function useTakeUpdates(
     projectId: MaybeRefOrGetter<string | null>,
     options: UseTakeUpdatesOptions,
 ): UseTakeUpdatesReturn {
     const only = options.only ?? DEFAULT_ONLY;
-    const live = echoIsConfigured() && options.customerId !== null;
+    const serverBroadcasts = usePage().props.broadcasting?.live === true;
+    const live =
+        serverBroadcasts && echoIsConfigured() && options.customerId !== null;
 
     const balance = shallowRef<BalanceSummary | null>(null);
     const lastUpdate = shallowRef<TakeLiveUpdate | null>(null);
 
-    const reload = (): void => {
-        router.reload({ only });
+    let disposed = false;
+    let pendingReload: ReturnType<typeof setTimeout> | null = null;
+
+    const cancelPendingReload = (): void => {
+        if (pendingReload !== null) {
+            clearTimeout(pendingReload);
+            pendingReload = null;
+        }
     };
-    const reloadSoon = useDebounceFn(reload, RELOAD_DEBOUNCE_MS);
+
+    const reload = (): void => {
+        cancelPendingReload();
+
+        if (!disposed) {
+            router.reload({ only });
+        }
+    };
+
+    const reloadSoon = (): void => {
+        cancelPendingReload();
+        pendingReload = setTimeout(reload, RELOAD_DEBOUNCE_MS);
+    };
 
     const status: Ref<ConnectionStatus> = live
         ? useConnectionStatus()
         : ref<ConnectionStatus>('disconnected');
 
+    /** The private channel answered `subscription_succeeded` on the current socket. */
+    const subscribed = ref(false);
+
     if (live) {
-        useEcho<TakeLiveUpdate>(
+        const { channel } = useEcho<TakeLiveUpdate, 'reverb'>(
             `App.Models.Customer.${String(options.customerId)}`,
             '.take.updated',
             (payload) => {
@@ -82,13 +111,43 @@ export function useTakeUpdates(
                 const current = toValue(projectId);
 
                 if (current === null || payload.take.projectId === current) {
-                    void reloadSoon();
+                    reloadSoon();
                 }
             },
         );
+
+        const privateChannel = channel();
+
+        // A channel kept alive by the previous page is already subscribed.
+        subscribed.value = privateChannel.subscription.subscribed;
+
+        privateChannel
+            .subscribed(() => {
+                if (disposed) {
+                    return;
+                }
+
+                subscribed.value = true;
+                reload();
+            })
+            .error(() => {
+                if (!disposed) {
+                    subscribed.value = false;
+                }
+            });
+
+        // A dropped socket drops the subscription; the next
+        // `subscription_succeeded` marks it live again and reloads.
+        watch(status, (current) => {
+            if (current !== 'connected') {
+                subscribed.value = false;
+            }
+        });
     }
 
-    const connected = computed(() => live && status.value === 'connected');
+    const connected = computed(
+        () => live && status.value === 'connected' && subscribed.value,
+    );
     const visibility = useDocumentVisibility();
 
     const polling = computed(
@@ -112,20 +171,9 @@ export function useTakeUpdates(
         { immediate: true },
     );
 
-    // Back from a disconnect: catch up on whatever happened meanwhile. The
-    // first connection after page load needs no reload.
-    let hasConnected = false;
-
-    watch(connected, (isConnected) => {
-        if (!isConnected) {
-            return;
-        }
-
-        if (hasConnected) {
-            reload();
-        }
-
-        hasConnected = true;
+    onScopeDispose(() => {
+        disposed = true;
+        cancelPendingReload();
     });
 
     const state = computed<LiveConnectionState>(() => {

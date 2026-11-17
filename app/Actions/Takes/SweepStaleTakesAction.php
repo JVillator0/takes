@@ -12,6 +12,7 @@ use App\Enums\Takes\TakeStatus;
 use App\Jobs\ReconcileTakeJob;
 use App\Models\Suggestion;
 use App\Models\Take;
+use App\Services\Pixelforge\PixelforgeClient;
 use Illuminate\Support\Facades\Cache;
 
 /**
@@ -37,7 +38,16 @@ final readonly class SweepStaleTakesAction
     /** Bounds one sweep; the next one picks up the rest. */
     public const int BATCH = 100;
 
-    public function __construct(private ExpireSuggestionAction $expireSuggestion) {}
+    /**
+     * Chains that stopped for good: the full window ran out, or the
+     * generation cannot be settled. An admin reconciles these by hand.
+     */
+    private const array STOPPED = [AttentionReason::ReconcileExhausted, AttentionReason::InvalidSnapshot];
+
+    public function __construct(
+        private ExpireSuggestionAction $expireSuggestion,
+        private PixelforgeClient $client,
+    ) {}
 
     /**
      * @param  bool  $force  skip the throttle (the Artisan command)
@@ -50,13 +60,13 @@ final readonly class SweepStaleTakesAction
 
         $staleBefore = now()->subSeconds(self::STALE_AFTER_SECONDS);
 
-        $takeIds = Take::query()
+        // Without an API key nothing can be polled; do not queue no-op polls.
+        $takeIds = ! $this->client->isConfigured() ? collect() : Take::query()
             ->whereIn('status', array_map(fn (TakeStatus $status): string => $status->value, TakeStatus::nonTerminal()))
             ->where('created_at', '<=', $staleBefore)
-            // An exhausted chain was given its full window; an admin reconciles it by hand.
             ->where(fn ($query) => $query
                 ->whereNull('attention_reason')
-                ->orWhere('attention_reason', '!=', AttentionReason::ReconcileExhausted->value))
+                ->orWhereNotIn('attention_reason', array_map(fn (AttentionReason $reason): string => $reason->value, self::STOPPED)))
             ->orderBy('created_at')
             ->limit(self::BATCH)
             ->pluck('id');

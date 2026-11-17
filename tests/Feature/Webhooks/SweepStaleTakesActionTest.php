@@ -20,6 +20,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\Support\Billing;
@@ -31,6 +32,10 @@ use Tests\Support\Takes;
 */
 
 beforeEach(function (): void {
+    config(['pixelforge.api_key' => 'pf_test_sweep']);
+    // Takes moved by real snapshots start reconcile chains; keep them queued, never sent.
+    Http::preventStrayRequests();
+    Queue::fake();
     Cache::flush();
     Event::fake([TakeUpdated::class]);
 });
@@ -72,18 +77,34 @@ it('queues a reconcile poll for every take still in flight after 2 minutes', fun
     $done = takeAged('succeeded', 30);
     $exhausted = takeAged('processing', 40);
     $exhausted->forceFill(['attention_reason' => AttentionReason::ReconcileExhausted])->save();
+    $invalid = takeAged('processing', 40);
+    $invalid->forceFill(['attention_reason' => AttentionReason::InvalidSnapshot])->save();
+    $flaggedOtherwise = takeAged('processing', 40);
+    $flaggedOtherwise->forceFill(['attention_reason' => AttentionReason::OverEstimate])->save();
+    $stale[] = $flaggedOtherwise;
     Queue::fake();
     Cache::flush();
 
     $result = sweep();
 
-    expect($result->ran)->toBeTrue()->and($result->reconcilesDispatched)->toBe(3);
+    expect($result->ran)->toBeTrue()->and($result->reconcilesDispatched)->toBe(4);
     foreach ($stale as $take) {
         Queue::assertPushed(ReconcileTakeJob::class, fn (ReconcileTakeJob $job): bool => $job->takeId === $take->id);
     }
-    foreach ([$fresh, $done, $exhausted] as $take) {
+    // A chain that stopped for good (window ran out, unsettleable generation) is not restarted.
+    foreach ([$fresh, $done, $exhausted, $invalid] as $take) {
         Queue::assertNotPushed(ReconcileTakeJob::class, fn (ReconcileTakeJob $job): bool => $job->takeId === $take->id);
     }
+});
+
+it('queues no polls while Pixelforge is not configured', function (): void {
+    takeAged('processing', 5);
+    config(['pixelforge.api_key' => '']);
+    Queue::fake();
+    Cache::flush();
+
+    expect(sweep()->reconcilesDispatched)->toBe(0);
+    Queue::assertNotPushed(ReconcileTakeJob::class);
 });
 
 it('runs at most once per throttle window', function (): void {
