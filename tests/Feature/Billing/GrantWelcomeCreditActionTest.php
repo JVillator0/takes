@@ -31,13 +31,22 @@ it('reads the amount from takes.welcome_credit_nanos when configured', function 
     expect($customer->refresh()->balance_nanos)->toBe(2_500_000_000);
 });
 
+it('grants nothing, without an error, when the welcome credit is configured as 0', function (): void {
+    config(['takes.welcome_credit_nanos' => 0]);
+    $customer = Customer::factory()->create();
+
+    expect(app(GrantWelcomeCreditAction::class)->execute($customer))->toBeNull()
+        ->and(LedgerEntry::query()->count())->toBe(0)
+        ->and($customer->refresh()->balance_nanos)->toBe(0);
+});
+
 it('grants once per customer: a second call returns the first grant', function (): void {
     $customer = Customer::factory()->create();
 
     $first = app(GrantWelcomeCreditAction::class)->execute($customer);
     $second = app(GrantWelcomeCreditAction::class)->execute($customer);
 
-    expect($second->id)->toBe($first->id)
+    expect($second?->id)->toBe($first?->id)
         ->and(LedgerEntry::query()->where('customer_id', $customer->id)->count())->toBe(1)
         ->and($customer->refresh()->balance_nanos)->toBe(1_000_000_000);
 });
