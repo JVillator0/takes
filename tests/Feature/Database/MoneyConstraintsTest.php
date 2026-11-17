@@ -152,6 +152,21 @@ it('grants the welcome credit only once per customer', function (): void {
     DB::table('ledger_entries')->insert(ledgerRow(Customer::factory()->create(), ['type' => 'promo_grant', 'amount_nanos' => 1_000_000_000, 'reason' => 'welcome']));
 });
 
+it('refuses query-builder updates and deletes on the ledger (trigger)', function (): void {
+    DB::table('ledger_entries')->insert(ledgerRow($this->customer));
+
+    foreach ([
+        fn () => DB::table('ledger_entries')->update(['amount_nanos' => 2_000]),
+        fn () => LedgerEntry::query()->increment('amount_nanos'),
+        fn () => DB::table('ledger_entries')->delete(),
+        fn () => LedgerEntry::query()->delete(),
+    ] as $write) {
+        Constraint::assertRejects($write, Constraint::RAISE_EXCEPTION, message: 'ledger_entries is append-only');
+    }
+
+    expect(DB::table('ledger_entries')->value('amount_nanos'))->toBe(1_000);
+});
+
 it('rejects usage records that break a CHECK constraint', function (array $overrides, string $constraint): void {
     Constraint::assertRejects(
         fn () => DB::table('usage_records')->insert(usageRow($this->customer, $overrides)),

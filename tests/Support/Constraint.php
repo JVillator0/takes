@@ -22,7 +22,10 @@ final class Constraint
 
     public const string FOREIGN_KEY_VIOLATION = '23503';
 
-    public static function assertRejects(Closure $write, string $sqlState, ?string $constraint = null): void
+    /** A plpgsql RAISE EXCEPTION (e.g. the append-only ledger trigger). */
+    public const string RAISE_EXCEPTION = 'P0001';
+
+    public static function assertRejects(Closure $write, string $sqlState, ?string $constraint = null, ?string $message = null): void
     {
         try {
             DB::transaction($write);
@@ -31,6 +34,10 @@ final class Constraint
 
             if ($constraint !== null) {
                 Assert::assertStringContainsString("\"{$constraint}\"", $exception->getMessage());
+            }
+
+            if ($message !== null) {
+                Assert::assertStringContainsString($message, $exception->getMessage());
             }
 
             return;

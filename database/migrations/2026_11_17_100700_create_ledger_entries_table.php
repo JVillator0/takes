@@ -8,7 +8,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Append-only, real money only (spec 3-03 §5). D-024: holds are state on
+ * Append-only (a BEFORE UPDATE OR DELETE trigger refuses every change),
+ * real money only (spec 3-03 §5). D-024: holds are state on
  * usage records, never ledger rows. `customers.balance_nanos` = Σ amount_nanos.
  */
 return new class extends Migration
@@ -53,10 +54,23 @@ return new class extends Migration
         DB::statement("CREATE UNIQUE INDEX ledger_entries_charge_usage_record_id_unique ON ledger_entries (usage_record_id) WHERE type = 'charge'");
         DB::statement("CREATE UNIQUE INDEX ledger_entries_purchase_purchase_id_unique ON ledger_entries (purchase_id) WHERE type = 'purchase'");
         DB::statement("CREATE UNIQUE INDEX ledger_entries_welcome_grant_unique ON ledger_entries (customer_id) WHERE type = 'promo_grant' AND reason = 'welcome'");
+
+        // Append-only for every writer, not only Eloquent instances: query-builder
+        // and raw updates/deletes are refused too. A correction is a new adjustment.
+        // OR REPLACE: migrate:fresh drops tables but not functions.
+        DB::statement(<<<'SQL'
+            CREATE OR REPLACE FUNCTION ledger_entries_append_only() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN
+                RAISE EXCEPTION 'ledger_entries is append-only: record an adjustment instead';
+            END;
+            $$
+            SQL);
+        DB::statement('CREATE TRIGGER ledger_entries_append_only BEFORE UPDATE OR DELETE ON ledger_entries FOR EACH ROW EXECUTE FUNCTION ledger_entries_append_only()');
     }
 
     public function down(): void
     {
         Schema::dropIfExists('ledger_entries');
+        DB::statement('DROP FUNCTION IF EXISTS ledger_entries_append_only()');
     }
 };

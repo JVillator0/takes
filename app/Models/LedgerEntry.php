@@ -14,8 +14,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * Append-only real-money movement (spec 3-03 §5). Holds are never ledger rows
- * (D-024). RecordLedgerEntryAction is the only writer; updating or deleting a
- * row throws, a correction is a new `adjustment`.
+ * (D-024). RecordLedgerEntryAction is the only writer; a correction is a new
+ * `adjustment`. Saving or deleting a model instance throws
+ * ImmutableLedgerEntryException; every other path (query builder, raw SQL)
+ * is refused by the `ledger_entries_append_only` database trigger.
  *
  * @property int $id
  * @property int $customer_id
