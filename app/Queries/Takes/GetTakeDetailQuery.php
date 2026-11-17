@@ -1,0 +1,65 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Queries\Takes;
+
+use App\DTOs\Takes\TakeDetailDTO;
+use App\Models\Take;
+
+/**
+ * A take for its drawer (P06, `?take=` and `GET /takes/{take}`): the usage
+ * for the price, the parent for "Compare with parent", and the lineage for
+ * the version strip, all numbered. The caller has already checked ownership.
+ */
+final class GetTakeDetailQuery
+{
+    /** The strip shows at most this many ancestors and this many remixes. */
+    private const int MAX_LINEAGE = 8;
+
+    public function __construct(private readonly ListTakeNumbersQuery $numbers) {}
+
+    public function execute(Take $take): TakeDetailDTO
+    {
+        $take->loadMissing('usageRecord');
+
+        $ancestors = [];
+        $cursor = $take;
+
+        while ($cursor->parent_take_id !== null && count($ancestors) < self::MAX_LINEAGE) {
+            $parent = Take::query()
+                ->whereKey($cursor->parent_take_id)
+                ->where('customer_id', $take->customer_id)
+                ->first();
+
+            if ($parent === null) {
+                break;
+            }
+
+            array_unshift($ancestors, $parent);
+            $cursor = $parent;
+        }
+
+        $remixes = Take::query()
+            ->where('parent_take_id', $take->id)
+            ->where('customer_id', $take->customer_id)
+            ->oldest()
+            ->oldest('id')
+            ->limit(self::MAX_LINEAGE)
+            ->get()
+            ->all();
+
+        $versions = $ancestors === [] && $remixes === [] ? [] : [...$ancestors, $take, ...$remixes];
+        $parent = $ancestors === [] ? null : $ancestors[array_key_last($ancestors)];
+
+        $numbers = $this->numbers->execute(array_map(fn (Take $version): string => $version->id, [$take, ...$versions]));
+
+        foreach ([$take, ...$versions] as $version) {
+            $version->setAttribute('number', $numbers[$version->id] ?? null);
+        }
+
+        $take->setAttribute('parent_number', $parent !== null ? ($numbers[$parent->id] ?? null) : null);
+
+        return new TakeDetailDTO($take, $parent, $versions);
+    }
+}

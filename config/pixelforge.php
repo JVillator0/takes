@@ -26,6 +26,17 @@ return [
     /** Maximum age of a webhook signature timestamp, in seconds. */
     'webhook_tolerance_seconds' => (int) env('PIXELFORGE_WEBHOOK_TOLERANCE', 300),
 
+    /**
+     * Host of the signed image URLs. PersistTakeImageJob downloads only from
+     * this host (SSRF guard, spec 4 "Persist image"); defaults to the API host.
+     */
+    'image_host' => env('PIXELFORGE_IMAGE_HOST') ?: parse_url((string) env('PIXELFORGE_BASE_URL', 'https://pixelforge.promptedit.dev/v1'), PHP_URL_HOST),
+
+    'images' => [
+        'timeout_seconds' => 20,
+        'max_bytes' => 20 * 1024 * 1024,
+    ],
+
     'http' => [
         'timeout_seconds' => 10,
         'connect_timeout_seconds' => 3,

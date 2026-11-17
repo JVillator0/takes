@@ -6,11 +6,12 @@ namespace App\Providers;
 
 use App\Contracts\Takes\CreatesSuggestedTake;
 use App\Enums\Auth\DenialReason;
+use App\Http\Responses\DenialResponse;
 use App\Models\Customer;
 use App\Models\Suggestion;
 use App\Models\Take;
 use App\Models\User;
-use App\Support\Takes\UnavailableSuggestedTakeCreator;
+use App\Support\Takes\SuggestedTakeCreator;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -22,6 +23,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use Symfony\Component\HttpFoundation\Response;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -30,9 +32,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        // Applying an AI suggestion creates a take through spec 4's
-        // CreateTakeAction; spec 4 rebinds this seam to it (spec 8 step 4).
-        $this->app->bindIf(CreatesSuggestedTake::class, UnavailableSuggestedTakeCreator::class);
+        // Applying an AI suggestion creates its take through spec 4's
+        // CreateTakeAction (spec 8 step 4): estimate, hold, submit, reconcile.
+        $this->app->bind(CreatesSuggestedTake::class, SuggestedTakeCreator::class);
     }
 
     /**
@@ -51,6 +53,21 @@ class AppServiceProvider extends ServiceProvider
      */
     protected function configureRateLimiters(): void
     {
+        // Spec 4: `rate_limited` denials (D-050, 2-01 copy). JSON callers get
+        // 429 `{code, message}`, Inertia visits go back with the denial.
+        // `takes`: 10 creates per minute per customer; `demo`: "Try a demo
+        // account" per IP and hour (D-045, D-065).
+        $denied = fn (Request $request, array $headers): Response => DenialResponse::make($request, DenialReason::RateLimited, 429)
+            ->withHeaders($headers);
+
+        RateLimiter::for('takes', fn (Request $request): Limit => Limit::perMinute(10)
+            ->by('takes:'.($request->user()?->getAuthIdentifier() ?? $request->ip()))
+            ->response($denied));
+
+        RateLimiter::for('demo', fn (Request $request): Limit => Limit::perHour(Config::integer('takes.demo.throttle_per_ip_per_hour'))
+            ->by('demo:'.$request->ip())
+            ->response($denied));
+
         RateLimiter::for('ai-suggestions', fn (Request $request): Limit => Limit::perMinute(Config::integer('takes.ai.throttle_per_minute'))
             ->by('ai-suggestions:'.($request->user()?->getAuthIdentifier() ?? $request->ip()))
             ->response(fn (): JsonResponse => response()->json([
