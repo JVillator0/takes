@@ -28,9 +28,13 @@ import type { TakeDetailData, TakePriceTone } from '@/types';
 
 type Props = {
     take: TakeDetailData | null;
+    /** Describe a change (spec 8) shows once its flow is wired on the page. */
+    canDescribeChange?: boolean;
 };
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+    canDescribeChange: true,
+});
 
 /** Drawer visibility; the page keeps it in the URL (`?take={id}`, 2-02). */
 const open = defineModel<boolean>('open', { default: false });
@@ -262,7 +266,9 @@ const sectionLabel =
                                 {{ t('takes.actions.remix') }}
                             </Button>
                             <Button
-                                v-if="take.phase === 'done'"
+                                v-if="
+                                    take.phase === 'done' && canDescribeChange
+                                "
                                 type="button"
                                 variant="outline"
                                 @click="emit('describeChange', take.id)"
