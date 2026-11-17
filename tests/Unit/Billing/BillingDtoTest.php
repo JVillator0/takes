@@ -16,18 +16,24 @@ it('reads tokens by kind and null for a kind not reported', function (): void {
         ->and($units->tokens(UsageKind::Reasoning))->toBeNull();
 });
 
-it('rejects unknown kinds and negative counts', function (array $tokens): void {
+it('rejects unknown kinds, non-integer and negative counts', function (array $tokens): void {
     new UsageUnitsDTO($tokens);
 })->throws(InvalidArgumentException::class)->with([
     'unknown kind' => [['cache_read' => 1]],
     'negative' => [['output' => -1]],
+    'float' => [['output' => 1.5]],
+    'numeric string' => [['output' => '12']],
+    'null' => [['output' => null]],
 ]);
 
-it('rejects unknown kinds and negative rates', function (array $rates): void {
+it('rejects unknown kinds, non-integer and negative rates', function (array $rates): void {
     new RatesSnapshotDTO($rates);
 })->throws(InvalidArgumentException::class)->with([
     'unknown kind' => [['cache_read' => 1]],
     'negative' => [['output' => -1]],
+    'float' => [['output' => 40.0]],
+    'decimal string' => [['output' => '40.00']],
+    'null' => [['output' => null]],
 ]);
 
 it('round-trips a stored rates snapshot and refuses non-integer rates', function (): void {
@@ -38,7 +44,7 @@ it('round-trips a stored rates snapshot and refuses non-integer rates', function
         ->and($rates->rate(UsageKind::Reasoning))->toBeNull();
 
     RatesSnapshotDTO::fromStored(['output' => '40.00']);
-})->throws(InvalidArgumentException::class, 'not an integer');
+})->throws(InvalidArgumentException::class, 'must be integer nanodollars');
 
 it('derives the charges of an estimate from its costs with the 25% markup', function (): void {
     $estimate = EstimateDTO::fromCosts(Nanodollars::fromInt(100_000_000), Nanodollars::fromInt(373_875_000));

@@ -172,6 +172,7 @@ describe('settle', function (): void {
             ->and($settled->flags)->toBe([])
             // billing_date is the UTC date of completion: 23:30 EST is the 18th in UTC.
             ->and($settled->billing_date?->toDateString())->toBe('2026-11-18')
+            ->and($settled->refresh()->completed_at?->toIso8601String())->toBe('2026-11-18T04:30:00+00:00')
             ->and($this->customer->balance_nanos)->toBe(10_000_000_000 - Billing::EXAMPLE_CHARGE)
             ->and($this->customer->held_nanos)->toBe(0);
 

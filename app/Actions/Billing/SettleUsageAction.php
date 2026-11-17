@@ -95,7 +95,8 @@ final readonly class SettleUsageAction
             'charge_nanos' => $charge->toInt(),
             'flags' => array_values(array_unique($flags)),
             'external_id' => $externalId ?? $usage->external_id,
-            'completed_at' => $completedAt,
+            // Stored in UTC, the same instant billing_date is derived from.
+            'completed_at' => $completedAt->utc(),
             'billing_date' => $completedAt->utc()->toDateString(),
         ])->save();
 
