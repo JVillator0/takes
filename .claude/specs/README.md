@@ -58,8 +58,8 @@ Pulled forward (D-019, D-026): the **$1.00 welcome credit** and a **minimal simu
 - **Gate A (after 0 + 1 merged):** CI is green on an empty app with the minimal set: Larastan level 8, Pint, Pest 5 arch tests and `vue-tsc --noEmit` strict (filacheck joins once `app/Filament` exists, M7). Until then, one writer only (the lead session).
 - **Gate B (after 3 merged):** schema, enums, money value object, ledger primitives, the Pixelforge client **and the state-transition actions `ApplyTakeSnapshotAction` and `FailTakeAction` with their tests** exist and are tested (they live in M3, so 4 and 5 only add transport: submit job, webhook, reconcile). Only now the pool starts in parallel (five worktrees, D-070): **4** (a), **5** (b), **7** (c), **6** (d) and **8** (e); 6 and 8 build backend first and rebase on 4 for UI. Inside M3, 3-01, 3-03, 3-04 and the 3-02 actions run in parallel after the 3-02 schema PR.
 - **Gate C (after 4 + 5 merged):** deploy (9) first; 6, 7 and 8 continue in d, c and e.
-- **Gate E (inside 10, D-071):** a QA agent validates the deployed site against the specs and files issues; `v1.0.0` waits for its exit criteria.
 - **Gate D (before 10):** stretch work that is finished is redeployed; unfinished stretch is cut (see below), then 10 closes.
+- **Gate E (inside 10, D-071):** a QA agent validates the deployed site against the specs and files issues; `v1.0.0` waits for its exit criteria.
 - Required-scope milestones (3, 4, 5, 9) are never blocked by stretch milestones (6, 7, 8).
 
 ### Time budget and cut order
