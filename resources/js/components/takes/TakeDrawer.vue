@@ -30,10 +30,17 @@ type Props = {
     take: TakeDetailData | null;
     /** Describe a change (spec 8) shows once its flow is wired on the page. */
     canDescribeChange?: boolean;
+    /**
+     * The drawer opens from code (a card, `?take=`), with no trigger, so the
+     * page passes the control that opened it; focus returns there on close
+     * (F-20). Null leaves focus where the page put it (remix, Try again).
+     */
+    returnFocus?: HTMLElement | null;
 };
 
 const props = withDefaults(defineProps<Props>(), {
     canDescribeChange: true,
+    returnFocus: null,
 });
 
 /** Drawer visibility; the page keeps it in the URL (`?take={id}`, 2-02). */
@@ -58,6 +65,14 @@ defineSlots<{
 }>();
 
 const { t } = useCopy();
+
+const onCloseAutoFocus = (event: Event): void => {
+    if (props.returnFocus?.isConnected) {
+        event.preventDefault();
+        props.returnFocus.focus();
+    }
+};
+
 const ids = { timeline: useId(), price: useId(), versions: useId() };
 const copied = ref(false);
 
@@ -126,6 +141,7 @@ const sectionLabel =
         <SheetContent
             side="right"
             class="w-full gap-0 overflow-y-auto p-0 sm:max-w-3xl lg:max-w-5xl"
+            @close-auto-focus="onCloseAutoFocus"
         >
             <!--
                 The title is always rendered so the dialog has a name while the

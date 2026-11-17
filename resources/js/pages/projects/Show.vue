@@ -2,7 +2,7 @@
 import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import { ChevronUp, EllipsisVertical } from '@lucide/vue';
 import { useMediaQuery } from '@vueuse/core';
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, ref, shallowRef, watch } from 'vue';
 import { toast } from 'vue-sonner';
 import InputError from '@/components/InputError.vue';
 import LiveIndicator from '@/components/takes/LiveIndicator.vue';
@@ -155,7 +155,16 @@ const drawerOpen = computed({
     },
 });
 
+/** The control that opened the drawer (a card); a version picked inside the drawer keeps it. */
+const drawerOpener = shallowRef<HTMLElement | null>(null);
+
 const openTake = (id: string): void => {
+    const active = document.activeElement;
+
+    if (active instanceof HTMLElement && !active.closest('[role="dialog"]')) {
+        drawerOpener.value = active;
+    }
+
     pendingTakeId.value = id;
     router.get(
         showProject(props.project.id, { query: query({ take: id }) }).url,
@@ -256,6 +265,8 @@ const focusComposer = async (): Promise<void> => {
 const remix = (): void => {
     if (props.take) {
         composerRef.value?.remix(props.take);
+        // The composer takes focus on purpose; the drawer must not pull it back.
+        drawerOpener.value = null;
         closeTake();
         void focusComposer();
     }
@@ -264,6 +275,8 @@ const remix = (): void => {
 const tryAgain = (): void => {
     if (props.take) {
         composerRef.value?.tryAgain(props.take);
+        // The composer takes focus on purpose; the drawer must not pull it back.
+        drawerOpener.value = null;
         closeTake();
         void focusComposer();
     }
@@ -583,6 +596,7 @@ const canPurchase = computed(
             v-model:open="drawerOpen"
             v-model:comparing="comparing"
             :take="take"
+            :return-focus="drawerOpener"
             @remix="remix"
             @try-again="tryAgain"
             @cancel="cancel"
