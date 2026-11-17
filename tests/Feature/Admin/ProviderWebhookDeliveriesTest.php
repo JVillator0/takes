@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Enums\Auth\AdminRole;
 use App\Enums\Webhooks\WebhookOutcome;
 use App\Filament\Admin\Clusters\Providers\Resources\WebhookDeliveries\Pages\ListWebhookDeliveries;
+use App\Filament\Admin\Widgets\WebhookDeliveryStatsOverview;
 use App\Models\Take;
 use App\Models\User;
 use App\Models\WebhookDelivery;
@@ -13,6 +14,7 @@ use App\Queries\Webhooks\GetWebhookDeliveryStatsQuery;
 use Database\Seeders\AdminRolesSeeder;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
 // Spec 7 § Providers › Webhook events (A11, D-027): every delivery with its outcome, stats over 24 hours.
@@ -73,4 +75,26 @@ it('counts the last 24 hours of events and outcomes', function (): void {
 
     expect([$stats->events, $stats->duplicates, $stats->ignoredStale, $stats->unknownTake, $stats->orphanSuccess])
         ->toBe([6, 1, 1, 1, 1]);
+});
+
+it('filters by take and loads with a fixed number of queries', function (): void {
+    $take = Take::factory()->succeeded()->create();
+    $mine = WebhookDelivery::factory()->create(['take_id' => $take->id]);
+    $other = WebhookDelivery::factory()->create();
+
+    Livewire::test(ListWebhookDeliveries::class)
+        ->filterTable('take', ['take_id' => $take->id])
+        ->assertCanSeeTableRecords([$mine])
+        ->assertCanNotSeeTableRecords([$other]);
+
+    Livewire::test(WebhookDeliveryStatsOverview::class)->assertSee('Events (24 h)');
+
+    DB::enableQueryLog();
+    Livewire::test(ListWebhookDeliveries::class)->assertOk();
+    $withTwo = count(DB::getQueryLog());
+    WebhookDelivery::factory()->count(4)->create();
+    DB::flushQueryLog();
+    Livewire::test(ListWebhookDeliveries::class)->assertOk();
+
+    expect(count(DB::getQueryLog()))->toBe($withTwo);
 });

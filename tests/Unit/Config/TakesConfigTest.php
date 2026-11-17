@@ -71,6 +71,7 @@ it('loads the spec 3-01 defaults', function (): void {
             'ttl_hours' => 24,
             'password' => 'password',
         ],
+        'purchase_packs_usd' => [5, 10, 25],
     ]);
 });
 

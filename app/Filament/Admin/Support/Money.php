@@ -20,11 +20,23 @@ final class Money
 
     public static function nanos(int|string|null $nanos): string
     {
-        return $nanos === null ? '-' : number_format(Nanodollars::fromInt($nanos)->toInt());
+        return $nanos === null ? '-' : self::grouped(Nanodollars::fromInt($nanos)->toInt());
     }
 
     /**
-     * 2000 bps → "20.0%", rounded half up to one decimal; `-` when there is no ratio.
+     * An integer with thousands separators, as a string operation (no float conversion at any size).
+     */
+    public static function grouped(int $value): string
+    {
+        $digits = (string) abs($value);
+        $grouped = (string) preg_replace('/\B(?=(\d{3})+(?!\d))/', ',', $digits);
+
+        return ($value < 0 ? '-' : '').$grouped;
+    }
+
+    /**
+     * 2000 bps → "20.0%", rounded half away from zero to one decimal; `-` when there is no ratio. A value that
+     * rounds to zero prints "0.0%", never "-0.0%".
      */
     public static function percentFromBps(?int $bps): string
     {
@@ -32,8 +44,8 @@ final class Money
             return '-';
         }
 
-        $sign = $bps < 0 ? '-' : '';
         $tenths = intdiv(abs($bps) + 5, 10);
+        $sign = $bps < 0 && $tenths > 0 ? '-' : '';
 
         return $sign.intdiv($tenths, 10).'.'.($tenths % 10).'%';
     }

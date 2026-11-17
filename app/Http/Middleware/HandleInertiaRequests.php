@@ -21,7 +21,7 @@ final class HandleInertiaRequests extends Middleware
      * Lang groups shared with the client as UI copy (D-057). They hold no
      * secrets and no provider names (D-023).
      */
-    private const COPY_GROUPS = ['takes', 'billing', 'landing'];
+    private const COPY_GROUPS = ['takes', 'billing', 'landing', 'suggestions'];
 
     /**
      * The root template that's loaded on the first page visit.
@@ -69,6 +69,11 @@ final class HandleInertiaRequests extends Middleware
             // "service not configured" banner and disables submit when false.
             'pixelforge' => [
                 'configured' => app(PixelforgeClient::class)->isConfigured(),
+            ],
+            // Live take status (spec 5, D-028): the client listens on the socket
+            // only when the server really broadcasts; otherwise it polls.
+            'broadcasting' => [
+                'live' => config('broadcasting.default') === 'reverb',
             ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
             'copy' => Inertia::once(fn (): array => self::copy())->as('copy:'.self::copyVersion()),

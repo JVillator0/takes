@@ -109,7 +109,7 @@ jobs:
       - name: Larastan (level 8)
         run: composer stan
 
-      - name: FilaCheck (skipped until app/Filament exists)
+      - name: FilaCheck
         run: composer filacheck
 
       - name: Setup Node

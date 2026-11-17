@@ -6,6 +6,7 @@ namespace App\Queries\Projects;
 
 use App\Enums\Billing\UsageStatus;
 use App\Models\Project;
+use App\Models\Take;
 use App\Models\UsageRecord;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -32,7 +33,7 @@ final class ListProjectsWithSpendQuery
         $spend = UsageRecord::query()
             ->selectRaw('coalesce(sum(usage_records.charge_nanos), 0)')
             ->join('takes', 'takes.id', '=', 'usage_records.billable_id')
-            ->where('usage_records.billable_type', 'take')
+            ->where('usage_records.billable_type', (new Take)->getMorphClass())
             ->where('usage_records.status', UsageStatus::Settled->value)
             ->whereColumn('takes.project_id', 'projects.id');
 

@@ -322,6 +322,57 @@ test('MERGEABLE only labels verdict:mergeable once merged or auto-merge is enabl
   assert.match(prompt, /any other outcome \(refused or merge error\): add no label/)
 })
 
+test('decision lines at the round limit name the D-075 next step', async () => {
+  const nitsJudge = judgeResult({ scores: scores(7), findings: [finding()] })
+  const blockedJudge = judgeResult({ scores: scores(6) })
+  const decision = async (round, judge, escalation) => {
+    const { result, calls } = await run({
+      args: { ...ARGS, round, ...(escalation ? { escalation } : {}) },
+      ctx: context(['routes/web.php']),
+      judge,
+    })
+    const prompt = calls.find((c) => c.label === 'publish verdict').prompt
+    // The whole quoted line (the round < limit lines quote "Fixed in <sha>" themselves).
+    const line = prompt.match(/outcome "not-merged-verdict", Decision: "(.*)"$/m)
+    assert.ok(line, `no Decision line in the round ${round} prompt`)
+    return { verdict: result.verdict, line: line[1] }
+  }
+
+  const r3Nits = await decision(3, nitsJudge)
+  assert.equal(r3Nits.verdict, 'MERGEABLE AFTER NITS')
+  assert.match(r3Nits.line, /^Decision: not merged\. Round 3 of 3 reached \(D-075\): /)
+  assert.match(r3Nits.line, /runs round 4 as a full run with escalation 'D-075', the last round\.$/)
+  assert.doesNotMatch(r3Nits.line, /judgeOnly/)
+
+  const r3Blocked = await decision(3, blockedJudge)
+  assert.equal(r3Blocked.verdict, 'NOT MERGEABLE')
+  assert.match(r3Blocked.line, /fixes the items above in new commits/)
+  assert.match(r3Blocked.line, /runs round 4 as a full run with escalation 'D-075', the last round\.$/)
+
+  const r4Nits = await decision(4, nitsJudge, 'D-075')
+  assert.equal(
+    r4Nits.line,
+    'Decision: not merged. Round 4 of 4 (D-075) was the last round: the lead opens a follow-up issue for the open minor findings; no round 5.',
+  )
+
+  const r4Blocked = await decision(4, blockedJudge, 'D-075')
+  assert.equal(
+    r4Blocked.line,
+    'Decision: not merged. Round 4 of 4 (D-075) was the last round and the items above remain: the lead decides what happens to the PR and records it there; no round 5.',
+  )
+
+  // NOT MERGEABLE from a failed gate alone (only minor findings): the wording still fits.
+  const gateOnly = await decision(3, judgeResult({ findings: [finding()], gates: gates({ english: { status: 'fail', note: 'Spanish comment' } }) }))
+  assert.equal(gateOnly.verdict, 'NOT MERGEABLE')
+  assert.match(gateOnly.line, /fixes the items above in new commits/)
+
+  for (const { line } of [r3Nits, r3Blocked, r4Nits, r4Blocked]) assert.doesNotMatch(line, /escalates/)
+
+  const r2Nits = await decision(2, nitsJudge)
+  assert.match(r2Nits.line, /re-run with judgeOnly \(round 3\)\.$/)
+  assert.doesNotMatch(r2Nits.line, /D-075/)
+})
+
 test('rounds: limit, judgeOnly after NITS, full run after NOT MERGEABLE', async () => {
   const limit = await run({ args: { ...ARGS, round: 4 }, ctx: context(['a.php']), judge: judgeResult() })
   assert.equal(limit.result.verdict, null)
@@ -334,7 +385,8 @@ test('rounds: limit, judgeOnly after NITS, full run after NOT MERGEABLE', async 
   const bogus = await run({ args: { ...ARGS, round: 4, escalation: 'D-001' }, ctx: context(['a.php']), judge: judgeResult() })
   assert.equal(bogus.result.verdict, null)
   const early = await run({ args: { ...ARGS, round: 1, escalation: 'D-075' }, ctx: context(['a.php']), judge: judgeResult() })
-  const earlyPrompt = early.calls.find((c) => c.label === 'publish verdict')?.prompt ?? ''
+  const earlyPrompt = early.calls.find((c) => c.label === 'publish verdict').prompt
+  assert.match(earlyPrompt, /Round 1 of 3 /)
   assert.doesNotMatch(earlyPrompt, /D-075/)
   const r4Prompt = escalated.calls.find((c) => c.label === 'publish verdict').prompt
   assert.match(r4Prompt, /Round 4 of 4 \(D-075\)/)
