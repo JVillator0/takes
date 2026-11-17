@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Factories;
 
+use App\Enums\Auth\CustomerRole;
 use App\Models\Customer;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
@@ -53,5 +54,20 @@ final class CustomerFactory extends Factory
             'balance_nanos' => $balanceNanos,
             'held_nanos' => $heldNanos,
         ]);
+    }
+
+    /**
+     * Assigns a customer-guard role (spec 3-01). The roles must exist: seed
+     * RolesAndPermissionsSeeder first.
+     */
+    public function withRole(CustomerRole $role = CustomerRole::Customer): static
+    {
+        return $this->afterCreating(fn (Customer $customer) => $customer->assignRole($role->value));
+    }
+
+    /** An operator-restricted account: may buy credits and manage projects only. */
+    public function restricted(): static
+    {
+        return $this->withRole(CustomerRole::Restricted);
     }
 }
