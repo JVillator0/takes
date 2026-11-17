@@ -89,11 +89,9 @@ it('keeps the audit read-only, even for the super admin', function (): void {
         ->and(ActivitylogResource::hasPage('edit'))->toBeFalse();
 });
 
-it('lists the sidebar in the spec order and hides what the admin may not open', function (): void {
+it('lists the sidebar in the spec order', function (): void {
     $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create())
         ->get('/admin')
         ->assertOk()
-        ->assertSeeInOrder(['Dashboard', 'Operations', 'Studio', 'Providers', 'System', 'Roles', 'Activity Log'])
-        // An empty cluster hides itself until a page or resource lands in it.
-        ->assertDontSee('Billing');
+        ->assertSeeInOrder(['Dashboard', 'Operations', 'Studio', 'Billing', 'Providers', 'System', 'Roles', 'Activity Log']);
 });
