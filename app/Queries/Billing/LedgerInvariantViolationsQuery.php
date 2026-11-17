@@ -7,6 +7,7 @@ namespace App\Queries\Billing;
 use App\DTOs\Billing\RatesSnapshotDTO;
 use App\DTOs\Billing\UsageUnitsDTO;
 use App\Enums\Billing\UsageStatus;
+use App\Enums\Takes\TakeStatus;
 use App\Models\UsageRecord;
 use App\Support\Money\Nanodollars;
 use App\Support\Money\ProviderCost;
@@ -17,7 +18,9 @@ use Throwable;
  * The money invariants of spec 3-03 (D-024, D-059), each as one query over
  * the whole dataset. Returns one human-readable line per violation; an empty
  * list means the ledger, the cached columns and the usage records agree.
- * Used by `billing:verify` (specs 9, 10) and the admin drift widget (spec 7).
+ * Used by `billing:verify` (specs 9, 10). It scans every row (settled amounts
+ * are re-priced in PHP), so it is a CLI check; the spec 7 widget needs a
+ * bounded variant (issue #102).
  */
 final readonly class LedgerInvariantViolationsQuery
 {
@@ -132,6 +135,7 @@ final readonly class LedgerInvariantViolationsQuery
 
     /**
      * A terminal take has released its hold: its usage is settled or voided.
+     * Suggestions join this check with spec 8 (issue #102).
      *
      * @return list<string>
      */
@@ -143,7 +147,10 @@ final readonly class LedgerInvariantViolationsQuery
                     ->where('usage_records.billable_type', 'take');
             })
             ->where('usage_records.status', UsageStatus::Open->value)
-            ->whereIn('takes.status', ['succeeded', 'failed'])
+            ->whereIn('takes.status', array_map(
+                fn (TakeStatus $status): string => $status->value,
+                array_filter(TakeStatus::cases(), fn (TakeStatus $status): bool => $status->isTerminal()),
+            ))
             ->orderBy('usage_records.id')
             ->select('usage_records.id', 'takes.id as take_id', 'takes.status as take_status')
             ->get()

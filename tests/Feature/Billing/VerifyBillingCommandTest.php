@@ -151,6 +151,29 @@ describe('--usage', function (): void {
             ->assertFailed();
     });
 
+    it('refuses a date that is not a real Y-m-d day', function (string $option): void {
+        fakeUsageSource([]);
+
+        $this->artisan("billing:verify --usage {$option}")
+            ->expectsOutputToContain('must be a real date in Y-m-d format')
+            ->doesntExpectOutputToContain('matches')
+            ->assertFailed();
+    })->with([
+        'rolls over' => ['--from=2026-02-30 --to=2026-03-05'],
+        'not a date' => ['--to=yesterday'],
+        'wrong format' => ['--from=17/11/2026'],
+        'empty' => ['--from='],
+    ]);
+
+    it('refuses an inverted range instead of passing vacuously', function (): void {
+        fakeUsageSource([]);
+
+        $this->artisan('billing:verify --usage --from=2026-11-18 --to=2026-11-15')
+            ->expectsOutputToContain('--from 2026-11-18 is after --to 2026-11-15.')
+            ->doesntExpectOutputToContain('matches')
+            ->assertFailed();
+    });
+
     it('passes when the per-day cost matches Pixelforge', function (): void {
         Billing::settle(Billing::openForNewTake(Billing::fundedCustomer()));
         fakeUsageSource(['2026-11-17' => Billing::EXAMPLE_COST]);

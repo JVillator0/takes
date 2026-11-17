@@ -15,6 +15,7 @@ use Carbon\CarbonPeriodImmutable;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
+use InvalidArgumentException;
 
 /**
  * Checks the money invariants (spec 3-03, D-059): Σ ledger = balance,
@@ -34,10 +35,21 @@ final class VerifyBillingCommand extends Command
         SettledProviderCostPerDayQuery $settledCostPerDay,
         PixelforgeUsageSource $usageSource,
     ): int {
-        $violations = $invariantViolations->execute();
+        $range = null;
 
         if ($this->option('usage')) {
-            $violations = [...$violations, ...$this->usageViolations($settledCostPerDay, $usageSource)];
+            // Bad input must never turn into a vacuous pass: refuse it up front.
+            $range = $this->usageRange();
+
+            if ($range === null) {
+                return self::FAILURE;
+            }
+        }
+
+        $violations = $invariantViolations->execute();
+
+        if ($range !== null) {
+            $violations = [...$violations, ...$this->usageViolations($settledCostPerDay, $usageSource, ...$range)];
         }
 
         if ($violations === []) {
@@ -55,12 +67,39 @@ final class VerifyBillingCommand extends Command
         return self::FAILURE;
     }
 
-    /** @return list<string> */
-    private function usageViolations(SettledProviderCostPerDayQuery $settledCostPerDay, PixelforgeUsageSource $usageSource): array
+    /**
+     * The inclusive UTC day range for --usage, or null (after printing why)
+     * when --from/--to is not a real Y-m-d date or the range is inverted.
+     *
+     * @return array{0: CarbonImmutable, 1: CarbonImmutable}|null
+     */
+    private function usageRange(): ?array
     {
-        $to = $this->dateOption('to') ?? CarbonImmutable::now('UTC')->subDay()->startOfDay();
-        $from = $this->dateOption('from') ?? $to->subDays(6);
+        try {
+            $to = $this->dateOption('to') ?? CarbonImmutable::now('UTC')->subDay()->startOfDay();
+            $from = $this->dateOption('from') ?? $to->subDays(6);
+        } catch (InvalidArgumentException $e) {
+            $this->error($e->getMessage());
 
+            return null;
+        }
+
+        if ($from->greaterThan($to)) {
+            $this->error("--from {$from->toDateString()} is after --to {$to->toDateString()}.");
+
+            return null;
+        }
+
+        return [$from, $to];
+    }
+
+    /** @return list<string> */
+    private function usageViolations(
+        SettledProviderCostPerDayQuery $settledCostPerDay,
+        PixelforgeUsageSource $usageSource,
+        CarbonImmutable $from,
+        CarbonImmutable $to,
+    ): array {
         try {
             $theirs = $usageSource->dailyCosts($from, $to);
         } catch (UsageSourceUnavailableException $e) {
@@ -76,6 +115,8 @@ final class VerifyBillingCommand extends Command
             $ourCost = $ours[$date] ?? Nanodollars::zero();
             $theirCost = $theirs[$date] ?? Nanodollars::zero();
 
+            // Orphan-success days (D-025) differ until their absorbed cost is
+            // recorded and attributed here (issue #102).
             if (! $ourCost->equals($theirCost)) {
                 $violations[] = "usage {$date}: ledger cost {$ourCost->formatExact()} but Pixelforge reports {$theirCost->formatExact()}";
             }
@@ -88,12 +129,28 @@ final class VerifyBillingCommand extends Command
         return $violations;
     }
 
+    /**
+     * Null when the option is absent; a strict Y-m-d date otherwise
+     * (2026-02-30 does not roll over into March).
+     *
+     * @throws InvalidArgumentException
+     */
     private function dateOption(string $name): ?CarbonImmutable
     {
         $value = $this->option($name);
 
-        return is_string($value) && $value !== ''
-            ? CarbonImmutable::createFromFormat('!Y-m-d', $value, 'UTC') ?: null
+        if ($value === null) {
+            return null;
+        }
+
+        $date = is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}$/D', $value) === 1
+            ? CarbonImmutable::createFromFormat('!Y-m-d', $value, 'UTC')
             : null;
+
+        if (! $date instanceof CarbonImmutable || $date->toDateString() !== $value) {
+            throw new InvalidArgumentException('--'.$name.' must be a real date in Y-m-d format, got ['.(is_string($value) ? $value : '').'].');
+        }
+
+        return $date;
     }
 }
