@@ -71,6 +71,11 @@ final class Billing
         return EstimateDTO::fromCosts(Nanodollars::fromInt($minCost), Nanodollars::fromInt($maxCost));
     }
 
+    public static function nanos(int $nanos): Nanodollars
+    {
+        return Nanodollars::fromInt($nanos);
+    }
+
     public static function fund(Customer $customer, int $nanos): void
     {
         DB::transaction(fn () => app(RecordLedgerEntryAction::class)->execute(

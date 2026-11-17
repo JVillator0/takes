@@ -11,7 +11,7 @@ Correct money beats everything. Read `.claude/specs/3-domain-foundation/03-SPEC.
 
 1. **Integer nanodollars only** (D-002): `int` / `bigint`, wrapped in `App\Support\Money\Nanodollars`. No float, `/`, `round(`, `floatval(`, `number_format(` in `app/Support/Money` or `app/Actions/Billing`. Divide with `intdiv`.
 2. **Rates are integer nanodollars per 1M tokens** by kind (`RatesSnapshotDTO`, e.g. Pixelforge output 40_000_000_000). Never multiply by a decimal string.
-3. **cost = ceil(Σ units × rate / 1_000_000)** (`ProviderCost::calculate`); **charge = cost.withMarkup(markup_bps)** = ceil(cost × 12_500 / 10_000). The ceil logs `billing.cost_rounded_up`; with current rates it never fires.
+3. **cost = ceil(Σ units × rate / 1_000_000)** (`App\Support\Money\TokenCost::compute`, the one implementation for estimators and settlement); **charge = cost.withMarkup(markup_bps)** = ceil(cost × 12_500 / 10_000). The ceil logs a warning; with current rates it never fires.
 4. **Ledger = real money only** (D-024): `purchase`, `promo_grant`, `charge`, `adjustment`. Holds are not rows: an open usage's `max_charge_nanos` *is* the hold.
 5. `customers.balance_nanos` = Σ ledger; `customers.held_nanos` = Σ open `max_charge_nanos`; **available = balance − held** (may be negative after an over-estimate).
 6. **Writers:** `RecordLedgerEntryAction` is the only writer of `ledger_entries` and `balance_nanos`. `held_nanos` changes only in `OpenUsageAction`, `SettleUsageAction`, `VoidUsageAction`. Ledger rows are never updated or deleted; a correction is an `adjustment`.

@@ -287,7 +287,7 @@ describe('settle', function (): void {
         expect($settled->provider_cost_nanos)->toBe(1)
             ->and($settled->charge_nanos)->toBe(2);
 
-        Log::shouldHaveReceived('warning')->once()->with('billing.cost_rounded_up', Mockery::type('array'));
+        Log::shouldHaveReceived('warning')->once()->with('Token cost is not a whole number of nanodollars; rounded up.', Mockery::type('array'));
     });
 
     it('settles with units × rates and flags a disagreeing provider cost', function (): void {

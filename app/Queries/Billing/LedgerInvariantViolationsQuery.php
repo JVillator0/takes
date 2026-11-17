@@ -10,7 +10,7 @@ use App\Enums\Billing\UsageStatus;
 use App\Enums\Takes\TakeStatus;
 use App\Models\UsageRecord;
 use App\Support\Money\Nanodollars;
-use App\Support\Money\ProviderCost;
+use App\Support\Money\TokenCost;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -24,6 +24,8 @@ use Throwable;
  */
 final readonly class LedgerInvariantViolationsQuery
 {
+    public function __construct(private TokenCost $tokenCost) {}
+
     /** @return list<string> */
     public function execute(): array
     {
@@ -174,10 +176,10 @@ final readonly class LedgerInvariantViolationsQuery
             ->lazyById()
             ->each(function (UsageRecord $usage) use (&$violations): void {
                 try {
-                    $cost = ProviderCost::calculate(
-                        new UsageUnitsDTO($usage->units ?? []),
-                        RatesSnapshotDTO::fromStored($usage->rates),
-                    )->cost;
+                    $cost = $this->tokenCost->compute(
+                        new UsageUnitsDTO($usage->units ?? [])->tokens,
+                        RatesSnapshotDTO::fromStored($usage->rates)->toArray(),
+                    );
                 } catch (Throwable $e) {
                     $violations[] = "usage {$usage->id}: units or rates cannot be priced ({$e->getMessage()})";
 
