@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { usePage } from '@inertiajs/vue3';
 import { Sparkles } from '@lucide/vue';
 import { computed, nextTick, onMounted, ref, toRef, useId, watch } from 'vue';
 import { Button } from '@/components/ui/button';
@@ -78,10 +79,16 @@ const canSuggest = computed(
         !blocked.value &&
         step.value === 'ask',
 );
+const page = usePage();
+/** Buy credits only for a customer the purchase policy allows (F-20; StudioLayout gates the same way). */
+const canPurchase = computed(
+    () => page.props.auth.can?.purchaseCredits.allowed === true,
+);
 const needsCredits = computed(
     () =>
-        rejection.value?.reason === 'insufficient_credits' ||
-        quote.value?.denial?.reason === 'insufficient_credits',
+        canPurchase.value &&
+        (rejection.value?.reason === 'insufficient_credits' ||
+            quote.value?.denial?.reason === 'insufficient_credits'),
 );
 /** The sentence above Suggest: the request's rejection first, then the quote's denial. */
 const notice = computed(
@@ -165,6 +172,7 @@ const canGenerate = computed(
 /** Buy credits replaces Generate take when the new take is unaffordable (spec 8 States). */
 const offerCredits = computed(
     () =>
+        canPurchase.value &&
         suggestion.value !== null &&
         !suggestion.value.noChange &&
         !suggestion.value.baseImageUnavailable &&

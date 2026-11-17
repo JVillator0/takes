@@ -13,7 +13,7 @@ it('logs an expired demo customer out and sends them to sign in', function (): v
     $customer = Customer::factory()->demo()->create(['demo_expires_at' => now()->subMinute()]);
 
     $this->actingAs($customer, 'customer')
-        ->get(route('dashboard'))
+        ->get(route('projects.index'))
         ->assertRedirect(route('login'))
         ->assertSessionHas('status', 'This demo account has expired. Register or try a new demo account.');
 
@@ -25,13 +25,13 @@ it('treats the exact expiry instant as expired', function (): void {
     $this->freezeTime();
     $customer = Customer::factory()->demo()->create(['demo_expires_at' => now()]);
 
-    $this->actingAs($customer, 'customer')->get(route('dashboard'))->assertRedirect(route('login'));
+    $this->actingAs($customer, 'customer')->get(route('projects.index'))->assertRedirect(route('login'));
 });
 
 it('lets an active demo customer through', function (): void {
     $customer = Customer::factory()->demo()->create();
 
-    $this->actingAs($customer, 'customer')->get(route('dashboard'))->assertOk();
+    $this->actingAs($customer, 'customer')->get(route('projects.index'))->assertOk();
 
     $this->assertAuthenticatedAs($customer, 'customer');
 });
@@ -39,5 +39,5 @@ it('lets an active demo customer through', function (): void {
 it('never expires a regular customer', function (): void {
     $customer = Customer::factory()->create(['demo_expires_at' => now()->subDay()]);
 
-    $this->actingAs($customer, 'customer')->get(route('dashboard'))->assertOk();
+    $this->actingAs($customer, 'customer')->get(route('projects.index'))->assertOk();
 });

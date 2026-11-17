@@ -200,11 +200,12 @@ test('the take-status scan sees enum cases, string values and variables next to 
     $plain = SourceScan::root().'/storage/framework/testing-status-plain.php';
     $take = SourceScan::root().'/storage/framework/testing-status-take.php';
     file_put_contents($plain, "<?php\n\$a->forceFill(['status' => TakeStatus::Failed]);\n\$b->update(['status' => 'succeeded']);\n\$c->status = \\App\\Enums\\Takes\\TakeStatus::Queued;\n\$d->update(['status' => \$next]);\nif (\$e->status === TakeStatus::Failed) {}\n");
-    file_put_contents($take, "<?php\nuse App\\Models\\Take;\n\$t->forceFill(['status' => \$snapshot->status]);\n\$u->forceFill(['status' => UsageStatus::Voided]);\n\$t->status = \$next;\n");
+    file_put_contents($take, "<?php\nuse App\\Models\\Take;\n\$t->forceFill(['status' => \$snapshot->status]);\n\$u->forceFill(['status' => UsageStatus::Voided]);\n\$t->status = \$next;\n\$take->status = \$parent->status->value;\n\$take->save();\n\$take->forceFill(['status' => \$parent->status->value])->save();\n");
 
     try {
+        // Copying another take's status value is a write too, as an assignment or a fill key.
         expect(SourceScan::takeStatusWrites(['storage/framework/testing-status-plain.php']))->toHaveCount(3)
-            ->and(SourceScan::takeStatusWrites(['storage/framework/testing-status-take.php']))->toHaveCount(2);
+            ->and(SourceScan::takeStatusWrites(['storage/framework/testing-status-take.php']))->toHaveCount(4);
     } finally {
         unlink($plain);
         unlink($take);

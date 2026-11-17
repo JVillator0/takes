@@ -30,7 +30,7 @@ Reviews: product ☑ · technical ☑
 |---|---|---|
 | Empty grid | P04 | "No takes yet. Describe an image above and press Generate take." |
 | Low balance | P04 banner, P05 | "Your available credits are below the smallest take ($x.xxxx). Buy credits to keep generating." Banner shows when available < smallest possible max; the Buy credits link also sits on the disabled button. |
-| Reconnecting | P04 indicator | "Reconnecting… Updates may be a few seconds late." (client polls automatically, D-028); "Live" when the socket is connected. |
+| Reconnecting | P04 indicator | "Reconnecting… Updates may be a few seconds late." (client polls automatically, D-028); "Live" when the socket is connected. On phones the visible label is the first sentence, "Reconnecting…" (`takes.connection.reconnecting_short`), and screen readers still get the full line. |
 | Take not found | `?take=`, `/takes/{take}` or `/takes/{take}/image` of another customer or an unknown id | 404 page, identical for both cases (no existence leak; never 403). |
 | Retry a failed take | P06 on Failed | "Try again" creates a new take with the same parameters and a new idempotency key (D-033). Only for failures where a retry can help; hidden for `content_policy` and `internal` failures. |
 | Cancel a waiting take | P04 card, P06 | "Cancel" on **Waiting for capacity** only (pending with `last_submit_error_kind` = capacity): voids the hold, status Failed (cancelled), "Not charged". Never on Submitting. |
@@ -357,3 +357,24 @@ Strings added with spec 4 (takes and generation). Same rules: keys are the full 
 | `takes.projects.archived` | composer and Describe a change when the project was archived meanwhile (`project_archived`) | "This project is archived. Takes can't be added to it." |
 | `takes.projects.sample_prompt` | P03/P04 empty state, pre-filled composer | "A lighthouse on a cliff at dusk, warm light, cinematic wide shot" |
 | `demo.ephemeral_name` | name of a "Try a demo account" customer | "Demo account" |
+| `takes.projects.title` | P03 heading | "Projects" |
+| `takes.projects.search` | P03 search field | "Search projects" |
+| `takes.projects.new` | P03 button and dialog title | "New project" |
+| `takes.projects.name` | P03 dialog field | "Name" |
+| `takes.projects.create` | P03 dialog button | "Create project" |
+| `takes.projects.rename` | P04 project menu | "Rename" |
+| `takes.projects.actions` | P04 project menu trigger (icon-only, accessible name) | "Project actions" |
+| `takes.projects.breadcrumb` | P04 header breadcrumb (accessible name) | "Breadcrumb" |
+| `takes.projects.save` | P04 rename dialog | "Save" |
+| `takes.projects.archive` | P04 project menu | "Archive project" |
+| `takes.projects.archive_confirm` | P04 archive confirmation | "Archive this project? It leaves your projects list; its takes stay in your billing history." |
+| `takes.projects.empty` | P03 empty state | "Start your first project. A sample prompt is ready in the composer." |
+| `takes.projects.no_results` | P03 search with no match | "No projects match your search." |
+| `takes.projects.summary` | P03 card, P04 heading (pluralised) | ":count take · :amount spent" · ":count takes · :amount spent" |
+| `takes.projects.in_progress` | P03 card badge | ":count in progress" |
+| `takes.projects.empty_cover` | P03 card without a finished take | "Empty" |
+| `takes.projects.load_more` | P04 grid | "Load more takes" |
+| `takes.toast.done` | P04 toast title (terminal transition) | "Take #:id is ready" |
+| `takes.toast.done_detail` | P04 toast body; :charged is the card money line | ":charged. The rest of the hold went back to your balance." |
+| `takes.toast.failed` | P04 toast title; the body is the money line "Not charged" | "Take #:id failed" |
+| `billing.packs_label` | Buy credits modal | "Choose a credit pack" |

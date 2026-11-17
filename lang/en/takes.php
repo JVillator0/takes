@@ -85,6 +85,7 @@ return [
     'connection' => [
         'live' => 'Live',
         'reconnecting' => 'Reconnecting… Updates may be a few seconds late.',
+        'reconnecting_short' => 'Reconnecting…',
     ],
 
     'service' => [
@@ -200,6 +201,30 @@ return [
         'untitled' => 'Untitled project',
         'archived' => "This project is archived. Takes can't be added to it.",
         'sample_prompt' => 'A lighthouse on a cliff at dusk, warm light, cinematic wide shot',
+        'title' => 'Projects',
+        'search' => 'Search projects',
+        'new' => 'New project',
+        'name' => 'Name',
+        'create' => 'Create project',
+        'rename' => 'Rename',
+        'actions' => 'Project actions',
+        'breadcrumb' => 'Breadcrumb',
+        'save' => 'Save',
+        'archive' => 'Archive project',
+        'archive_confirm' => 'Archive this project? It leaves your projects list; its takes stay in your billing history.',
+        'empty' => 'Start your first project. A sample prompt is ready in the composer.',
+        'no_results' => 'No projects match your search.',
+        'summary' => ':count take · :amount spent|:count takes · :amount spent',
+        'in_progress' => ':count in progress',
+        'empty_cover' => 'Empty',
+        'load_more' => 'Load more takes',
+    ],
+
+    /* Toasts on terminal transitions of the customer's own takes (2-02). */
+    'toast' => [
+        'done' => 'Take #:id is ready',
+        'done_detail' => ':charged. The rest of the hold went back to your balance.',
+        'failed' => 'Take #:id failed',
     ],
 
     /* Take timeline lines (P06). */

@@ -82,7 +82,7 @@ it('logs the demo customer out once it expires', function (): void {
 
     $this->travel(25)->hours();
 
-    $this->get(route('dashboard'))->assertRedirect(route('login'));
+    $this->get(route('projects.index'))->assertRedirect(route('login'));
     $this->assertGuest('customer');
 });
 

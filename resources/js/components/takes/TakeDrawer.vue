@@ -28,9 +28,20 @@ import type { TakeDetailData, TakePriceTone } from '@/types';
 
 type Props = {
     take: TakeDetailData | null;
+    /** Describe a change (spec 8) shows once its flow is wired on the page. */
+    canDescribeChange?: boolean;
+    /**
+     * The drawer opens from code (a card, `?take=`), with no trigger, so the
+     * page passes the control that opened it; focus returns there on close
+     * (F-20). Null leaves focus where the page put it (remix, Try again).
+     */
+    returnFocus?: HTMLElement | null;
 };
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+    canDescribeChange: true,
+    returnFocus: null,
+});
 
 /** Drawer visibility; the page keeps it in the URL (`?take={id}`, 2-02). */
 const open = defineModel<boolean>('open', { default: false });
@@ -38,18 +49,30 @@ const open = defineModel<boolean>('open', { default: false });
 const comparing = defineModel<boolean>('comparing', { default: false });
 
 const emit = defineEmits<{
-    remix: [id: number];
+    remix: [id: string];
     /**
      * Free by itself: the page opens the composer pre-filled (spec 4), and the
      * paid submit happens there, with its max price on Generate (F-15).
      */
-    tryAgain: [id: number];
-    describeChange: [id: number];
-    cancel: [id: number];
-    selectVersion: [id: number];
+    tryAgain: [id: string];
+    describeChange: [id: string];
+    cancel: [id: string];
+    selectVersion: [id: string];
+}>();
+
+defineSlots<{
+    describe?: () => unknown;
 }>();
 
 const { t } = useCopy();
+
+const onCloseAutoFocus = (event: Event): void => {
+    if (props.returnFocus?.isConnected) {
+        event.preventDefault();
+        props.returnFocus.focus();
+    }
+};
+
 const ids = { timeline: useId(), price: useId(), versions: useId() };
 const copied = ref(false);
 
@@ -103,7 +126,7 @@ const copyPrompt = async (): Promise<void> => {
 const announcement = computed(() =>
     props.take
         ? t('takes.card.announcement', {
-              id: props.take.id,
+              id: props.take.number ?? '',
               status: props.take.statusLabel,
           })
         : '',
@@ -118,6 +141,7 @@ const sectionLabel =
         <SheetContent
             side="right"
             class="w-full gap-0 overflow-y-auto p-0 sm:max-w-3xl lg:max-w-5xl"
+            @close-auto-focus="onCloseAutoFocus"
         >
             <!--
                 The title is always rendered so the dialog has a name while the
@@ -128,7 +152,9 @@ const sectionLabel =
                     <SheetTitle class="text-lg">
                         {{
                             take
-                                ? t('takes.card.title', { id: take.id })
+                                ? t('takes.card.title', {
+                                      id: take.number ?? '',
+                                  })
                                 : t('takes.drawer.loading')
                         }}
                     </SheetTitle>
@@ -196,7 +222,7 @@ const sectionLabel =
                                 >
                                     {{
                                         t('takes.drawer.parent', {
-                                            id: take.parent.id,
+                                            id: take.parent.number ?? '',
                                         })
                                     }}
                                 </figcaption>
@@ -260,7 +286,9 @@ const sectionLabel =
                                 {{ t('takes.actions.remix') }}
                             </Button>
                             <Button
-                                v-if="take.phase === 'done'"
+                                v-if="
+                                    take.phase === 'done' && canDescribeChange
+                                "
                                 type="button"
                                 variant="outline"
                                 @click="emit('describeChange', take.id)"
@@ -275,7 +303,7 @@ const sectionLabel =
                             >
                                 <a
                                     :href="take.downloadUrl"
-                                    :download="`take-${take.id}`"
+                                    :download="`take-${take.number ?? take.id}.png`"
                                 >
                                     <Download aria-hidden="true" />
                                     {{ t('takes.actions.download') }}
@@ -368,6 +396,8 @@ const sectionLabel =
                     </div>
 
                     <div class="flex min-w-0 flex-col gap-5">
+                        <!-- Describe a change (P07, spec 8), when the page opens it. -->
+                        <slot name="describe" />
                         <div class="rounded-lg border p-3">
                             <p class="text-sm">“{{ take.prompt }}”</p>
                             <p
@@ -379,6 +409,7 @@ const sectionLabel =
                         </div>
 
                         <section
+                            v-if="take.price"
                             :aria-labelledby="ids.price"
                             class="flex flex-col gap-2"
                         >

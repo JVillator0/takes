@@ -72,3 +72,9 @@ it('denies the read-only showcase login with account_restricted', function (): v
 it('needs a signed-in customer', function (): void {
     $this->post(route('projects.store'), ['name' => 'x'])->assertRedirect(route('login'));
 });
+
+it('pluralises the project summary (2-01, read by the client with tc)', function (): void {
+    expect(trans_choice('takes.projects.summary', 1, ['amount' => '$0.0735']))->toBe('1 take · $0.0735 spent')
+        ->and(trans_choice('takes.projects.summary', 0, ['amount' => '$0.0000']))->toBe('0 takes · $0.0000 spent')
+        ->and(trans_choice('takes.projects.summary', 8, ['amount' => '$0.3525']))->toBe('8 takes · $0.3525 spent');
+});

@@ -21,8 +21,8 @@ withDefaults(defineProps<Props>(), {
 });
 
 const emit = defineEmits<{
-    open: [id: number];
-    cancel: [id: number];
+    open: [id: string];
+    cancel: [id: string];
 }>();
 
 const { t } = useCopy();

@@ -72,7 +72,7 @@ const phases: TakePhase[] = [
 
 /** Last event a component emitted, so reviewers can see the wiring. */
 const lastEvent = ref('none yet');
-const log = (name: string, id?: number): void => {
+const log = (name: string, id?: string): void => {
     lastEvent.value = id === undefined ? name : `${name} #${id}`;
 };
 
@@ -144,7 +144,7 @@ const openDrawer = (key: 'done' | 'failed' | 'waiting'): void => {
     drawerOpen.value = true;
 };
 
-const openFromGrid = (id: number): void => {
+const openFromGrid = (id: string): void => {
     log('open', id);
 
     const match = Object.values(props.details).find((take) => take.id === id);
@@ -353,7 +353,7 @@ const caption = 'text-xs font-medium text-muted-foreground';
                             estimate-state="ready"
                             :remixing-from="8"
                             @submit="log('submit')"
-                            @cancel-remix="log('cancelRemix', 8)"
+                            @cancel-remix="log('cancelRemix', 'take-8')"
                         />
                     </div>
                     <div class="flex flex-col gap-2 rounded-xl border p-4">
