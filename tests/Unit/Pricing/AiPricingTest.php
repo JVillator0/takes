@@ -53,7 +53,8 @@ it('refuses a model or provider with no configured rates', function (Provider $p
 
 it('refuses a rate that is not a decimal string', function (mixed $rate): void {
     $pricing = new AiPricing(new Repository([
-        'ai-pricing' => ['anthropic' => ['claude-haiku-5-5' => ['input_text' => $rate]]],
+        // Both kinds present, so only the malformed input_text rate can fail.
+        'ai-pricing' => ['anthropic' => ['claude-haiku-5-5' => ['input_text' => $rate, 'output' => '0.50']]],
     ]));
 
     expect(fn () => $pricing->rates(Provider::Anthropic, 'claude-haiku-5-5'))->toThrow(InvalidArgumentException::class);
@@ -62,4 +63,16 @@ it('refuses a rate that is not a decimal string', function (mixed $rate): void {
     'int' => [1],
     'scientific string' => ['1e-1'],
     'negative string' => ['-0.10'],
+]);
+
+it('refuses rates with a misspelled, missing or extra token kind', function (array $configured, string $message): void {
+    $pricing = new AiPricing(new Repository([
+        'ai-pricing' => ['anthropic' => ['claude-haiku-5-5' => $configured]],
+    ]));
+
+    expect(fn () => $pricing->rates(Provider::Anthropic, 'claude-haiku-5-5'))->toThrow(InvalidArgumentException::class, $message);
+})->with([
+    'misspelled output' => [['input_text' => '0.10', 'ouput' => '0.50'], 'missing [output], unknown [ouput]'],
+    'missing output' => [['input_text' => '0.10'], 'missing [output]'],
+    'extra cache kind' => [['input_text' => '0.10', 'output' => '0.50', 'cache_read' => '0.01'], 'unknown [cache_read]'],
 ]);

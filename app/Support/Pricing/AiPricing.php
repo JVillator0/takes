@@ -13,9 +13,16 @@ use InvalidArgumentException;
  * Turns the decimal-string rates in config/ai-pricing.php into a rates
  * snapshot: integer nanodollars per 1M tokens by kind (spec 3-03 §2), the
  * shape stored in `usage_records.rates`. Haiku 5.5 '0.10' ⇒ 100_000_000.
+ * A model must configure exactly its provider's token kinds, so a typo fails
+ * here, before a paid call, not at settlement.
  */
 final readonly class AiPricing
 {
+    /** Token kinds each configurable provider bills (spec 3-03 §2: no cache kinds until used). */
+    public const array KINDS = [
+        'anthropic' => ['input_text', 'output'],
+    ];
+
     public function __construct(private Repository $config) {}
 
     /**
@@ -28,8 +35,25 @@ final readonly class AiPricing
             ? ($providers[$provider->value][$model] ?? null)
             : null;
 
-        if (! is_array($configured) || $configured === []) {
+        $kinds = self::KINDS[$provider->value] ?? null;
+
+        if ($kinds === null || ! is_array($configured) || $configured === []) {
             throw new InvalidArgumentException("No rates configured for [{$provider->value}] model [{$model}].");
+        }
+
+        $configuredKinds = array_map(strval(...), array_keys($configured));
+        $missing = array_diff($kinds, $configuredKinds);
+        $unknown = array_diff($configuredKinds, $kinds);
+
+        if ($missing !== [] || $unknown !== []) {
+            throw new InvalidArgumentException(sprintf(
+                'Rates for [%s] model [%s] must have exactly the kinds [%s]; missing [%s], unknown [%s].',
+                $provider->value,
+                $model,
+                implode(', ', $kinds),
+                implode(', ', $missing),
+                implode(', ', $unknown),
+            ));
         }
 
         $rates = [];
