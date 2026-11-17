@@ -55,7 +55,11 @@ final readonly class RecordAdminWrites
             return;
         }
 
-        $this->record($model, $event);
+        $admin = $this->consoleAdmin();
+
+        if ($admin !== null) {
+            $this->write($admin, $model, $event);
+        }
     }
 
     /**
@@ -63,6 +67,13 @@ final readonly class RecordAdminWrites
      */
     public function permissions(PermissionAttachedEvent|PermissionDetachedEvent|RoleAttachedEvent|RoleDetachedEvent $event): void
     {
+        // Guard before the names query: permission events fire app-wide (customer roles, deploy seeders).
+        $admin = $this->consoleAdmin();
+
+        if ($admin === null) {
+            return;
+        }
+
         [$name, $property, $names] = match (true) {
             $event instanceof RoleAttachedEvent => ['role_attached', 'roles', $this->names(Role::class, $event->rolesOrIds)],
             $event instanceof RoleDetachedEvent => ['role_detached', 'roles', $this->names(Role::class, $event->rolesOrIds)],
@@ -70,30 +81,34 @@ final readonly class RecordAdminWrites
             $event instanceof PermissionDetachedEvent => ['permission_detached', 'permissions', $this->names(Permission::class, $event->permissionsOrIds)],
         };
 
-        $this->record($event->model, $name, [$property => $names]);
+        $this->write($admin, $event->model, $name, [$property => $names]);
     }
 
     /**
      * @param  array<string, string>  $extra
      */
-    private function record(Model $model, string $event, array $extra = []): void
+    private function write(User $admin, Model $model, string $event, array $extra = []): void
     {
-        // Cheap checks first: this runs on every Eloquent write in the app.
-        if (! Filament::isServing() || Filament::getCurrentPanel()?->getId() !== AdminPanelProvider::ID) {
-            return;
-        }
-
-        $admin = auth()->guard(AdminRole::GUARD)->user();
-
-        if (! $admin instanceof User) {
-            return;
-        }
-
         $this->recordActivity->execute($admin, $event, $model, [
             'resource' => $model->getTable(),
             'record' => (string) $model->getKey(),
             ...$extra,
         ]);
+    }
+
+    /**
+     * The admin serving the console right now, or null outside it. Cheap checks first: this guards every Eloquent
+     * write and every permission event in the app.
+     */
+    private function consoleAdmin(): ?User
+    {
+        if (! Filament::isServing() || Filament::getCurrentPanel()?->getId() !== AdminPanelProvider::ID) {
+            return null;
+        }
+
+        $admin = auth()->guard(AdminRole::GUARD)->user();
+
+        return $admin instanceof User ? $admin : null;
     }
 
     /**
