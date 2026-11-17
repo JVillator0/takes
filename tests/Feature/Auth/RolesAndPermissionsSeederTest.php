@@ -15,7 +15,7 @@ it('creates the customer-guard permissions and roles from the enums', function (
     expect(Permission::query()->where('guard_name', 'customer')->pluck('name')->sort()->values()->all())
         ->toBe(['ai.suggest', 'credits.purchase', 'projects.manage', 'takes.create'])
         ->and(Role::query()->pluck('guard_name', 'name')->all())
-        ->toBe(['customer' => 'customer', 'restricted' => 'customer']);
+        ->toBe(['customer' => 'customer', 'restricted' => 'customer', 'showcase' => 'customer']);
 });
 
 it('grants the permission matrix from spec 3-01', function (CustomerRole $role, array $granted): void {
@@ -30,6 +30,7 @@ it('grants the permission matrix from spec 3-01', function (CustomerRole $role, 
 })->with([
     'customer' => [CustomerRole::Customer, CustomerPermission::cases()],
     'restricted' => [CustomerRole::Restricted, [CustomerPermission::CreditsPurchase, CustomerPermission::ProjectsManage]],
+    'showcase (read-only, D-072)' => [CustomerRole::Showcase, []],
 ]);
 
 it('is idempotent and safe to run on every deploy', function (): void {
@@ -40,7 +41,7 @@ it('is idempotent and safe to run on every deploy', function (): void {
     $this->seed(RolesAndPermissionsSeeder::class);
 
     expect(Permission::query()->count())->toBe(4)
-        ->and(Role::query()->count())->toBe(2)
+        ->and(Role::query()->count())->toBe(3)
         ->and($customer->refresh()->hasRole('customer'))->toBeTrue()
         ->and($customer->checkPermissionTo('takes.create'))->toBeTrue();
 });

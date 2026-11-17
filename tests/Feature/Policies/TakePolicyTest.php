@@ -3,11 +3,13 @@
 declare(strict_types=1);
 
 use App\DTOs\Billing\EstimateDTO;
+use App\Enums\Auth\DemoAccount;
 use App\Enums\Auth\DenialReason;
 use App\Models\Customer;
 use App\Models\Take;
 use App\Models\User;
 use App\Support\Money\Nanodollars;
+use Database\Seeders\DemoAccountsSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Support\Facades\Gate;
@@ -106,4 +108,14 @@ it('never authorizes an admin user through a customer policy', function (): void
     $admin = User::factory()->create();
 
     expect(Gate::forUser($admin)->inspect('create', [Take::class, takeEstimate()])->allowed())->toBeFalse();
+});
+
+it('denies the read-only showcase a take with account_restricted but lets it view its takes (D-072)', function (): void {
+    $this->seed(DemoAccountsSeeder::class);
+    $showcase = Customer::query()->where('email', DemoAccount::Showcase->email())->sole();
+    $showcase->forceFill(['balance_nanos' => 10_000_000_000])->save();
+    $take = Take::factory()->create(['customer_id' => $showcase->id]);
+
+    expect(inspectCreateTake($showcase, takeEstimate())->code())->toBe(DenialReason::AccountRestricted->value)
+        ->and(Gate::forUser($showcase)->inspect('view', $take)->allowed())->toBeTrue();
 });

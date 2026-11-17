@@ -50,15 +50,12 @@ final readonly class TakePolicy
         return Response::allow();
     }
 
-    /** Another customer's take is a 404, never a 403 (spec 2-02). */
+    /**
+     * Ownership only, so the read-only showcase (D-072) still sees its
+     * history. Another customer's take is a 404, never a 403 (spec 2-02).
+     */
     public function view(Customer $customer, Take $take): Response
     {
-        if ($take->customer_id !== $customer->id) {
-            return Response::denyAsNotFound();
-        }
-
-        return $customer->checkPermissionTo(CustomerPermission::ProjectsManage->value)
-            ? Response::allow()
-            : DenialReason::AccountRestricted->deny();
+        return $take->customer_id === $customer->id ? Response::allow() : Response::denyAsNotFound();
     }
 }

@@ -3,9 +3,11 @@
 declare(strict_types=1);
 
 use App\Enums\Auth\CustomerPermission;
+use App\Enums\Auth\DemoAccount;
 use App\Enums\Auth\DenialReason;
 use App\Models\Customer;
 use App\Models\Project;
+use Database\Seeders\DemoAccountsSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Support\Facades\Gate;
 use Spatie\Permission\Models\Role;
@@ -38,4 +40,16 @@ it('denies with account_restricted without projects.manage', function (): void {
     $customer = Customer::factory()->withRole()->create();
 
     expect(Gate::forUser($customer)->inspect('create', Project::class)->code())->toBe(DenialReason::AccountRestricted->value);
+});
+
+it('lets the read-only showcase view its projects but not create or change them (D-072)', function (): void {
+    $this->seed(DemoAccountsSeeder::class);
+    $showcase = Customer::query()->where('email', DemoAccount::Showcase->email())->sole();
+    $project = Project::factory()->create(['customer_id' => $showcase->id]);
+    $gate = Gate::forUser($showcase);
+
+    expect($gate->allows('viewAny', Project::class))->toBeTrue()
+        ->and($gate->allows('view', $project))->toBeTrue()
+        ->and($gate->inspect('create', Project::class)->code())->toBe(DenialReason::AccountRestricted->value)
+        ->and($gate->inspect('update', $project)->code())->toBe(DenialReason::AccountRestricted->value);
 });

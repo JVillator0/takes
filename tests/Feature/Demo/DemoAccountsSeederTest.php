@@ -33,7 +33,7 @@ it('seeds the read-only showcase customer and the fixed-state accounts', functio
     }
 
     // D-072: the showcase can view but not create takes or buy credits.
-    expect(demoCustomer(DemoAccount::Showcase)->getRoleNames()->all())->toBe(['restricted'])
+    expect(demoCustomer(DemoAccount::Showcase)->getRoleNames()->all())->toBe(['showcase'])
         ->and(demoCustomer(DemoAccount::DemoCustomer)->getRoleNames()->all())->toBe(['customer']);
 });
 

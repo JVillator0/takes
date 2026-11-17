@@ -7,7 +7,7 @@ use App\Models\Customer;
 use Database\Seeders\DemoAccountsSeeder;
 
 /*
-| D-072: the showcase customer is read-only (`restricted`); spec 9's smoke
+| D-072: the showcase customer is read-only (`showcase` role); spec 9's smoke
 | test runs `takes:showcase --unlock`, creates the history, then `--lock`.
 */
 
@@ -18,7 +18,7 @@ function showcaseRoles(): array
 
 it('unlocks and locks the showcase customer', function (): void {
     $this->seed(DemoAccountsSeeder::class);
-    expect(showcaseRoles())->toBe(['restricted']);
+    expect(showcaseRoles())->toBe(['showcase']);
 
     $this->artisan('takes:showcase', ['--unlock' => true])
         ->expectsOutput('Showcase customer is now customer.')
@@ -26,9 +26,9 @@ it('unlocks and locks the showcase customer', function (): void {
     expect(showcaseRoles())->toBe(['customer']);
 
     $this->artisan('takes:showcase', ['--lock' => true])
-        ->expectsOutput('Showcase customer is now restricted.')
+        ->expectsOutput('Showcase customer is now showcase.')
         ->assertSuccessful();
-    expect(showcaseRoles())->toBe(['restricted']);
+    expect(showcaseRoles())->toBe(['showcase']);
 });
 
 it('requires exactly one of --unlock or --lock', function (array $options): void {
@@ -37,7 +37,7 @@ it('requires exactly one of --unlock or --lock', function (array $options): void
     $this->artisan('takes:showcase', $options)
         ->expectsOutput('Pass exactly one of --unlock or --lock.')
         ->assertExitCode(2);
-    expect(showcaseRoles())->toBe(['restricted']);
+    expect(showcaseRoles())->toBe(['showcase']);
 })->with([
     'neither' => [[]],
     'both' => [['--unlock' => true, '--lock' => true]],

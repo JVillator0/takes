@@ -7,11 +7,14 @@ namespace App\Enums\Auth;
 /**
  * Roles on the `customer` guard (spec 3-01). `Customer` is the default on
  * registration; an operator switches an account to `Restricted` (spec 7).
+ * `Showcase` is the public showcase login's read-only role (D-072): it can
+ * view its own projects and takes (ownership only) and nothing else.
  */
 enum CustomerRole: string
 {
     case Customer = 'customer';
     case Restricted = 'restricted';
+    case Showcase = 'showcase';
 
     public const string GUARD = 'customer';
 
@@ -26,6 +29,7 @@ enum CustomerRole: string
                 CustomerPermission::CreditsPurchase,
                 CustomerPermission::ProjectsManage,
             ],
+            self::Showcase => [],
         };
     }
 }

@@ -28,6 +28,7 @@ D-012 (users = admins, customers = own table/guard), D-013 (MFA + auditor), D-01
 |---|---|---|---|---|
 | `customer` (default on registration) | ✓ | ✓ | ✓ | ✓ |
 | `restricted` role (set by an operator) | ✗ | ✗ | ✓ | ✓ |
+| `showcase` role (the public showcase login, D-072; read-only: views its own projects and takes) | ✗ | ✗ | ✗ | ✗ |
 
 An operator switches a customer with the *Restrict / Unrestrict* action (spec 7, audited, permission `restrict_customer`). The role is named `restricted`; the denial reason code is `account_restricted`.
 
@@ -41,7 +42,7 @@ Reason codes are one enum, `App\Enums\Auth\DenialReason` (D-050): `insufficient_
   5. allow.
   Config keys, defaults and env names are owned by this spec (**`config/takes.php`**, below); specs 4 and 8 only read them and spec 9 only sets env values. `rate_limited` is returned by the route throttle, not the policy.
 - `SuggestionPolicy::create(Customer $c)`: `ai.suggest` missing → `account_restricted`; `config('takes.ai.enabled')` false or global daily AI budget reached (`takes.ai.daily_budget_nanos`, $1/day) → `ai_paused`; customer already has `takes.ai.daily_limit_per_customer` (30) suggestions on the current UTC day → `ai_daily_limit`; `available < AI max charge` → `insufficient_credits`; the 6/min/customer throttle is `rate_limited`. Global budget = Σ `usage_records.provider_cost_nanos` where `provider = anthropic` and `billing_date` = today (open usages count their `max_cost_nanos`).
-- `ProjectPolicy`, `TakePolicy::view` etc.: ownership (`customer_id`), plus `projects.manage`.
+- `ProjectPolicy`, `TakePolicy::view` etc.: viewing needs ownership (`customer_id`) only, so the read-only showcase sees its history (D-072); creating and changing projects also need `projects.manage`. `PurchasePolicy::create` checks `credits.purchase`; `CustomerPolicy::updateAccount` denies shared demo logins with `demo_account_locked` (D-072). Shared abilities are `auth.can.{createProject, purchaseCredits, updateAccount}`.
 - FormRequests call `Gate::inspect()` in `authorize()`; a denied response is rendered back to Inertia with its code. A restricted customer also sees a banner in the composer (wireframe P05).
 - **The action re-checks under lock** (spec 3-03 §6). The policy is UX; the lock is the guarantee.
 - Never change roles/permissions when the balance changes (D-015).
@@ -60,6 +61,7 @@ Reason codes are one enum, `App\Enums\Auth\DenialReason` (D-050): `insufficient_
 | `takes.demo.enabled` | `DEMO_LOGIN_ENABLED` | false (true in production, spec 9) |
 | `takes.demo.throttle_per_ip_per_hour` | `DEMO_LOGIN_THROTTLE_PER_IP` | 5 (read by spec 4's `throttle:demo`) |
 | `takes.demo.ttl_hours` | none | 24 (ephemeral demo expiry, spec 4) |
+| `takes.demo.password` | `DEMO_ACCOUNTS_PASSWORD` | `password` (public on purpose: P02 panel and README; seeded demo logins, D-072) |
 `takes.purchase_packs_usd` (`[5, 10, 25]`, no env) is defined once in 3-03, which owns `PurchaseCreditsAction`; specs 4 and 6 only read it. **Value format:** the env names above are the only ones. The two USD env values are decimal **strings**, parsed once while building `config/takes.php` through `Nanodollars::fromDecimalString` (never `(float)`), so every `takes.*` config value is an **integer** (nanodollars) or bool; nothing downstream sees a float or a USD string. Test: defaults load, env overrides apply, `AI_DAILY_BUDGET_USD=0.5` gives 500_000_000.
 
 ## What the frontend receives
@@ -68,7 +70,7 @@ Shared Inertia prop `auth.customer` (id, name, email, `available`, `on_hold` as 
 ## Demo accounts (`DEMO_LOGIN_ENABLED=true` only; D-030, D-045)
 **The panel (P02, same list in 2-02 and spec 10):** one **Try a demo account** button plus a short list of seeded logins.
 - **Try a demo account** creates a **fresh ephemeral customer** with the welcome credit (via spec 4's `GrantWelcomeCreditAction`). **Spec 4 owns `POST /demo`, the button and the per-IP throttle** (reading `takes.demo.throttle_per_ip_per_hour`); this spec only provides the config keys and the P02 panel shell, with the button hidden until spec 4, so M3 is complete at Gate B. Evaluators therefore never share balance, takes or the Pixelforge quota (the ephemeral customer uses the `is_demo` / `demo_expires_at` columns of 3-02). Real registration (no verification) is the primary path.
-- **Showcase customer** (read-only, login credentials in the README, spec 9/10 rely on it): a real-history account. In production its history comes from real smoke-test calls, never seeded fakes. Anyone with the README credentials may log in; it is not for creating takes (its balance is topped up by the operator only). **D-072:** it is seeded with role `restricted`; spec 9's smoke test runs `php artisan takes:showcase --unlock` (role `customer`), creates the history, then `takes:showcase --lock`.
+- **Showcase customer** (read-only, login credentials in the README, spec 9/10 rely on it): a real-history account. In production its history comes from real smoke-test calls, never seeded fakes. Anyone with the README credentials may log in; it is not for creating takes (its balance is topped up by the operator only). **D-072:** it is seeded with the permission-less `showcase` role (read-only); spec 9's smoke test runs `php artisan takes:showcase --unlock` (role `customer`), creates the history, then `takes:showcase --lock` (back to `showcase`).
 - **Locked credentials (D-072):** no seeded demo login may change its name, email or password (`CustomerPolicy::updateAccount` → `demo_account_locked`); the seeder re-asserts `takes.demo.password` on every run.
 - Seeded fixed-state accounts, **local, CI and screenshots only** (D-037, D-045): *Demo customer* (full-history dataset, $10.00), *Low balance* ($0.01), *New customer* ($0.00), always through ledger entries. **In production** the seeder creates users, customers and credit only: *Demo customer* has a $10 purchase in the ledger and no takes; takes and usage records are never seeded there.
 - Admin demo access (seeded *auditor* + `/admin/login` render hook) belongs to spec 7 issue 2 (Filament).

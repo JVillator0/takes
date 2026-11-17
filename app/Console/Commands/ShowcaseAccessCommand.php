@@ -11,7 +11,7 @@ use App\Models\Customer;
 use Illuminate\Console\Command;
 
 /**
- * The showcase customer is read-only (role `restricted`, D-072). Spec 9's
+ * The showcase customer is read-only (role `showcase`, D-072). Spec 9's
  * smoke test unlocks it (`customer` role) to create its real history, then
  * locks it again.
  */
@@ -20,7 +20,7 @@ final class ShowcaseAccessCommand extends Command
     /** @var string */
     protected $signature = 'takes:showcase
         {--unlock : Give the showcase customer the customer role (can create takes)}
-        {--lock : Make the showcase customer read-only again (restricted role)}';
+        {--lock : Make the showcase customer read-only again (showcase role)}';
 
     /** @var string */
     protected $description = 'Lock or unlock the showcase customer (D-072)';
@@ -44,7 +44,7 @@ final class ShowcaseAccessCommand extends Command
             return self::FAILURE;
         }
 
-        $role = $unlock ? CustomerRole::Customer : CustomerRole::Restricted;
+        $role = $unlock ? CustomerRole::Customer : DemoAccount::Showcase->defaultRole();
         $assignRole->execute($showcase, $role);
 
         $this->info("Showcase customer is now {$role->value}.");

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Enums\Auth;
 
+use Illuminate\Support\Facades\Lang;
+
 /**
  * Seeded demo logins listed on the P02 panel (spec 3-01 issue 4, D-045).
  * Each account exists to show one behavior; the password is the public
@@ -12,7 +14,7 @@ namespace App\Enums\Auth;
  */
 enum DemoAccount: string
 {
-    /** Read-only real history (README credentials, role `restricted`); topped up by an operator only. */
+    /** Read-only real history (README credentials, role `showcase`); topped up by an operator only. */
     case Showcase = 'showcase';
 
     /** Normal flow, $10.00. */
@@ -45,13 +47,14 @@ enum DemoAccount: string
     }
 
     /**
-     * The role seeded on creation (D-072): the showcase is read-only, since
-     * anyone with the README credentials may sign in. `takes:showcase
-     * --unlock` lifts it for spec 9's smoke test.
+     * The role seeded on creation (D-072): the showcase is read-only (the
+     * permission-less `showcase` role), since anyone with the README
+     * credentials may sign in. `takes:showcase --unlock` lifts it for spec
+     * 9's smoke test and `--lock` restores it.
      */
     public function defaultRole(): CustomerRole
     {
-        return $this === self::Showcase ? CustomerRole::Restricted : CustomerRole::Customer;
+        return $this === self::Showcase ? CustomerRole::Showcase : CustomerRole::Customer;
     }
 
     /** Starting credit in nanodollars (demo dataset, D-037). */
@@ -64,12 +67,15 @@ enum DemoAccount: string
         };
     }
 
-    /** Panel label from lang/en/demo.php. */
+    /**
+     * Panel label from lang/en/demo.php. Every case has a line (tested); a
+     * missing line falls back to the customer name.
+     */
     public function label(): string
     {
-        $label = __('demo.accounts.'.$this->value);
+        $key = 'demo.accounts.'.$this->value;
 
-        return is_string($label) ? $label : $this->customerName();
+        return Lang::has($key) ? Lang::get($key) : $this->customerName();
     }
 
     /**
