@@ -267,3 +267,5 @@ Describe a change (P07) chrome added with spec 8. Prices reuse `takes.money.on_h
 | `suggestions.applied` | P07 result | "Your new take has started." |
 | `suggestions.base_not_ready` | P07, take not finished | "Describe a change works on finished takes." |
 | `suggestions.apply_unavailable` | P07, apply before spec 4 | "Generating a take from a suggestion is not available yet. Your suggestion is saved." |
+| `suggestions.not_proposed` | P07, apply or discard from a stale tab (no charge claim: it may have been charged) | "This suggestion can no longer be used. Describe a new change." |
+| `suggestions.request_key_reused` | P07, a request key replayed for another take | "This request was already sent for another take. Try again." |

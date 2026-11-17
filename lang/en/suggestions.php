@@ -58,5 +58,7 @@ return [
     'already_pending' => 'A suggestion for this take is already in progress. Wait for it to finish.',
     'base_not_ready' => 'Describe a change works on finished takes.',
     'apply_unavailable' => 'Generating a take from a suggestion is not available yet. Your suggestion is saved.',
+    'not_proposed' => 'This suggestion can no longer be used. Describe a new change.',
+    'request_key_reused' => 'This request was already sent for another take. Try again.',
 
 ];

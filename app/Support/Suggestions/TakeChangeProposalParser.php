@@ -24,6 +24,12 @@ final readonly class TakeChangeProposalParser
     private const array KEYS = ['prompt', 'size', 'quality', 'keep_references', 'add_base_image_as_reference', 'rationale'];
 
     /**
+     * The rationale is shown to customers verbatim: it must never name a
+     * provider, a model or tokens (D-023, M-23). Same words as the leak scan.
+     */
+    private const string FORBIDDEN_RATIONALE = '/\b(anthropic|claude|haiku|pixelforge|tokens?)\b/i';
+
+    /**
      * @param  array<array-key, mixed>  $output  the decoded structured output
      *
      * @throws InvalidProposalException
@@ -58,6 +64,10 @@ final readonly class TakeChangeProposalParser
 
         /** @var array{prompt: string, size: string, quality: string, keep_references: bool, add_base_image_as_reference: bool, rationale: string} $output */
         $proposal = TakeChangeProposalDTO::fromArray($output);
+
+        if (preg_match(self::FORBIDDEN_RATIONALE, $proposal->rationale) === 1) {
+            throw InvalidProposalException::because('the rationale names a provider, a model or tokens');
+        }
 
         if ($proposal->referenceCount($base->referenceCount) > PixelforgeTokenTable::MAX_REFERENCE_IMAGES) {
             throw InvalidProposalException::because('too many reference images');

@@ -10,6 +10,7 @@ use App\Actions\Suggestions\DiscardSuggestionAction;
 use App\DTOs\Suggestions\CreateSuggestionDTO;
 use App\Enums\Auth\DenialReason;
 use App\Exceptions\Suggestions\BaseTakeNotReadyException;
+use App\Exceptions\Suggestions\RequestKeyReusedException;
 use App\Exceptions\Suggestions\SuggestionAlreadyPendingException;
 use App\Exceptions\Suggestions\SuggestionDeniedException;
 use App\Exceptions\Suggestions\SuggestionNotProposedException;
@@ -63,7 +64,9 @@ final class SuggestionController extends Controller
         } catch (SuggestionAlreadyPendingException) {
             return self::rejected(409, 'already_pending', __('suggestions.already_pending'));
         } catch (BaseTakeNotReadyException) {
-            return self::rejected(422, 'base_not_ready', __('suggestions.base_not_ready'));
+            return self::rejected(409, 'base_not_ready', __('suggestions.base_not_ready'));
+        } catch (RequestKeyReusedException) {
+            return self::rejected(409, 'request_key_reused', __('suggestions.request_key_reused'));
         }
 
         return (new SuggestionResource($details->execute($suggestion, $customer)))->response();
@@ -88,7 +91,7 @@ final class SuggestionController extends Controller
         } catch (SuggestionDeniedException $exception) {
             return self::denied($exception->reason);
         } catch (SuggestionNotProposedException) {
-            return self::rejected(409, 'not_proposed', __('suggestions.failed'));
+            return self::rejected(409, 'not_proposed', __('suggestions.not_proposed'));
         } catch (TakeCreationUnavailableException) {
             return self::rejected(503, 'apply_unavailable', __('suggestions.apply_unavailable'));
         }
@@ -104,7 +107,7 @@ final class SuggestionController extends Controller
         try {
             $suggestion = $discardSuggestion->execute($customer, $suggestion);
         } catch (SuggestionNotProposedException) {
-            return self::rejected(409, 'not_proposed', __('suggestions.failed'));
+            return self::rejected(409, 'not_proposed', __('suggestions.not_proposed'));
         }
 
         return (new SuggestionResource($details->execute($suggestion, $customer)))->response();

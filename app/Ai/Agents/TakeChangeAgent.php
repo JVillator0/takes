@@ -21,7 +21,7 @@ use Laravel\Ai\ObjectSchema;
 use Laravel\Ai\Promptable;
 
 /**
- * "Describe a change" (spec 8 "Agent", D-073): one single-shot call that turns
+ * "Describe a change" (spec 8 "Agent", D-076): one single-shot call that turns
  * an instruction about a take into a proposal over closed fields. No tools, no
  * memory, no conversation. The output is re-validated server-side
  * (TakeChangeProposalDTO) and nothing executes from model text.

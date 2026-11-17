@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Enums\Suggestions\SuggestionStatus;
 use App\Models\Customer;
 use App\Models\Suggestion;
+use App\Models\Take;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\RateLimiter;
@@ -92,7 +93,7 @@ it('returns the reviewed diff with the exact suggestion charge and the new take 
     expectNoProviderLeak($response);
 });
 
-it('says the change could not be generated when the new take is unaffordable', function (): void {
+it('flags an unaffordable new take (Buy credits instead of Generate take)', function (): void {
     Suggestions::fake(Suggestions::messageBody(Suggestions::proposal()));
     $this->customer = Suggestions::customer(1_000_000);
     $this->take = Suggestions::baseTake($this->customer);
@@ -194,4 +195,38 @@ it('shows, discards and refuses to apply until take creation is bound', function
         ->assertJsonPath('charge.exact', '$0.0003175');
 
     expect($suggestion->refresh()->status)->toBe(SuggestionStatus::Discarded);
+});
+
+it('answers base_not_ready and a reused request key with 409 and their copy', function (): void {
+    Suggestions::fake(Suggestions::messageBody(Suggestions::proposal()));
+    $key = (string) Str::uuid();
+    postSuggestion(['request_key' => $key])->assertOk();
+
+    $this->take = Suggestions::baseTake($this->customer, ['project_id' => $this->take->project_id]);
+    postSuggestion(['request_key' => $key])->assertConflict()->assertExactJson([
+        'reason' => 'request_key_reused',
+        'message' => 'This request was already sent for another take. Try again.',
+    ]);
+
+    $this->take = Take::factory()->processing()->create(['customer_id' => $this->customer->id]);
+    postSuggestion()->assertConflict()->assertExactJson([
+        'reason' => 'base_not_ready',
+        'message' => 'Describe a change works on finished takes.',
+    ]);
+});
+
+it('never tells the customer a charged suggestion was not charged when it can no longer be used', function (): void {
+    $suggestion = Suggestion::factory()->create([
+        'customer_id' => $this->customer->id,
+        'project_id' => $this->take->project_id,
+        'base_take_id' => $this->take->id,
+        'status' => SuggestionStatus::Failed,
+    ]);
+
+    foreach (['suggestions.apply', 'suggestions.discard'] as $route) {
+        $response = $this->actingAs($this->customer, 'customer')->postJson(route($route, $suggestion))->assertConflict();
+
+        expect($response->json())->toBe(['reason' => 'not_proposed', 'message' => 'This suggestion can no longer be used. Describe a new change.'])
+            ->and($response->json('message'))->not->toContain('not charged');
+    }
 });

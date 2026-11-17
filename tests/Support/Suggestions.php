@@ -20,7 +20,7 @@ use Illuminate\Support\Str;
 /**
  * Fixtures for "Describe a change" tests (spec 8). The model is faked at the
  * HTTP boundary (Http::fake on the Messages API), so every test runs the
- * real laravel/ai request building and response parsing (D-073), including
+ * real laravel/ai request building and response parsing (D-076), including
  * the usage block the charge is settled from.
  */
 final class Suggestions
