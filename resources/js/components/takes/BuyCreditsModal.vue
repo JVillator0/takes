@@ -23,7 +23,7 @@ import type { CreditPack } from '@/types';
  */
 const page = usePage();
 const { t } = useCopy();
-const { isOpen, close } = useBuyCredits();
+const { isOpen, opener, close } = useBuyCredits();
 
 const packs = computed<CreditPack[]>(() => page.props.creditPacks ?? []);
 const selected = ref<CreditPack | null>(null);
@@ -67,10 +67,21 @@ const choose = (pack: CreditPack): void => {
             </DialogContent>
         </Dialog>
 
+        <!-- An unknown outcome reloads only the money props (F-09). -->
         <BuyCreditsDialog
             :pack="selected"
+            :return-focus="opener"
             @close="selected = null"
-            @unconfirmed="router.reload()"
+            @unconfirmed="
+                router.reload({
+                    only: [
+                        'auth',
+                        'balance',
+                        'negativeBalance',
+                        'smallestTake',
+                    ],
+                })
+            "
         />
     </div>
 </template>

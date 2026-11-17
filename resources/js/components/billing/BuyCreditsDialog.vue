@@ -25,6 +25,11 @@ import type { CreditPack } from '@/types';
 type Props = {
     /** The pack to buy; null keeps the dialog closed. */
     pack: CreditPack | null;
+    /**
+     * Where focus goes on close when the dialog was opened without a trigger
+     * (from the Buy credits modal); otherwise focus returns as usual.
+     */
+    returnFocus?: HTMLElement | null;
 };
 
 const props = defineProps<Props>();
@@ -133,6 +138,13 @@ function unconfirmed(): void {
     emit('unconfirmed');
 }
 
+function onCloseAutoFocus(event: Event): void {
+    if (props.returnFocus?.isConnected) {
+        event.preventDefault();
+        props.returnFocus.focus();
+    }
+}
+
 function onOpenChange(value: boolean): void {
     if (!value && !form.processing) {
         emit('close');
@@ -142,7 +154,11 @@ function onOpenChange(value: boolean): void {
 
 <template>
     <Dialog :open="open" @update:open="onOpenChange">
-        <DialogContent v-if="pack" class="sm:max-w-md">
+        <DialogContent
+            v-if="pack"
+            class="sm:max-w-md"
+            @close-auto-focus="onCloseAutoFocus"
+        >
             <DialogHeader>
                 <DialogTitle>
                     {{ t('billing.buy_title', { amount: pack.amount }) }}

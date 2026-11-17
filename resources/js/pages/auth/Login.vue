@@ -153,7 +153,9 @@ function onDemoLoginError(errors: Errors): void {
             <Button type="submit" class="w-full" :disabled="processing">
                 {{ demoPanel.tryDemo }}
             </Button>
-            <InputError class="mt-1" :message="errors.denial" />
+            <div role="status" aria-live="polite">
+                <InputError class="mt-1" :message="errors.denial" />
+            </div>
         </Form>
 
         <ul class="mt-4 grid gap-2">
