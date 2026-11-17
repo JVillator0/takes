@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Enums\Auth\AdminRole;
 use App\Models\User;
 use Database\Seeders\AdminUsersSeeder;
+use Filament\Auth\MultiFactor\App\AppAuthentication;
 use Illuminate\Support\Facades\Hash;
 
 // Spec 7 issue 2: the first super admin and the evaluator's auditor come from env, only when fully configured.
@@ -60,4 +61,35 @@ it('never resets the super admin password nor re-grants a revoked super admin ro
     expect(Hash::check('rotated-secret', $admin->password))->toBeTrue()
         ->and($admin->hasRole(AdminRole::SuperAdmin->value))->toBeFalse()
         ->and(User::query()->count())->toBe(2);
+});
+
+it('clears an authenticator app someone enrolled on the public auditor', function (): void {
+    $this->seed(AdminUsersSeeder::class);
+    $auditor = User::query()->where('email', 'auditor@example.com')->sole();
+    $auditor->forceFill([
+        'app_authentication_secret' => AppAuthentication::make()->generateSecret(),
+        'app_authentication_recovery_codes' => ['code-1'],
+    ])->save();
+
+    $this->seed(AdminUsersSeeder::class);
+
+    $auditor->refresh();
+    expect($auditor->app_authentication_secret)->toBeNull()
+        ->and($auditor->app_authentication_recovery_codes)->toBeNull();
+});
+
+it('pins the public auditor to exactly the auditor role', function (): void {
+    $this->seed(AdminUsersSeeder::class);
+    User::query()->where('email', 'auditor@example.com')->sole()->assignRole(AdminRole::Operator->value);
+
+    $this->seed(AdminUsersSeeder::class);
+
+    expect(User::query()->where('email', 'auditor@example.com')->sole()->getRoleNames()->all())->toBe([AdminRole::Auditor->value]);
+});
+
+it('fails loudly and seeds nobody when the auditor and super admin share an email', function (): void {
+    config(['admin.auditor.email' => 'ADMIN@example.com']);
+
+    expect(fn () => $this->seed(AdminUsersSeeder::class))->toThrow(RuntimeException::class, 'ADMIN_AUDITOR_EMAIL must differ');
+    expect(User::query()->count())->toBe(0);
 });

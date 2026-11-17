@@ -8,6 +8,7 @@ use App\Enums\Auth\AdminRole;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
+use RuntimeException;
 
 /**
  * The first super admin and the read-only auditor (spec 7 issue 2, D-013, D-045), from `config/admin.php` (env).
@@ -15,8 +16,9 @@ use Illuminate\Support\Facades\Hash;
  *
  * - Super admin: created once with its password and role; a later run never resets the password nor re-grants a
  *   role someone revoked on purpose (offboarding the env admin survives a redeploy).
- * - Auditor: a public demo login printed on /admin/login, so like the demo customers (D-072) its password is
- *   re-asserted on every run, and it gets the auditor role back whenever it holds no console role.
+ * - Auditor: a public demo login printed on /admin/login, so like the demo customers (D-072) every run re-asserts
+ *   its password, clears any authenticator app and pins it to exactly the auditor role. Its email must differ
+ *   from the super admin's (the run fails loudly otherwise).
  */
 final class AdminUsersSeeder extends Seeder
 {
@@ -24,8 +26,22 @@ final class AdminUsersSeeder extends Seeder
     {
         $this->call(AdminRolesSeeder::class);
 
+        $this->refuseSharedEmail();
         $this->seedSuperAdmin();
         $this->seedAuditor();
+    }
+
+    /**
+     * The auditor's password is public; one account must never be both.
+     */
+    private function refuseSharedEmail(): void
+    {
+        $superAdminEmail = config('admin.super_admin.email');
+        $auditorEmail = config('admin.auditor.email');
+
+        if (is_string($superAdminEmail) && $superAdminEmail !== '' && is_string($auditorEmail) && strcasecmp($superAdminEmail, $auditorEmail) === 0) {
+            throw new RuntimeException('ADMIN_AUDITOR_EMAIL must differ from ADMIN_EMAIL: the auditor password is public.');
+        }
     }
 
     private function seedSuperAdmin(): void
@@ -53,8 +69,14 @@ final class AdminUsersSeeder extends Seeder
             $auditor->forceFill(['password' => $credentials['password']])->save();
         }
 
-        if (! $auditor->hasAnyRole(AdminRole::values())) {
-            $auditor->assignRole(AdminRole::Auditor->value);
+        // A shared login nobody may lock: no authenticator app (the set-up page refuses it too).
+        if ($auditor->app_authentication_secret !== null || $auditor->app_authentication_recovery_codes !== null) {
+            $auditor->forceFill(['app_authentication_secret' => null, 'app_authentication_recovery_codes' => null])->save();
+        }
+
+        // Exactly the auditor role: a public password must never carry anything more.
+        if ($auditor->getRoleNames()->all() !== [AdminRole::Auditor->value]) {
+            $auditor->syncRoles([AdminRole::Auditor->value]);
         }
     }
 

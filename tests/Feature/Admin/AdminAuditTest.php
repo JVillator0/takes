@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 use App\Enums\Auth\AdminRole;
 use App\Models\Customer;
+use App\Models\Project;
 use App\Models\Take;
 use App\Models\User;
 use Database\Seeders\AdminRolesSeeder;
 use Filament\Facades\Filament;
+use Illuminate\Support\Facades\DB;
 use Spatie\Activitylog\Models\Activity;
 use Spatie\Permission\Models\Role;
 
@@ -43,10 +45,14 @@ it('records a write an admin makes while the console is serving, linking mapped 
 
     $customer = Customer::factory()->create();
     $customer->forceFill(['name' => 'Renamed'])->save();
+    $project = Project::factory()->create(['customer_id' => $customer->id]);
+    $project->delete();
 
     expect(adminAudit())->toBe([
         ['event' => 'created', 'causer' => $operator->id, 'subject' => 'customer', 'resource' => 'customers', 'record' => (string) $customer->id, 'names' => null],
         ['event' => 'updated', 'causer' => $operator->id, 'subject' => 'customer', 'resource' => 'customers', 'record' => (string) $customer->id, 'names' => null],
+        ['event' => 'created', 'causer' => $operator->id, 'subject' => null, 'resource' => 'projects', 'record' => $project->id, 'names' => null],
+        ['event' => 'deleted', 'causer' => $operator->id, 'subject' => null, 'resource' => 'projects', 'record' => $project->id, 'names' => null],
     ]);
 });
 
@@ -88,6 +94,17 @@ it('records writes on unmapped models (roles, permissions) by table and id, with
         ['event' => 'created', 'causer' => $superAdmin->id, 'subject' => null, 'resource' => 'roles', 'record' => (string) $role->id, 'names' => null],
         ['event' => 'permission_attached', 'causer' => $superAdmin->id, 'subject' => null, 'resource' => 'roles', 'record' => (string) $role->id, 'names' => 'ViewAny:Role'],
     ]);
+});
+
+it('does not query role names for permission events outside the console', function (): void {
+    $target = User::factory()->create();
+    $this->actingAs(User::factory()->admin(AdminRole::SuperAdmin)->create());
+
+    DB::enableQueryLog();
+    $target->assignRole(AdminRole::Auditor->value);
+
+    expect(collect(DB::getQueryLog())->pluck('query')->filter(fn (string $sql): bool => str_starts_with($sql, 'select "name" from "roles"'))->all())->toBe([])
+        ->and(adminAudit())->toBe([]);
 });
 
 it('ignores writes outside the console and a sign-in that only touches the remember token', function (): void {

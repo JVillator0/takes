@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\Auth\AdminRole;
+use App\Providers\Filament\AdminPanelProvider;
 use Database\Factories\UserFactory;
 use Filament\Auth\MultiFactor\App\Concerns\InteractsWithAppAuthentication;
 use Filament\Auth\MultiFactor\App\Concerns\InteractsWithAppAuthenticationRecovery;
@@ -71,6 +72,6 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
      */
     public function canAccessPanel(Panel $panel): bool
     {
-        return $panel->getId() === 'admin' && $this->hasAnyRole(AdminRole::values());
+        return $panel->getId() === AdminPanelProvider::ID && $this->hasAnyRole(AdminRole::values());
     }
 }
