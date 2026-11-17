@@ -24,6 +24,13 @@ return [
     ],
 
     'enums' => [
+        'take_status' => [
+            'pending' => 'Pending',
+            'queued' => 'Queued',
+            'processing' => 'Processing',
+            'succeeded' => 'Succeeded',
+            'failed' => 'Failed',
+        ],
         'ledger_entry_type' => [
             'purchase' => 'Purchase',
             'promo_grant' => 'Promo grant',
@@ -58,7 +65,7 @@ return [
             'outstanding' => 'Outstanding credits (liability)',
             'holds' => 'Active holds',
             'holds_count' => ':count open usage records',
-            'avg_spend' => 'Avg spend / active customer (30 d)',
+            'avg_spend' => 'Avg spend / spending customer (30 d)',
         ],
         'filters' => [
             'role' => 'Role',

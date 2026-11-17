@@ -8,16 +8,19 @@ use App\Enums\Auth\AdminRole;
 use App\Enums\Auth\CustomerRole;
 use App\Enums\Auth\DemoAccount;
 use App\Enums\Billing\LedgerEntryType;
+use App\Filament\Admin\Pages\Dashboard;
 use App\Filament\Admin\Resources\Customers\Pages\ListCustomers;
 use App\Filament\Admin\Resources\Customers\Pages\ViewCustomer;
 use App\Filament\Admin\Resources\Customers\RelationManagers\LedgerEntriesRelationManager;
 use App\Filament\Admin\Resources\Customers\RelationManagers\TakesRelationManager;
+use App\Filament\Admin\Widgets\CustomerStatsOverview;
 use App\Models\Customer;
 use App\Models\LedgerEntry;
 use App\Models\Take;
 use App\Models\UsageRecord;
 use App\Models\User;
 use App\Queries\Customers\GetCustomerStatsQuery;
+use App\Support\Money\Nanodollars;
 use Carbon\CarbonImmutable;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Actions\Testing\TestAction;
@@ -26,6 +29,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
 use Spatie\Activitylog\Models\Activity;
+use Spatie\Permission\Models\Role;
+use Spatie\Permission\PermissionRegistrar;
 
 // Spec 7 issue 7 (#68): Customers (A09 table, A05 view), Adjust credits and Restrict/Unrestrict, audited.
 
@@ -188,11 +193,30 @@ it('shows the auditor the customer page with both tabs and no header write actio
     Livewire::test(TakesRelationManager::class, ['ownerRecord' => $ana, 'pageClass' => ViewCustomer::class])->assertOk();
 });
 
+it('gates both tabs on the customer permission alone', function (): void {
+    $ana = fundedCustomer();
+    $auditor = User::factory()->admin(AdminRole::Auditor)->create();
+    $withoutCustomers = User::factory()->admin(AdminRole::Auditor)->create();
+
+    $this->actingAs($auditor);
+    expect(TakesRelationManager::canViewForRecord($ana, ViewCustomer::class))->toBeTrue()
+        ->and(LedgerEntriesRelationManager::canViewForRecord($ana, ViewCustomer::class))->toBeTrue()
+        ->and($auditor->can('ViewAny:Take'))->toBeFalse();
+
+    Role::findByName(AdminRole::Auditor->value, AdminRole::GUARD)->revokePermissionTo('ViewAny:Customer');
+    app(PermissionRegistrar::class)->forgetCachedPermissions();
+    $this->actingAs($withoutCustomers->refresh());
+
+    expect(TakesRelationManager::canViewForRecord($ana, ViewCustomer::class))->toBeFalse()
+        ->and(LedgerEntriesRelationManager::canViewForRecord($ana, ViewCustomer::class))->toBeFalse();
+});
+
 it('keeps the customer stats off the dashboard', function (): void {
-    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create())
-        ->get('/admin')
-        ->assertOk()
-        ->assertDontSee('Outstanding credits (liability)');
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
+
+    // The panel discovers the widget (so Shield gives it a permission), but the dashboard lists none.
+    expect(Filament::getPanel('admin')->getWidgets())->toContain(CustomerStatsOverview::class)
+        ->and(Livewire::test(Dashboard::class)->instance()->getWidgets())->toBe([]);
 });
 
 it('restricts and unrestricts a customer with a reason, audited', function (): void {
@@ -208,8 +232,17 @@ it('restricts and unrestricts a customer with a reason, audited', function (): v
         ->callAction('restrict', ['reason' => 'resolved'])
         ->assertHasNoFormErrors();
     expect($ana->refresh()->getRoleNames()->all())->toBe([CustomerRole::Customer->value])
-        ->and(Activity::query()->whereIn('event', [RestrictCustomerAction::RESTRICTED, RestrictCustomerAction::UNRESTRICTED])->pluck('event')->all())
-        ->toBe([RestrictCustomerAction::RESTRICTED, RestrictCustomerAction::UNRESTRICTED]);
+        ->and(Activity::query()->whereIn('event', [RestrictCustomerAction::RESTRICTED, RestrictCustomerAction::UNRESTRICTED])->orderBy('id')->get()
+            ->map(fn (Activity $entry): array => [$entry->event, $entry->properties['reason'] ?? null])->all())
+        ->toBe([[RestrictCustomerAction::RESTRICTED, 'abuse report #7'], [RestrictCustomerAction::UNRESTRICTED, 'resolved']]);
+});
+
+it('refuses a blank reason in the actions themselves', function (): void {
+    $ana = fundedCustomer();
+
+    expect(fn () => app(RestrictCustomerAction::class)->execute(operator(), $ana, true, '   '))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => app(AdjustCustomerCreditsAction::class)->execute(operator(), $ana, Nanodollars::fromInt(1), '   '))->toThrow(InvalidArgumentException::class)
+        ->and(Activity::query()->where('log_name', 'admin')->whereIn('event', [RestrictCustomerAction::RESTRICTED, AdjustCustomerCreditsAction::EVENT])->exists())->toBeFalse();
 });
 
 it('never offers Restrict on a shared demo login', function (): void {
@@ -250,6 +283,22 @@ it('writes Last active at most every five minutes from customer requests', funct
     $this->travelTo(CarbonImmutable::parse('2026-11-17 12:06:00', 'UTC'));
     $this->actingAs($customer->refresh(), 'customer')->get('/billing')->assertOk();
     expect($customer->refresh()->last_active_at?->toDateTimeString())->toBe('2026-11-17 12:06:00');
+});
+
+it('averages spend over the last 30 UTC days, null without spend, and counts active today from UTC midnight', function (): void {
+    $this->travelTo(CarbonImmutable::parse('2026-11-17 12:00:00', 'UTC'));
+    $inWindow = Customer::factory()->create(['last_active_at' => '2026-11-17 00:00:00']);
+    $outOfWindow = Customer::factory()->create(['last_active_at' => '2026-11-16 23:59:59']);
+
+    expect(app(GetCustomerStatsQuery::class)->execute()->averageSpend)->toBeNull();
+
+    UsageRecord::factory()->settled(80_000_000)->create(['customer_id' => $inWindow->id, 'billing_date' => '2026-10-19']); // 29 days ago
+    UsageRecord::factory()->settled(80_000_000)->create(['customer_id' => $outOfWindow->id, 'billing_date' => '2026-10-18']); // 30 days ago
+
+    $stats = app(GetCustomerStatsQuery::class)->execute();
+
+    expect($stats->averageSpend?->toInt())->toBe(100_000_000)
+        ->and($stats->activeToday)->toBe(1);
 });
 
 it('sums outstanding credits and active holds for the header stats', function (): void {

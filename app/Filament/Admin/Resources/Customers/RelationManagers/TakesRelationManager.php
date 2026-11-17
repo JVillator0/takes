@@ -4,14 +4,12 @@ declare(strict_types=1);
 
 namespace App\Filament\Admin\Resources\Customers\RelationManagers;
 
-use App\Enums\Takes\TakeStatus;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Str;
 
 /**
  * A05 "Takes" tab: the customer's takes, newest first (the full take view is Studio › Takes, A06). Part of the
@@ -42,11 +40,9 @@ final class TakesRelationManager extends RelationManager
     {
         return $table
             ->columns([
-                TextColumn::make('id')->label(__('console.customers.takes_tab.take'))->fontFamily('mono')
-                    ->formatStateUsing(fn (string $state): string => Str::limit($state, 10, '…')),
-                TextColumn::make('status')->label(__('console.customers.takes_tab.status'))->badge()
-                    ->formatStateUsing(fn (TakeStatus $state): string => $state->label())
-                    ->color(fn (TakeStatus $state): string => $state->color()),
+                // A ULID's first characters are its timestamp: takes made together share them, so show it whole.
+                TextColumn::make('id')->label(__('console.customers.takes_tab.take'))->fontFamily('mono')->copyable(),
+                TextColumn::make('status')->label(__('console.customers.takes_tab.status'))->badge(),
                 TextColumn::make('prompt')->label(__('console.customers.takes_tab.prompt'))->limit(60),
                 TextColumn::make('created_at')->label(__('console.customers.takes_tab.created'))->dateTime('Y-m-d H:i:s'),
             ])
