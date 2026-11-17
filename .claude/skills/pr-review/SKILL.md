@@ -9,7 +9,7 @@ Every PR in `JVillator0/takes` is reviewed by `.claude/workflows/pr-review.js`: 
 
 ## Before running
 
-1. The PR was opened with the template (Summary · Why · Spec section · Changes · Money impact · Test evidence · Screenshots · Risks · Checklist), a Conventional Commit title and `Closes #N`.
+1. The PR was opened with the template (Summary · Why · Spec section · Changes · Money impact · Test evidence · Screenshots · Risks · Checklist), a Conventional Commit title and `Closes #N`. Bootstrap exception (milestones M0–M1, before the GitHub Project issues existed): `Refs spec <n-nn>` is accepted as the link; the judge says so in the PR body gate note.
 2. Money or webhook PR: the author ticked "I can explain every line of this PR". Without it the judge fails the gate.
 3. CI finished: `gh pr checks <n> --watch`. Red CI ⇒ the author fixes it first (the workflow still runs on red CI, but the verdict is NOT MERGEABLE).
 4. Push everything first. The workflow records the reviewed head SHA; a push after the review makes the merge step refuse.
@@ -20,11 +20,11 @@ Call the **Workflow** tool with:
 
 ```json
 {
-  "scriptPath": "/Users/javiervillatoro/Documents/Work/promptedit/takes/.claude/workflows/pr-review.js",
+  "scriptPath": "<repo>/.claude/workflows/pr-review.js",
   "args": {
     "pr": 12,
     "repo": "JVillator0/takes",
-    "cwd": "/Users/javiervillatoro/Documents/Work/promptedit/takes"
+    "cwd": "<repo>"
   }
 }
 ```
@@ -33,11 +33,11 @@ Call the **Workflow** tool with:
 |---|---|---|
 | `pr` | yes | PR number |
 | `repo` | no (default `JVillator0/takes`) | `owner/name` |
-| `cwd` | yes | absolute path of a checkout whose `.claude/agents/` and `.claude/specs/` the agents read (normally the main checkout). Agents only `git fetch` and `git show` there; they never check out branches. |
+| `cwd` | yes | `<repo>`: absolute path of a clean checkout kept at `origin/main` (the lead keeps one next to the worktrees, e.g. `../takes-review`, and runs `git pull --ff-only` there before a review). Agents read `.claude/agents/`, `.claude/rules/` and `.claude/specs/` from it. The Context step fetches the PR's head and base commits into it once; the other agents only run `git diff` and `git show` and never check out branches. |
 | `round` | no | 1–3. Default: number of earlier judge comments + 1. Above 3 the workflow stops and asks for escalation. |
 | `judgeOnly` | no | `true` to skip the reviewers on a re-check after **MERGEABLE AFTER NITS**. Ignored when the last verdict was NOT MERGEABLE (that needs a full run). Docs-only and generated-only PRs are always judge-only. |
 
-Prefer an absolute `scriptPath`. A harness PR that changes the script itself is reviewed by running the script from its own branch (it does not exist on `main` yet): point `scriptPath` at that worktree's copy, and `cwd` at the same worktree so the agents read the definitions under review.
+`<repo>` is always an absolute path. A harness PR that changes the script itself is reviewed by running the script from its own branch (it does not exist on `main` yet): point `scriptPath` at that worktree's copy, and `cwd` at the same worktree so the agents read the definitions under review.
 
 ### What it does
 
@@ -46,7 +46,7 @@ Prefer an absolute `scriptPath`. A harness PR that changes the script itself is 
    - `inertia-vue-reviewer`: `resources/js/`, `resources/css/`, `vite.config.*`
    - `filament-reviewer`: `app/Filament/`, `app/Providers/Filament/`, `lang/*/console.php`
    - docs (`*.md`, `docs/`, `.claude/specs/`, images) and generated files (lock files, Wayfinder output, `public/build/`) go to no reviewer; anything else is judged directly by the judge.
-2. **Review**: each reviewer with files reads its definition in `.claude/agents/` (inline fallback checklist if missing), reviews only its own diff and posts **one** `COMMENT` review with inline comments, headed `<Name> · automated reviewer (Claude Opus 5.5)`. Reviewers without files are N/A.
+2. **Review**: each reviewer with files reads its definition in `.claude/agents/` (inline fallback checklist if missing), reviews only its own diff and returns `{reviewer, summary, findings}` (reviewers are read-only). The workflow renders that into **one** `COMMENT` review with inline comments, headed `<Name> · automated reviewer (Claude Opus 5.5)`, and a small post step publishes it (findings on lines outside the diff move into the review body). Reviewers without files are N/A; a reviewer that fails is reported as failed and the judge reviews its files.
 3. **Judge**: `pr-judge` scores the 9 dimensions, checks the gates and returns findings; the script recomputes the verdict (it can only get stricter), numbers findings #1…#n, posts the scorecard comment and sets the label. On MERGEABLE it re-reads the head SHA and checks and runs `gh pr merge --squash --auto --delete-branch --match-head-commit <sha>`; if the SHA moved it refuses and says so.
 
 It returns `{ verdict, score, merged, autoMergeEnabled, outcome, decision, commentUrl, round, reviewedSha, reviewers, findings }`.
@@ -69,13 +69,23 @@ The issue closes through `Closes #N`. The author's worktree is released as descr
 
 ## Labels
 
-`verdict:mergeable`, `verdict:nits`, `verdict:not-mergeable` exist in the repo; the workflow keeps exactly one of them on the PR. Create them again (idempotent) with:
+`verdict:mergeable`, `verdict:nits`, `verdict:not-mergeable` exist in the repo; the workflow keeps at most one of them on the PR. `verdict:mergeable` is applied only when the PR was merged or auto-merge was enabled; when a MERGEABLE verdict is refused at merge time (head moved, CI not green, merge error) every `verdict:*` label is removed, because the PR needs a re-run. Create them again (idempotent) with:
 
 ```bash
 gh label create verdict:mergeable --color 0e8a16 --description "Judge: MERGEABLE" --force -R JVillator0/takes
 gh label create verdict:nits --color fbca04 --description "Judge: MERGEABLE AFTER NITS" --force -R JVillator0/takes
 gh label create verdict:not-mergeable --color d93f0b --description "Judge: NOT MERGEABLE" --force -R JVillator0/takes
 ```
+
+## Tests of the workflow script
+
+The gate logic (verdict thresholds, score validation, CI derivation, findings numbering, PR body checks) and whole runs with stubbed agents are covered by `node:test` (Node 22+), outside CI because the harness CI is PHP-first:
+
+```bash
+node --test '.claude/tests/*.test.mjs'
+```
+
+Run it after any change to `.claude/workflows/pr-review.js`. The tests evaluate the script's pure helpers up to the `// ---- end of pure helpers` marker, so keep helpers above it.
 
 ## Troubleshooting
 

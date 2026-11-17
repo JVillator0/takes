@@ -106,7 +106,9 @@ const CONTEXT_SCHEMA = {
     url: { type: 'string' },
     title: { type: 'string' },
     body: { type: 'string', description: 'PR body, verbatim' },
-    headSha: { type: 'string', description: 'full 40-char head commit SHA' },
+    headSha: { type: 'string', description: 'full 40-char head commit SHA (headRefOid)' },
+    baseSha: { type: 'string', description: 'full 40-char SHA of the base branch tip (baseRefOid)' },
+    objectsFetched: { type: 'boolean', description: 'true when git cat-file -e succeeded for both headSha and baseSha in args.cwd' },
     headRef: { type: 'string' },
     baseRef: { type: 'string' },
     files: {
@@ -137,7 +139,6 @@ const CONTEXT_SCHEMA = {
     ci: {
       type: 'object',
       properties: {
-        overall: { type: 'string', enum: ['pass', 'fail', 'pending', 'none'] },
         checks: {
           type: 'array',
           items: {
@@ -147,13 +148,13 @@ const CONTEXT_SCHEMA = {
           },
         },
       },
-      required: ['overall', 'checks'],
+      required: ['checks'],
     },
     labels: { type: 'array', items: { type: 'string' } },
     previousJudgeRounds: { type: 'integer', description: 'number of earlier judge scorecard comments on this PR' },
   },
   required: [
-    'state', 'isDraft', 'url', 'title', 'body', 'headSha', 'headRef', 'baseRef', 'files',
+    'state', 'isDraft', 'url', 'title', 'body', 'headSha', 'baseSha', 'objectsFetched', 'headRef', 'baseRef', 'files',
     'linkedIssue', 'specRef', 'specPath', 'ci', 'labels', 'previousJudgeRounds',
   ],
 }
@@ -171,18 +172,31 @@ const FINDING = {
   required: ['path', 'line', 'severity', 'title', 'body'],
 }
 
+// Matches the reviewer agents' output contract ({reviewer, summary, findings});
+// the extra fields are optional so a definition that only returns those three still validates.
 const REVIEW_SCHEMA = {
   type: 'object',
   properties: {
-    definitionSource: { type: 'string', enum: ['agent-file', 'inline-fallback'] },
-    posted: { type: 'boolean' },
-    reviewUrl: { type: ['string', 'null'] },
-    inlineComments: { type: 'integer' },
+    reviewer: { type: 'string' },
+    summary: { type: 'string' },
     findings: { type: 'array', items: FINDING },
     checked: { type: 'array', items: { type: 'string' }, description: 'what you verified, file by file' },
-    summary: { type: 'string' },
+    definitionSource: { type: 'string', enum: ['agent-file', 'inline-fallback'] },
   },
-  required: ['definitionSource', 'posted', 'reviewUrl', 'inlineComments', 'findings', 'checked', 'summary'],
+  required: ['summary', 'findings'],
+}
+
+const POST_REVIEW_SCHEMA = {
+  type: 'object',
+  properties: {
+    posted: { type: 'boolean' },
+    alreadyPosted: { type: 'boolean' },
+    reviewUrl: { type: ['string', 'null'] },
+    inlineComments: { type: 'integer' },
+    movedToBody: { type: 'integer', description: 'inline comments moved into the body after a 422' },
+    error: { type: ['string', 'null'] },
+  },
+  required: ['posted', 'alreadyPosted', 'reviewUrl', 'inlineComments', 'movedToBody', 'error'],
 }
 
 const DIMENSIONS = [
@@ -290,6 +304,29 @@ const json = (v) => JSON.stringify(v, null, 2)
 const SEVERITY_ORDER = { critical: 0, important: 1, minor: 2 }
 const ORIGIN_ORDER = { introduced: 0, 'pre-existing': 1 }
 
+const isSha = (v) => typeof v === 'string' && /^[0-9a-f]{40}$/.test(v)
+
+function deriveCiOverall(checks) {
+  const buckets = (checks || []).map((c) => c.bucket)
+  if (buckets.some((b) => b === 'fail' || b === 'cancel')) return 'fail'
+  if (buckets.some((b) => b === 'pending')) return 'pending'
+  if (buckets.some((b) => b === 'pass')) return 'pass'
+  return 'none'
+}
+
+// One entry per dimension, and Money safety must be scored on a money/webhook PR.
+function validateScores(judge, { moneyOrWebhook }) {
+  const problems = []
+  for (const d of DIMENSIONS) {
+    const n = judge.scores.filter((s) => s.dimension === d).length
+    if (n === 0) problems.push(`scorecard is missing "${d}"`)
+    if (n > 1) problems.push(`scorecard has ${n} entries for "${d}"`)
+  }
+  const money = judge.scores.find((s) => s.dimension === 'Money safety')
+  if (moneyOrWebhook && money && money.score === null) problems.push('Money safety is N/A on a PR that touches money or webhook paths')
+  return problems
+}
+
 function verdictRank(v) {
   return { MERGEABLE: 0, 'MERGEABLE AFTER NITS': 1, 'NOT MERGEABLE': 2 }[v]
 }
@@ -309,14 +346,14 @@ function missingSections(body) {
 
 // The model scores; this code enforces the thresholds of spec 1-03. The final
 // verdict is the stricter of the judge's verdict and the computed one.
-function computeVerdict(judge) {
+function computeVerdict(judge, { moneyOrWebhook = false } = {}) {
   const applicable = judge.scores.filter((s) => s.score !== null && s.score !== undefined)
   const avg = applicable.length ? applicable.reduce((a, s) => a + s.score, 0) / applicable.length : 0
   const score = Math.round(avg * 10) / 10
   const blocking = judge.findings.filter((f) => f.origin === 'introduced' && f.status === 'open')
   const criticals = blocking.filter((f) => f.severity === 'critical').length
   const importants = blocking.filter((f) => f.severity === 'important').length
-  const reasons = []
+  const reasons = validateScores(judge, { moneyOrWebhook })
 
   for (const dim of ['Money safety', 'Robustness']) {
     const s = judge.scores.find((x) => x.dimension === dim)
@@ -392,6 +429,33 @@ function renderScorecard({ verdict, score, judge, numbered, round, sha, reviewer
   ].join('\n')
 }
 
+function renderReview({ name, marker, review, files }) {
+  const counts = ['critical', 'important', 'minor']
+    .map((sev) => `${review.findings.filter((f) => f.severity === sev).length} ${sev}`)
+    .join(' · ')
+  const inline = review.findings.filter((f) => Number.isInteger(f.line) && f.line > 0)
+  const fileLevel = review.findings.filter((f) => !inline.includes(f))
+  const commentBody = (f) =>
+    [`**${f.severity}** · ${f.title}`, '', f.body, ...(f.suggestion ? ['', `**Suggestion:** ${f.suggestion}`] : [])].join('\n')
+  const body = [
+    `${name} · automated reviewer (${MODEL_LABEL})`,
+    marker,
+    '',
+    review.summary,
+    '',
+    `Files: ${files.map((p) => `\`${p}\``).join(', ')}`,
+    `Findings: ${counts}`,
+    ...(fileLevel.length ? ['', 'File-level findings:', ...fileLevel.map((f) => `- **${f.severity}** \`${f.path}\` ${f.title}: ${f.body}`)] : []),
+    ...(review.checked && review.checked.length ? ['', 'Checked:', ...review.checked.map((c) => `- ${c}`)] : []),
+  ].join('\n')
+  return {
+    body,
+    comments: inline.map((f) => ({ path: f.path, line: f.line, side: 'RIGHT', body: commentBody(f) })),
+  }
+}
+
+// ---- end of pure helpers: .claude/tests/pr-review-workflow.test.mjs evaluates everything above this line ----
+
 // ---------------------------------------------------------------------------
 // Phase 1: Context
 // ---------------------------------------------------------------------------
@@ -402,12 +466,13 @@ const ctx = await agent(
   `Collect the facts the PR review workflow needs for PR #${PR} in ${REPO}. You only read; never comment, label, push or check out branches (the working tree in ${CWD} is shared with the lead session).
 
 Run from ${CWD}:
-1. \`gh pr view ${PR} -R ${REPO} --json number,state,isDraft,url,title,body,headRefOid,headRefName,baseRefName,labels,closingIssuesReferences\`.
+1. \`gh pr view ${PR} -R ${REPO} --json number,state,isDraft,url,title,body,headRefOid,baseRefOid,headRefName,baseRefName,labels,closingIssuesReferences\`. headSha = headRefOid, baseSha = baseRefOid (full 40-char SHAs).
 2. Changed files with pagination: \`gh api --paginate repos/${REPO}/pulls/${PR}/files --jq '.[] | {path: .filename, status, additions, deletions}'\`. Return every file.
-3. CI: \`gh pr checks ${PR} -R ${REPO} --json name,bucket,link\`. If any check has bucket "pending", wait once with \`gh pr checks ${PR} -R ${REPO} --watch --interval 30\` (Bash timeout 560000 ms), then read the JSON again. overall = "fail" if any bucket is fail or cancel, else "pending" if any is pending, else "pass" if there is at least one check, else "none".
+3. CI: \`gh pr checks ${PR} -R ${REPO} --json name,bucket,link\`. If any check has bucket "pending", wait once with \`gh pr checks ${PR} -R ${REPO} --watch --interval 30\` (Bash timeout 560000 ms), then read the JSON again. Return every check with its bucket exactly as gh reports it.
 4. Linked issue: the first of closingIssuesReferences, or else a "Closes|Fixes|Resolves #N" in the body. Read it with \`gh issue view N -R ${REPO} --json number,title,body,labels\`. null when there is none.
 5. Spec reference: look in the PR body ("Spec section", "Refs spec …"), the issue body and \`spec/<n>\` labels. If found, locate the matching spec file under ${CWD}/.claude/specs/ (e.g. "3-03" -> 3-*/03-SPEC.md, "4" -> 4-*/SPEC.md or the folder's main file) and return its path relative to ${CWD}; otherwise null.
-6. previousJudgeRounds: count the PR's issue comments whose body contains "<!-- pr-review:judge " (\`gh api --paginate repos/${REPO}/issues/${PR}/comments --jq '.[].body'\`).
+6. Fetch the commits once for every later agent (they must not fetch in parallel): \`git -C ${CWD} fetch --quiet origin pull/${PR}/head <baseSha>\`, then \`git -C ${CWD} cat-file -e <headSha>^{commit} && git -C ${CWD} cat-file -e <baseSha>^{commit}\`. objectsFetched = true only if both succeed.
+7. previousJudgeRounds: count the PR's issue comments whose body contains "<!-- pr-review:judge " (\`gh api --paginate repos/${REPO}/issues/${PR}/comments --jq '.[].body'\`).
 
 Return the body and titles verbatim (do not summarise them).`,
   { label: 'context', phase: 'Context', schema: CONTEXT_SCHEMA },
@@ -425,7 +490,15 @@ if (round < 1 || round > MAX_ROUNDS) {
   return { verdict: null, score: null, merged: false, findings: [], round, reason: 'round limit reached; escalate to Javier' }
 }
 
+if (!isSha(ctx.headSha) || !isSha(ctx.baseSha)) {
+  throw new Error(`Context returned an invalid SHA (head "${ctx.headSha}", base "${ctx.baseSha}"); nothing was posted.`)
+}
+if (!/^[\w./-]+$/.test(ctx.baseRef)) throw new Error(`Context returned an invalid base ref "${ctx.baseRef}"; nothing was posted.`)
+if (!ctx.objectsFetched) throw new Error(`Could not fetch ${short(ctx.headSha)} and ${short(ctx.baseSha)} into ${CWD}; nothing was posted.`)
+
 const SHA = ctx.headSha
+const BASE_SHA = ctx.baseSha
+const CI = deriveCiOverall(ctx.ci.checks)
 const paths = ctx.files.map((f) => f.path)
 const reviewable = paths.filter((p) => !isDoc(p) && !isGenerated(p))
 const docsOrGeneratedOnly = reviewable.length === 0
@@ -442,12 +515,12 @@ if (input.judgeOnly === true && ctx.labels.includes(VERDICT_LABELS['NOT MERGEABL
 }
 
 log(
-  `PR #${PR} "${ctx.title}" · head ${short(SHA)} · round ${round} · CI ${ctx.ci.overall} · ` +
+  `PR #${PR} "${ctx.title}" · head ${short(SHA)} · round ${round} · CI ${CI} · ` +
     `${paths.length} files (${reviewable.length} reviewable, ${unscoped.length} unscoped)` +
     (judgeOnly ? ' · judge only' : ''),
 )
 if (ctx.isDraft) log('PR is a draft: it will be reviewed but never merged.')
-if (ctx.ci.overall === 'fail') log('CI is red: reviews still run, the CI gate will fail the verdict.')
+if (CI === 'fail') log('CI is red: reviews still run, the CI gate will fail the verdict.')
 
 // ---------------------------------------------------------------------------
 // Phase 2: Review
@@ -460,51 +533,66 @@ const notApplicable = scoped.filter((r) => !active.includes(r))
 for (const r of notApplicable) log(`${r.name}: N/A (${judgeOnly ? 'judge-only run' : 'no files in scope'})`)
 
 function reviewerPrompt(r) {
-  const marker = `<!-- pr-review:reviewer=${r.id} sha=${SHA} round=${round} -->`
-  return `You are the **${r.id}** for PR #${PR} in ${REPO} (head ${SHA}, base ${ctx.baseRef}, round ${round}).
+  return `You are the **${r.id}** for PR #${PR} in ${REPO} (head ${SHA}, base ${ctx.baseRef} at ${BASE_SHA}, round ${round}).
 
 ## Your definition
-Read ${CWD}/.claude/agents/${r.id}.md and act as that agent: its checklist, posture and severity rules apply. If the file does not exist, use this fallback checklist (and report definitionSource "inline-fallback"):
+Read ${CWD}/.claude/agents/${r.id}.md and act as that agent: its scope, checklist, posture, severity rules and output contract apply. If the file does not exist, use this fallback checklist (and set definitionSource "inline-fallback"):
 ${r.fallback.map((l) => `- ${l}`).join('\n')}
 
 ## Your files (review ONLY these; other reviewers own the rest)
 ${r.files.map((p) => `- ${p}`).join('\n')}
 
-## How to read the change (never check out branches: ${CWD} is shared)
-- Fetch once: \`git -C ${CWD} fetch --quiet origin ${ctx.baseRef} pull/${PR}/head\` (only updates remote refs and objects).
-- Your diff, limited to your paths: \`git -C ${CWD} diff origin/${ctx.baseRef}...${SHA} -- ${r.files.map((p) => `'${p.replace(/'/g, "'\\''")}'`).join(' ')}\`
+## How to read the change (read-only; never check out branches: ${CWD} is shared)
+- Both commits are already fetched into ${CWD}; do not run git fetch.
+- Your diff, limited to your paths: \`git -C ${CWD} diff ${BASE_SHA}...${SHA} -- ${r.files.map((p) => `'${p.replace(/'/g, "'\\''")}'`).join(' ')}\`
 - Full files at the reviewed head: \`git -C ${CWD} show ${SHA}:<path>\`. Read callers and related files the same way when you need them.
 - PR intent: title "${ctx.title.replace(/"/g, '\\"')}"${ctx.linkedIssue ? `, issue #${ctx.linkedIssue.number}` : ''}${ctx.specPath ? `, spec ${ctx.specPath}` : ''}. Read the project rules your definition references (.claude/rules/*.md) from ${CWD}.
 
 ## Findings
 - Each finding: path, line (line number in the NEW file, on a line that appears in your diff; null if file-level), severity critical|important|minor, title (one line), body (what is wrong, why it matters, evidence), optional suggestion (the fix).
-- critical = wrong money, data loss, security hole, broken invariant or failing behaviour; important = should be fixed before merge; minor = polish.
-- Be a gate, not a cheerleader: trace control flow to the real effect, distrust the PR description, and only report what you can point to at path:line. If you find nothing blocking, list in "checked" exactly what you verified.
-- English only.
-
-## Post exactly ONE GitHub review
-1. Idempotency: if \`gh api --paginate repos/${REPO}/pulls/${PR}/reviews --jq '.[].body'\` already contains the marker \`${marker}\`, do not post again; set posted=true and return the findings.
-2. Write a JSON payload to a file in a fresh \`mktemp -d\` directory:
-   - "commit_id": "${SHA}", "event": "COMMENT"
-   - "body": first line exactly \`${r.name} · automated reviewer (${MODEL_LABEL})\`, then the marker \`${marker}\`, then a short summary: files reviewed, counts by severity, the file-level findings and any finding whose line is not in the diff (as "path:line — title: body"), and what you checked.
-   - "comments": one per finding whose line is in the diff: {"path", "line", "side": "RIGHT", "body": "**<severity>** · <title>\\n\\n<body>\\n\\n**Suggestion:** <suggestion>"}.
-   No findings at all: still post the review, with an empty comments array and a body saying what you checked.
-3. \`gh api --method POST repos/${REPO}/pulls/${PR}/reviews --input <file>\`. If GitHub answers 422 because a line is not part of the diff, move those comments into the body and post again (still one review in total). Never use APPROVE or REQUEST_CHANGES.
-4. Return posted, the review html_url, the number of inline comments, the findings, what you checked and a two-sentence summary.`
+- Be a gate, not a cheerleader: trace control flow to the real effect, distrust the PR description, and only report what you can point to at path:line. List in "checked" what you verified.
+- English only. Do not post anything to GitHub: the workflow posts your review.
+- Return reviewer "${r.id}", summary (one or two sentences), findings, checked.`
 }
 
-const reviewResults = await parallel(
-  active.map((r) => async () => {
-    const res = await agent(reviewerPrompt(r), { label: r.id, phase: 'Review', schema: REVIEW_SCHEMA })
-    if (!res) {
-      log(`${r.name}: agent failed; the judge reviews its files instead.`)
-      return { reviewer: r.id, name: r.name, failed: true, files: r.files, findings: [] }
-    }
-    log(`${r.name}: ${res.findings.length} finding(s)${res.posted ? '' : ' · review NOT posted'}`)
-    return { reviewer: r.id, name: r.name, files: r.files, ...res }
-  }),
-)
-const reviews = reviewResults.filter(Boolean)
+function postReviewPrompt(r, payload, marker) {
+  return `Post one GitHub review on PR #${PR} in ${REPO} for the ${r.id}. Do not change its text. Run gh with \`-R ${REPO}\` or full API paths from a fresh \`mktemp -d\` directory.
+
+1. Idempotency: if \`gh api --paginate repos/${REPO}/pulls/${PR}/reviews --jq '.[].body'\` already contains \`${marker}\`, post nothing; return posted=true, alreadyPosted=true and that review's html_url.
+2. Write the JSON payload between the BEGIN/END lines to a file and run \`gh api --method POST repos/${REPO}/pulls/${PR}/reviews --input <file>\`.
+3. If GitHub answers 422 because a comment line is not part of the diff, find which comments are outside the diff hunks (\`git -C ${CWD} diff ${BASE_SHA}...${SHA} -- <path>\`; a comment is valid only on a "+" or context line of the new file), move those into the body under "Findings outside the diff:" as "- <path>:<line> <comment body first line>", and post again. If it still fails, move every comment into the body and post once more. Never post more than one review; never use APPROVE or REQUEST_CHANGES.
+4. Return posted, alreadyPosted, the review html_url, the number of inline comments that were posted, movedToBody, and error (null on success).
+
+-----BEGIN PAYLOAD-----
+${json(payload)}
+-----END PAYLOAD-----`
+}
+
+async function reviewStage(r) {
+  const review = await agent(reviewerPrompt(r), { label: r.id, phase: 'Review', schema: REVIEW_SCHEMA })
+  if (!review) return { reviewer: r.id, name: r.name, files: r.files, failed: true, findings: [] }
+  return { ...review, reviewer: r.id, name: r.name, files: r.files }
+}
+
+async function postStage(res, r) {
+  if (res.failed) return res
+  const marker = `<!-- pr-review:reviewer=${r.id} sha=${SHA} round=${round} -->`
+  const { body, comments } = renderReview({ name: r.name, marker, review: res, files: r.files })
+  const payload = { commit_id: SHA, event: 'COMMENT', body, comments }
+  const post = await agent(postReviewPrompt(r, payload, marker), { label: `post ${r.id}`, phase: 'Review', schema: POST_REVIEW_SCHEMA })
+  return { ...res, posted: !!post && post.posted, reviewUrl: post ? post.reviewUrl : null, postError: post ? post.error : 'post agent failed' }
+}
+
+// pipeline() turns a stage that throws into null; map results back by index so a
+// crashed reviewer is reported as failed (and judged directly), never as N/A.
+const reviewResults = active.length ? await pipeline(active, reviewStage, postStage) : []
+const reviews = active.map((r, i) => {
+  const res = reviewResults[i]
+  const out = res || { reviewer: r.id, name: r.name, files: r.files, failed: true, findings: [] }
+  if (out.failed) log(`${r.name}: agent failed; the judge reviews its files instead.`)
+  else log(`${r.name}: ${out.findings.length} finding(s)${out.posted ? '' : ` · review NOT posted (${out.postError})`}`)
+  return out
+})
 const reviewerFindings = reviews.flatMap((r) => r.findings.map((f) => ({ ...f, source: r.reviewer })))
 
 // ---------------------------------------------------------------------------
@@ -529,6 +617,7 @@ const judgeFacts = {
   judgeOnly,
   reviewedHeadSha: SHA,
   baseRef: ctx.baseRef,
+  baseSha: BASE_SHA,
   title: ctx.title,
   body: ctx.body,
   bodyMissingSections: missing,
@@ -537,7 +626,7 @@ const judgeFacts = {
   linkedIssue: ctx.linkedIssue,
   specRef: ctx.specRef,
   specPath: ctx.specPath,
-  ci: ctx.ci,
+  ci: { overall: CI, checks: ctx.ci.checks },
   files: ctx.files,
   docsOrGeneratedOnly,
   unscopedFiles: unscoped,
@@ -550,8 +639,7 @@ const judgeFacts = {
   reviewerFindings,
 }
 
-const judge = await agent(
-  `You are the **pr-judge** for PR #${PR} in ${REPO}. Read ${CWD}/.claude/agents/pr-judge.md and act as that agent; its rubric, anchors, gates and finding rules apply. In this workflow you DO NOT post, label or merge: return the structured scorecard and the workflow renders and publishes it.
+const judgePrompt = `You are the **pr-judge** for PR #${PR} in ${REPO}. Read ${CWD}/.claude/agents/pr-judge.md and act as that agent; its rubric, anchors, gates and finding rules apply. In this workflow you DO NOT post, label or merge: return the structured scorecard and the workflow renders and publishes it.
 
 ## Facts gathered by the workflow
 \`\`\`json
@@ -559,7 +647,7 @@ ${json(judgeFacts)}
 \`\`\`
 
 ## What to read (never check out branches: ${CWD} is shared)
-- Whole diff: \`gh pr diff ${PR} -R ${REPO}\`. Files at the reviewed head: \`git -C ${CWD} fetch --quiet origin pull/${PR}/head\` then \`git -C ${CWD} show ${SHA}:<path>\`.
+- Whole diff: \`git -C ${CWD} diff ${BASE_SHA}...${SHA}\` (both commits are already fetched; do not run git fetch). Files at the reviewed head: \`git -C ${CWD} show ${SHA}:<path>\`.
 - The linked issue and the spec section (${ctx.specPath ? `${CWD}/${ctx.specPath}` : 'no spec file was found: say so under Intent & scope'}), plus ${CWD}/.claude/specs/README.md principles and the .claude/rules/*.md files that apply.
 - You are the only reviewer of: unscopedFiles${reviews.some((r) => r.failed) ? ', and the files of every reviewer with status "failed"' : ''}${judgeOnly ? ', and (judge-only run) the whole diff' : ''}. Add your own findings for them with source "pr-judge".
 ${
@@ -569,24 +657,35 @@ ${
 }
 
 ## What to return
-- scores: all 9 dimensions; score null (N/A) only where the dimension does not apply (e.g. Money safety on a PR that does not touch money; UX vs wireframes when no UI changed). Notes cite path:line.
+- scores: exactly one entry for each of the 9 dimensions; score null (N/A) only where the dimension does not apply (e.g. Money safety on a PR that does not touch money; UX vs wireframes when no UI changed). Notes cite path:line.
 - gates: every gate with pass | fail | pending | na and a short evidence note. ci comes from the facts (pending is not fail). explainEveryLine is na unless the PR touches money or webhook code; then pass only if explainEveryLineChecked is true. prBody fails if bodyMissingSections is non-empty or there is no issue link (see the bootstrap exception in your definition).
 - findings: deduplicate the reviewer findings, verify each against the code (dismiss false positives with a reason), tag origin introduced | pre-existing, add your own. Do not number them; the workflow numbers them #1…#n.
 - verdict per the thresholds in your definition; the workflow recomputes it and keeps the stricter one.
 - mustChange: concrete changes required for MERGEABLE (empty when MERGEABLE).
-- summary: 2–4 sentences an interviewer could read.`,
-  { label: 'pr-judge', phase: 'Judge', schema: JUDGE_SCHEMA },
-)
-if (!judge) throw new Error('Judge agent returned nothing; reviews were posted but no verdict was published. Re-run with resume.')
+- summary: 2–4 sentences an interviewer could read.`
 
-const moneyOrWebhook = judge.moneyOrWebhook || moneyHint
+let judge = await agent(judgePrompt, { label: 'pr-judge', phase: 'Judge', schema: JUDGE_SCHEMA })
+if (!judge) throw new Error('Judge agent returned nothing; reviews were posted but no verdict was published. Re-run with resume.')
+let moneyOrWebhook = judge.moneyOrWebhook || moneyHint
+const scoreProblems = validateScores(judge, { moneyOrWebhook })
+if (scoreProblems.length) {
+  log(`Judge scorecard invalid (${scoreProblems.join('; ')}); asking once more.`)
+  const retry = await agent(
+    `${judgePrompt}\n\n## Your previous scorecard was rejected\n${scoreProblems.map((p) => `- ${p}`).join('\n')}\nReturn the full scorecard again with these fixed.`,
+    { label: 'pr-judge (retry)', phase: 'Judge', schema: JUDGE_SCHEMA },
+  )
+  if (retry) {
+    judge = retry
+    moneyOrWebhook = judge.moneyOrWebhook || moneyHint
+  }
+}
 if (moneyOrWebhook && !explainChecked && judge.gates.explainEveryLine.status !== 'fail') {
   judge.gates.explainEveryLine = { status: 'fail', note: 'money/webhook PR without the checked "I can explain every line" item' }
 }
-if (ctx.ci.overall === 'fail') judge.gates.ci = { status: 'fail', note: judge.gates.ci.note || 'CI is red' }
-if (ctx.ci.overall === 'none') judge.gates.ci = { status: 'fail', note: 'no CI checks reported for the head commit' }
+if (CI === 'fail') judge.gates.ci = { status: 'fail', note: judge.gates.ci.note || 'CI is red' }
+if (CI === 'none') judge.gates.ci = { status: 'fail', note: 'no CI checks reported for the head commit' }
 
-const { verdict, computed, score, reasons } = computeVerdict(judge)
+const { verdict, computed, score, reasons } = computeVerdict(judge, { moneyOrWebhook })
 if (verdict !== judge.verdict) log(`Verdict adjusted by the rules: judge said ${judge.verdict}, rules give ${computed}.`)
 const numbered = numberFindings(judge.findings)
 const scorecard = renderScorecard({ verdict, score, judge, numbered, round, sha: SHA, reviewerLine, reasons })
@@ -623,7 +722,13 @@ ${
     : `   - Do NOT merge. outcome "not-merged-verdict", Decision: "${verdict === 'MERGEABLE AFTER NITS' ? decisions.nits : decisions.notMergeable}"`
 }
 3. Post the scorecard as ONE issue comment: write the text between the BEGIN/END lines below to a file, append a blank line and the Decision line, and run \`gh pr comment ${PR} -R ${REPO} --body-file <file>\`. If a comment containing \`<!-- pr-review:judge sha=${SHA} round=${round} -->\` already exists, edit it instead (\`gh api --method PATCH repos/${REPO}/issues/comments/<id> -F body=@<file>\`).
-4. Labels: add \`${label}\`; remove whichever of ${otherLabels.map((l) => `\`${l}\``).join(', ')} is present (\`gh pr edit ${PR} -R ${REPO} --add-label … --remove-label …\`). The verdict:* labels already exist; never create labels.
+4. Labels (\`gh pr edit ${PR} -R ${REPO} --add-label … --remove-label …\`; the verdict:* labels already exist, never create labels):
+${
+  verdict === 'MERGEABLE'
+    ? `   - outcome "merged" or "auto-merge-enabled": add \`${label}\` and remove whichever of ${otherLabels.map((l) => `\`${l}\``).join(', ')} is present.
+   - any other outcome (refused or merge error): add no label and remove every verdict:* label that is present; the PR needs a re-run.`
+    : `   - add \`${label}\` and remove whichever of ${otherLabels.map((l) => `\`${l}\``).join(', ')} is present.`
+}
 5. Return what happened (labelsAfter = the PR's labels after step 4).
 
 -----BEGIN SCORECARD-----
