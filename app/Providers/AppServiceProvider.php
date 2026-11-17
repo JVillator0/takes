@@ -4,12 +4,10 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
-use App\Contracts\Billing\PixelforgeUsageSource;
 use App\Models\Customer;
 use App\Models\Suggestion;
 use App\Models\Take;
 use App\Models\User;
-use App\Services\Billing\UnconfiguredPixelforgeUsageSource;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Date;
@@ -24,8 +22,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        // billing:verify --usage; spec 3-04 rebinds it to the Pixelforge client.
-        $this->app->bindIf(PixelforgeUsageSource::class, UnconfiguredPixelforgeUsageSource::class);
+        //
     }
 
     /**

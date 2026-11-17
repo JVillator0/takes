@@ -12,6 +12,7 @@ use App\Models\LedgerEntry;
 use App\Models\Purchase;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Tests\Support\Billing;
 
@@ -139,6 +140,16 @@ describe('POST /billing/purchases', function (): void {
         'key not a uuid' => [['package' => 5, 'idempotency_key' => 'abc'], 'idempotency_key'],
     ]);
 
+    it('lets a restricted customer buy credits (spec 3-01 role table)', function (): void {
+        $restricted = Customer::factory()->restricted()->create();
+
+        $this->actingAs($restricted, 'customer')
+            ->post(route('billing.purchases.store'), ['package' => 5, 'idempotency_key' => (string) Str::uuid()])
+            ->assertRedirect();
+
+        expect($restricted->refresh()->balance_nanos)->toBe(5_000_000_000);
+    });
+
     it('is forbidden without the credits.purchase permission', function (): void {
         $showcase = Customer::factory()->withRole(CustomerRole::Showcase)->create();
 
@@ -181,5 +192,16 @@ describe('POST /billing/purchases', function (): void {
 
         expect(Purchase::query()->count())->toBe(5)
             ->and($this->customer->refresh()->balance_nanos)->toBe(25_000_000_000);
+    });
+
+    it('keeps its own throttle bucket, separate from other limits for the same id', function (): void {
+        // Another bare throttle:N,M route would key on sha1(id) alone.
+        foreach (range(1, 10) as $attempt) {
+            RateLimiter::hit(sha1((string) $this->customer->id), 60);
+        }
+
+        $this->actingAs($this->customer, 'customer')
+            ->post(route('billing.purchases.store'), ['package' => 5, 'idempotency_key' => (string) Str::uuid()])
+            ->assertRedirect();
     });
 });

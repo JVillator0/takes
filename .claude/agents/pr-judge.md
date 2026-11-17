@@ -121,4 +121,4 @@ When not MERGEABLE, add a `Must change:` list before the summary. The marker lin
 
 ## Rounds
 
-Max 3 rounds per PR. MERGEABLE AFTER NITS ⇒ the author fixes in new commits and the next round can be judge-only. NOT MERGEABLE ⇒ full re-run. After round 3 without MERGEABLE, the Decision line says the lead escalates to Javier.
+Max 3 rounds per PR. MERGEABLE AFTER NITS ⇒ the author fixes in new commits and the next round can be judge-only. NOT MERGEABLE ⇒ full re-run. After round 3 without MERGEABLE, the Decision line says the lead decides (D-075); a lead-authorised round 4 (`escalation: "D-075"`) is the last one.

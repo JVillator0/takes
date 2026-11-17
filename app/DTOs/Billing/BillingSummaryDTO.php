@@ -23,12 +23,12 @@ final readonly class BillingSummaryDTO
     ) {}
 
     /**
-     * @param  array{balance_nanos: int, held_nanos: int, spent_images_nanos: int|string, spent_ai_suggestions_nanos: int|string, month_start: CarbonImmutable}  $data
+     * @param  array{balance: Nanodollars, held: Nanodollars, spent_images_nanos: int|string, spent_ai_suggestions_nanos: int|string, month_start: CarbonImmutable}  $data
      */
     public static function fromArray(array $data): self
     {
-        $balance = Nanodollars::fromInt($data['balance_nanos']);
-        $held = Nanodollars::fromInt($data['held_nanos']);
+        $balance = $data['balance'];
+        $held = $data['held'];
 
         return new self(
             balance: $balance,

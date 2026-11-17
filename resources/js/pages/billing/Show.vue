@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Head, setLayoutProps, usePage } from '@inertiajs/vue3';
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui';
-import { ref, watchEffect } from 'vue';
+import { ref } from 'vue';
 import ActivityTable from '@/components/billing/ActivityTable.vue';
 import BuyCreditsDialog from '@/components/billing/BuyCreditsDialog.vue';
 import InvoicesTable from '@/components/billing/InvoicesTable.vue';
@@ -28,7 +28,7 @@ type Props = {
     invoices: InvoiceSummary[];
 };
 
-const props = defineProps<Props>();
+defineProps<Props>();
 
 const { t } = useCopy();
 const page = usePage();
@@ -37,20 +37,10 @@ const page = usePage();
 const selectedPack = ref<CreditPack | null>(null);
 const tab = ref<'activity' | 'invoices'>('activity');
 
-watchEffect(() => {
-    const customer = page.props.auth.customer;
-
-    setLayoutProps({
-        breadcrumbs: [{ title: t('billing.page_title'), href: show() }],
-        balance: customer
-            ? {
-                  available: customer.available,
-                  availableExact: props.summary.available,
-                  onHold: customer.on_hold,
-                  onHoldExact: props.summary.onHold,
-              }
-            : null,
-    });
+// The top bar pill reads the shared `auth.customer` strings (4 decimals,
+// exact on hover); this page only adds its breadcrumb.
+setLayoutProps({
+    breadcrumbs: [{ title: t('billing.page_title'), href: show() }],
 });
 
 const tabClass =

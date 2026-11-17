@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Collection;
  * The customer's invoices for the billing page's Invoices tab (spec 6, P09),
  * newest first. One per purchase, so the list stays short.
  */
-final class ListInvoicesQuery
+final readonly class ListInvoicesQuery
 {
     /**
      * @return Collection<int, Invoice>

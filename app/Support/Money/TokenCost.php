@@ -25,14 +25,23 @@ final readonly class TokenCost
     public function __construct(private LoggerInterface $logger) {}
 
     /**
+     * A kind reported with 0 tokens costs nothing and needs no rate (e.g. an
+     * Anthropic usage reporting `input_image = 0`), so it is skipped before
+     * the rate lookup; it must never fail a settlement.
+     *
      * @param  array<string, int>  $units  token count by kind
      * @param  array<string, int>  $ratesPerMillion  nanodollars per 1M tokens by kind
+     * @param  array<string, mixed>  $context  added to the rounding warning (e.g. usage and customer ids)
      */
-    public function compute(array $units, array $ratesPerMillion): Nanodollars
+    public function compute(array $units, array $ratesPerMillion, array $context = []): Nanodollars
     {
         $total = 0;
 
         foreach ($units as $kind => $count) {
+            if ($count === 0) {
+                continue;
+            }
+
             if (! array_key_exists($kind, $ratesPerMillion)) {
                 throw new InvalidArgumentException("No rate for token kind [{$kind}].");
             }
@@ -56,6 +65,7 @@ final readonly class TokenCost
 
         if ($remainder !== 0) {
             $this->logger->warning('Token cost is not a whole number of nanodollars; rounded up.', [
+                ...$context,
                 'units' => $units,
                 'rates_per_million' => $ratesPerMillion,
                 'remainder' => $remainder,

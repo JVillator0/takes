@@ -54,6 +54,22 @@ it('rejects a kind without a rate and negative counts or rates', function (array
     'negative rate' => [['output' => 1], ['output' => -1]],
 ]);
 
+it('needs no rate for a kind reported with zero tokens', function (): void {
+    $cost = $this->tokenCost->compute(
+        ['input_text' => 10, 'input_image' => 0, 'reasoning' => 0],
+        ['input_text' => 100_000_000, 'output' => 500_000_000],
+    );
+
+    expect($cost->toInt())->toBe(1_000);
+});
+
+it('adds the caller context to the rounding warning', function (): void {
+    $this->tokenCost->compute(['output' => 1], ['output' => 1_000], ['usage_record_id' => 'u1', 'customer_id' => 7]);
+
+    expect($this->logger->records[0]['context']['usage_record_id'])->toBe('u1')
+        ->and($this->logger->records[0]['context']['customer_id'])->toBe(7);
+});
+
 it('refuses to overflow instead of silently turning into a float', function (): void {
     expect(fn () => $this->tokenCost->compute(['output' => 2], ['output' => intdiv(PHP_INT_MAX, 2)]))
         ->toThrow(OverflowException::class)

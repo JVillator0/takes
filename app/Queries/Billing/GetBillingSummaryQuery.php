@@ -20,7 +20,7 @@ use UnexpectedValueException;
  * balance; it is split by feature (images, AI suggestions), never by
  * provider (D-023). Admin reports bucket by provider billing day instead.
  */
-final class GetBillingSummaryQuery
+final readonly class GetBillingSummaryQuery
 {
     public function execute(Customer $customer, ?CarbonImmutable $now = null): BillingSummaryDTO
     {
@@ -39,8 +39,8 @@ final class GetBillingSummaryQuery
             ->first();
 
         return BillingSummaryDTO::fromArray([
-            'balance_nanos' => $customer->balance_nanos,
-            'held_nanos' => $customer->held_nanos,
+            'balance' => $customer->balance(),
+            'held' => $customer->held(),
             'spent_images_nanos' => self::integer($spent?->images),
             'spent_ai_suggestions_nanos' => self::integer($spent?->ai_suggestions),
             'month_start' => $monthStart,

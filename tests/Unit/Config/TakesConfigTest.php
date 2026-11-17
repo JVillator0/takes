@@ -64,6 +64,7 @@ it('loads the spec 3-01 defaults', function (): void {
             'daily_limit_per_customer' => 30,
             'throttle_per_minute' => 6,
         ],
+        'purchase_packs_usd' => [5, 10, 25],
         'demo' => [
             'enabled' => false,
             'throttle_per_ip_per_hour' => 5,

@@ -25,7 +25,7 @@ use UnexpectedValueException;
  * `created_at, id`), so it excludes open holds. A usage line without a
  * charge shows the balance of the last entry at or before it.
  */
-final class ListBillingActivityQuery
+final readonly class ListBillingActivityQuery
 {
     public const int PER_PAGE = 25;
 

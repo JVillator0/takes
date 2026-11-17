@@ -21,7 +21,7 @@ final readonly class GrantWelcomeCreditAction
 {
     public const string REASON = 'welcome';
 
-    /** $1.00 until spec 3-01 adds `takes.welcome_credit_nanos`. */
+    /** Fallback if `takes.welcome_credit_nanos` (spec 3-01, default $1.00) is unset. */
     private const int DEFAULT_NANOS = Nanodollars::PER_DOLLAR;
 
     public function __construct(private RecordLedgerEntryAction $recordLedgerEntry) {}
