@@ -165,7 +165,8 @@ test('the usage-record lock scan sees Eloquent and query-builder locks', functio
 test('only the transition actions write a take status', function (): void {
     expect(SourceScan::takeStatusWrites(
         ['app', 'routes', 'database/seeders'],
-        except: ['app/Actions/Takes/ApplyTakeSnapshotAction.php', 'app/Actions/Takes/FailTakeAction.php'],
+        // API resources only serialize a take (`'status' => $take->status->value`); they never save one.
+        except: ['app/Actions/Takes/ApplyTakeSnapshotAction.php', 'app/Actions/Takes/FailTakeAction.php', 'app/Http/Resources/'],
     ))->toBe([]);
 });
 
