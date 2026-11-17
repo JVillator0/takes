@@ -63,24 +63,25 @@ final class FortifyServiceProvider extends ServiceProvider
     }
 
     /**
-     * P02 demo panel (spec 3-01 issue 4): null unless DEMO_LOGIN_ENABLED=true
-     * and at least one demo account was seeded. The "Try a demo account"
-     * button and POST /demo are spec 4.
+     * P02 demo panel (spec 3-01 issue 4, D-045): null unless
+     * DEMO_LOGIN_ENABLED=true. "Try a demo account" (POST /demo, spec 4) is
+     * always on it then; the seeded logins follow when they exist.
      *
-     * @return array{title: string, description: string, adminHint: string, logins: list<array{key: string, label: string, email: string, password: string}>}|null
+     * @return array{title: string, description: string, adminHint: string, tryDemo: string, logins: list<array{key: string, label: string, email: string, password: string}>}|null
      */
     private function demoPanel(): ?array
     {
-        $logins = app(ListDemoLoginsQuery::class)->execute();
-
-        if ($logins === []) {
+        if (! config()->boolean('takes.demo.enabled')) {
             return null;
         }
+
+        $logins = app(ListDemoLoginsQuery::class)->execute();
 
         return [
             'title' => __('demo.panel_title'),
             'description' => __('demo.panel_description'),
             'adminHint' => __('demo.admin_hint'),
+            'tryDemo' => __('landing.hero.demo'),
             'logins' => array_map(fn (DemoLoginDTO $login): array => $login->toArray(), $logins),
         ];
     }

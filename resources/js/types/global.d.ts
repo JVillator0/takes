@@ -1,6 +1,7 @@
 import type { Directive } from 'vue';
 import type { Auth } from '@/types/auth';
 import type { Copy } from '@/types/copy';
+import type { CreditPack } from '@/types/takes';
 
 // Extend ImportMeta interface for Vite...
 declare module 'vite/client' {
@@ -27,6 +28,7 @@ declare module '@inertiajs/core' {
             pixelforge: { configured: boolean };
             sidebarOpen: boolean;
             copy: Copy;
+            creditPacks: CreditPack[];
             [key: string]: unknown;
         };
     }

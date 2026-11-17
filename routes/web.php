@@ -15,8 +15,9 @@ Route::post('demo', [DemoController::class, 'store'])
     ->name('demo.store');
 
 // Customer area (D-032): `customer` group = customer.guard + auth:customer + customer.demo.
+// The projects list is the customer home (P03); /dashboard stays as an alias.
 Route::middleware('customer')->group(function (): void {
-    Route::inertia('dashboard', 'Dashboard')->name('dashboard');
+    Route::redirect('dashboard', '/projects')->name('dashboard');
 });
 
 // Dev-only component gallery; the controller returns 404 outside local and testing.

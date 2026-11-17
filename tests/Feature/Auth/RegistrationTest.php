@@ -27,14 +27,14 @@ it('registers a customer with the customer role and signs them in, with no verif
 
     $customer = Customer::query()->where('email', 'ana@example.com')->sole();
 
-    $response->assertRedirect(route('dashboard', absolute: false));
+    $response->assertRedirect(route('projects.index', absolute: false));
     $this->assertAuthenticatedAs($customer, 'customer');
     expect($customer->hasRole(CustomerRole::Customer->value))->toBeTrue()
         ->and($customer->email_verified_at)->toBeNull()
         ->and(User::query()->count())->toBe(0);
 
     // D-030: straight into the app, no verification notice in between.
-    $this->get(route('dashboard'))->assertOk();
+    $this->get(route('projects.index'))->assertOk();
 });
 
 it('rejects an email that already belongs to a customer', function (): void {

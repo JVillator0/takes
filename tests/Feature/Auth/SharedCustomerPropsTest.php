@@ -18,13 +18,15 @@ it('shares the customer with money as server-formatted strings only (D-023, D-02
     $customer = Customer::factory()->withRole()->withCachedBalance(10_647_543_750, 313_962_500)->create();
 
     $this->actingAs($customer, 'customer')
-        ->get(route('dashboard'))
+        ->get(route('projects.index'))
         ->assertInertia(fn (Assert $page) => $page->where('auth.customer', [
             'id' => $customer->id,
             'name' => $customer->name,
             'email' => $customer->email,
             'available' => '$10.3336',
             'on_hold' => '$0.3140',
+            'available_exact' => '$10.33358125',
+            'on_hold_exact' => '$0.3139625',
         ]));
 });
 
@@ -32,7 +34,7 @@ it('shares allowed abilities under auth.can', function (): void {
     $customer = Customer::factory()->restricted()->create();
 
     $this->actingAs($customer, 'customer')
-        ->get(route('dashboard'))
+        ->get(route('projects.index'))
         ->assertInertia(fn (Assert $page) => $page
             ->missing('can')
             ->where('auth.can.createProject', ['allowed' => true, 'reason' => null, 'message' => null])
@@ -45,7 +47,7 @@ it('shares the read-only showcase as unable to buy credits, create projects or c
     $showcase = Customer::query()->where('email', DemoAccount::Showcase->email())->sole();
 
     $this->actingAs($showcase, 'customer')
-        ->get(route('dashboard'))
+        ->get(route('projects.index'))
         ->assertInertia(fn (Assert $page) => $page
             ->where('auth.can.purchaseCredits.allowed', false)
             ->where('auth.can.purchaseCredits.reason', 'account_restricted')
@@ -63,7 +65,7 @@ it('shares a denied ability with its reason code and 2-01 copy', function (): vo
     Role::findByName('restricted', 'customer')->revokePermissionTo(['credits.purchase', 'projects.manage']);
 
     $this->actingAs($customer, 'customer')
-        ->get(route('dashboard'))
+        ->get(route('projects.index'))
         ->assertInertia(fn (Assert $page) => $page
             ->where('auth.can.createProject', $denied)
             ->where('auth.can.purchaseCredits', $denied));

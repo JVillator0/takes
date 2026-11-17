@@ -73,19 +73,19 @@ class ComponentGalleryController extends Controller
                 'moneyLine' => __('takes.money.on_hold', ['amount' => '$0.1139']),
                 'moneyExact' => '$0.113825',
                 'explanation' => __('takes.explanation.processing'),
-                'parentId' => 10,
+                'parentId' => 'take-10', 'parentNumber' => 10,
             ]),
             $this->card(11, 'queued', 'queued', '1024x1024', 'Night version with stars', [
                 'moneyLine' => __('takes.money.on_hold', ['amount' => '$0.0863']),
                 'moneyExact' => '$0.08629375',
                 'explanation' => __('takes.explanation.queued'),
-                'parentId' => 10,
+                'parentId' => 'take-10', 'parentNumber' => 10,
             ]),
             $this->card(10, 'succeeded', 'done', '1024x1024', 'Lighthouse at dusk, warm light, cinematic wide shot, low horizon', [
                 'moneyLine' => __('takes.money.charged', ['amount' => '$0.0740']),
                 'moneyExact' => '$0.0740375',
                 'imageUrl' => $this->image('#f59e0b', '#7c2d12', 1024, 1024),
-                'parentId' => 8,
+                'parentId' => 'take-8', 'parentNumber' => 8,
             ]),
             $this->card(9, 'failed', 'failed', '1024x1024', 'Lighthouse [fail]', [
                 'quality' => 'low',
@@ -98,7 +98,7 @@ class ComponentGalleryController extends Controller
                 'moneyLine' => __('takes.money.charged', ['amount' => '$0.1077']),
                 'moneyExact' => '$0.107725',
                 'imageUrl' => $this->image('#fb923c', '#1e3a8a', 1536, 1024),
-                'parentId' => 6,
+                'parentId' => 'take-6', 'parentNumber' => 6,
             ]),
             $this->card(7, 'succeeded', 'done', '1024x1024', 'Black and white version', [
                 'moneyLine' => __('takes.money.charged', ['amount' => '$0.0691']),
@@ -182,18 +182,21 @@ class ComponentGalleryController extends Controller
                 $this->event('2026-11-17T12:01:31Z', __('takes.timeline.done', ['amount' => '$0.0740'])),
             ],
             'parent' => [
-                'id' => 8,
+                'id' => 'take-8',
+                'number' => 8,
                 'prompt' => 'Warmer light, low sun',
                 'imageUrl' => $this->image('#fb923c', '#1e3a8a', 1536, 1024),
             ],
             'versions' => [
-                ['id' => 6, 'label' => '#6 original', 'imageUrl' => $this->image('#94a3b8', '#0f172a', 1024, 1536), 'current' => false],
-                ['id' => 8, 'label' => '#8 warmer', 'imageUrl' => $this->image('#fb923c', '#1e3a8a', 1536, 1024), 'current' => false],
-                ['id' => 10, 'label' => '#10 this take', 'imageUrl' => $this->image('#f59e0b', '#7c2d12', 1024, 1024), 'current' => true],
-                ['id' => 11, 'label' => '#11 queued', 'imageUrl' => null, 'current' => false],
-                ['id' => 12, 'label' => '#12 processing', 'imageUrl' => null, 'current' => false],
+                ['id' => 'take-6', 'number' => 6, 'label' => '#6 original', 'imageUrl' => $this->image('#94a3b8', '#0f172a', 1024, 1536), 'current' => false],
+                ['id' => 'take-8', 'number' => 8, 'label' => '#8 warmer', 'imageUrl' => $this->image('#fb923c', '#1e3a8a', 1536, 1024), 'current' => false],
+                ['id' => 'take-10', 'number' => 10, 'label' => '#10 this take', 'imageUrl' => $this->image('#f59e0b', '#7c2d12', 1024, 1024), 'current' => true],
+                ['id' => 'take-11', 'number' => 11, 'label' => '#11 queued', 'imageUrl' => null, 'current' => false],
+                ['id' => 'take-12', 'number' => 12, 'label' => '#12 processing', 'imageUrl' => null, 'current' => false],
             ],
             'downloadUrl' => $this->image('#f59e0b', '#7c2d12', 1024, 1024),
+            'referenceImages' => ['https://images.example.com/lighthouse.jpg'],
+            'remixReferenceUrl' => $this->image('#f59e0b', '#7c2d12', 1024, 1024),
         ];
     }
 
@@ -221,6 +224,8 @@ class ComponentGalleryController extends Controller
             'parent' => null,
             'versions' => [],
             'downloadUrl' => null,
+            'referenceImages' => [],
+            'remixReferenceUrl' => null,
         ];
     }
 
@@ -245,6 +250,8 @@ class ComponentGalleryController extends Controller
             'parent' => null,
             'versions' => [],
             'downloadUrl' => null,
+            'referenceImages' => [],
+            'remixReferenceUrl' => null,
         ];
     }
 
@@ -255,7 +262,9 @@ class ComponentGalleryController extends Controller
     private function card(int $id, string $status, string $phase, string $size, string $prompt, array $overrides = []): array
     {
         return [
-            'id' => $id,
+            'id' => "take-{$id}",
+            'number' => $id,
+            'projectId' => 'lighthouse-series',
             'status' => $status,
             'phase' => $phase,
             'statusLabel' => __('takes.status.'.$phase),
@@ -269,8 +278,10 @@ class ComponentGalleryController extends Controller
             'failureCode' => null,
             'failureMessage' => null,
             'parentId' => null,
+            'parentNumber' => null,
             'canCancel' => false,
             'canRetry' => false,
+            'createdAt' => '2026-11-17T12:00:00Z',
             ...$overrides,
         ];
     }

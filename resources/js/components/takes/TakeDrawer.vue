@@ -38,11 +38,11 @@ const open = defineModel<boolean>('open', { default: false });
 const comparing = defineModel<boolean>('comparing', { default: false });
 
 const emit = defineEmits<{
-    remix: [id: number];
-    tryAgain: [id: number];
-    describeChange: [id: number];
-    cancel: [id: number];
-    selectVersion: [id: number];
+    remix: [id: string];
+    tryAgain: [id: string];
+    describeChange: [id: string];
+    cancel: [id: string];
+    selectVersion: [id: string];
 }>();
 
 const { t } = useCopy();
@@ -99,7 +99,7 @@ const copyPrompt = async (): Promise<void> => {
 const announcement = computed(() =>
     props.take
         ? t('takes.card.announcement', {
-              id: props.take.id,
+              id: props.take.number ?? '',
               status: props.take.statusLabel,
           })
         : '',
@@ -124,7 +124,9 @@ const sectionLabel =
                     <SheetTitle class="text-lg">
                         {{
                             take
-                                ? t('takes.card.title', { id: take.id })
+                                ? t('takes.card.title', {
+                                      id: take.number ?? '',
+                                  })
                                 : t('takes.drawer.loading')
                         }}
                     </SheetTitle>
@@ -192,7 +194,7 @@ const sectionLabel =
                                 >
                                     {{
                                         t('takes.drawer.parent', {
-                                            id: take.parent.id,
+                                            id: take.parent.number ?? '',
                                         })
                                     }}
                                 </figcaption>
@@ -271,7 +273,7 @@ const sectionLabel =
                             >
                                 <a
                                     :href="take.downloadUrl"
-                                    :download="`take-${take.id}`"
+                                    :download="`take-${take.number ?? take.id}.png`"
                                 >
                                     <Download aria-hidden="true" />
                                     {{ t('takes.actions.download') }}
@@ -379,6 +381,7 @@ const sectionLabel =
                         </div>
 
                         <section
+                            v-if="take.price"
                             :aria-labelledby="ids.price"
                             class="flex flex-col gap-2"
                         >

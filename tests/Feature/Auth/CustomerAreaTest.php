@@ -26,7 +26,7 @@ beforeEach(function (): void {
 });
 
 dataset('customer pages', [
-    'dashboard' => 'dashboard',
+    'projects' => 'projects.index',
     'profile settings' => 'profile.edit',
     'appearance settings' => 'appearance.edit',
 ]);
@@ -44,7 +44,7 @@ it('rejects an admin (web) session on customer routes', function (string $route)
 it('never authenticates a customer on the web guard', function (): void {
     $customer = Customer::factory()->withRole()->create();
 
-    $this->actingAs($customer, 'customer')->get(route('dashboard'))->assertOk();
+    $this->actingAs($customer, 'customer')->get(route('projects.index'))->assertOk();
 
     expect(Auth::guard('web')->check())->toBeFalse();
 });
@@ -106,9 +106,9 @@ it('sends a policy denial back to the Inertia page with its reason code', functi
     Gate::define('test-denial', fn (Customer $customer) => DenialReason::AccountRestricted->deny());
 
     $this->actingAs($customer, 'customer')
-        ->from(route('dashboard'))
+        ->from(route('projects.index'))
         ->post('/_test/deny', [], ['X-Inertia' => 'true'])
-        ->assertRedirect(route('dashboard'))
+        ->assertRedirect(route('projects.index'))
         ->assertSessionHas('inertia.flash_data.denial.reason', 'account_restricted')
         // An error too, so the form takes Inertia's error path, not success.
         ->assertSessionHasErrors(['denial' => 'Your account is restricted. Email support@example.com for help.']);

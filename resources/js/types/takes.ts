@@ -1,3 +1,5 @@
+import type { Ability } from '@/types/auth';
+
 /**
  * Props for the take components. They mirror the future TakeResource and
  * estimate endpoint (spec 4). Money is never a number on the client: every
@@ -43,9 +45,13 @@ export type FailureCode =
     | 'submit_timeout'
     | 'cancelled';
 
-/** One take in the grid (P04). */
+/** One take in the grid (P04). Mirrors App\Http\Resources\TakeResource. */
 export type TakeCardData = {
-    id: number;
+    /** The take's ulid, used in URLs only. */
+    id: string;
+    /** "Take #n": its position in its project, in creation order. */
+    number: number | null;
+    projectId: string;
     status: TakeStatus;
     phase: TakePhase;
     /** Translated label of `phase`, e.g. "Waiting for capacity". */
@@ -63,11 +69,14 @@ export type TakeCardData = {
     failureCode: FailureCode | null;
     /** 2-01 failure sentence, ends with "You were not charged." when terminal. */
     failureMessage: string | null;
-    parentId: number | null;
+    parentId: string | null;
+    parentNumber: number | null;
     /** Only Waiting for capacity (pending + capacity) can be cancelled. */
     canCancel: boolean;
     /** Try again is hidden for `content_policy` and `internal` (D-064). */
     canRetry: boolean;
+    /** ISO 8601. */
+    createdAt: string | null;
 };
 
 export type TakeTimelineEntry = {
@@ -77,7 +86,8 @@ export type TakeTimelineEntry = {
 };
 
 export type TakeVersion = {
-    id: number;
+    id: string;
+    number: number | null;
     label: string;
     imageUrl: string | null;
     current: boolean;
@@ -97,28 +107,37 @@ export type TakePrice = {
 };
 
 export type TakeParent = {
-    id: number;
+    id: string;
+    number: number | null;
     prompt: string;
     imageUrl: string | null;
 };
 
-/** The take drawer (P06), loaded with a partial reload `only: ['take']`. */
+/** The take drawer (P06), loaded with a partial reload `only: ['take']`. Mirrors TakeDetailResource. */
 export type TakeDetailData = TakeCardData & {
     /** "Square 1024×1024 · Medium · 1 reference · AI change from #8" */
     paramsLine: string;
-    price: TakePrice;
+    referenceImages: string[];
+    price: TakePrice | null;
     timeline: TakeTimelineEntry[];
     parent: TakeParent | null;
     versions: TakeVersion[];
     downloadUrl: string | null;
+    /** This take's image as a remix reference; null disables it (image no longer available). */
+    remixReferenceUrl: string | null;
 };
 
 /** `GET /estimates/take` response (spec 4, D-021 rounding on the display values). */
 export type TakeEstimate = {
+    /** Exact (D-042). */
     min: string;
     max: string;
+    /** 4 decimals: min rounded down, max rounded up (D-021). */
     min_display: string;
     max_display: string;
+    references?: number;
+    /** TakePolicy::create for this estimate (spec 3-01 `can`). */
+    can?: Ability;
 };
 
 export type EstimateState = 'idle' | 'loading' | 'ready' | 'denied' | 'error';
@@ -144,3 +163,44 @@ export type ScenarioKeyword = 'fail' | 'slow' | 'duplicate' | 'blocked';
 export type ComposerErrors = Partial<
     Record<'prompt' | 'size' | 'quality' | 'reference_images', string>
 >;
+
+/** The workspace's composer limits and the empty-state sample prompt (P03, P04). */
+export type ComposerConfig = {
+    maxPromptChars: number;
+    maxReferences: number;
+    samplePrompt: string | null;
+};
+
+/** The smallest possible take's max price, for the low-balance banner (2-01). */
+export type SmallestTake = {
+    max: string;
+    below: boolean;
+};
+
+/** The project heading on P04. */
+export type WorkspaceProject = {
+    id: string;
+    name: string;
+    takeCount: number;
+    spend: string;
+    spendExact: string;
+};
+
+/** A project card on P03. Mirrors App\Http\Resources\ProjectResource. */
+export type ProjectSummary = {
+    id: string;
+    name: string;
+    takeCount: number;
+    inProgressCount: number;
+    spend: string;
+    spendExact: string;
+    coverUrl: string | null;
+    /** ISO 8601. */
+    updatedAt: string | null;
+};
+
+/** A credit pack in the Buy credits modal (D-026), formatted by the server. */
+export type CreditPack = {
+    package: number;
+    amount: string;
+};
