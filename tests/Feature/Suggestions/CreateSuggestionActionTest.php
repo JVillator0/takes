@@ -14,6 +14,7 @@ use App\Enums\Billing\UsageStatus;
 use App\Enums\Suggestions\SuggestionFailureReason;
 use App\Enums\Suggestions\SuggestionStatus;
 use App\Enums\Takes\FailureCode;
+use App\Exceptions\Billing\TransactionNotAllowedException;
 use App\Exceptions\Suggestions\BaseTakeNotReadyException;
 use App\Exceptions\Suggestions\RequestKeyReusedException;
 use App\Exceptions\Suggestions\SuggestionAlreadyPendingException;
@@ -263,6 +264,14 @@ describe('prompt injection', function (): void {
 });
 
 describe('idempotency and pending', function (): void {
+    it('refuses to run inside a caller\'s transaction (the model call must hold no lock)', function (): void {
+        Suggestions::fake(Suggestions::messageBody(Suggestions::proposal()));
+
+        expect(fn () => DB::transaction(fn () => suggest()))->toThrow(TransactionNotAllowedException::class)
+            ->and(Suggestions::anthropicRequests())->toHaveCount(0)
+            ->and(UsageRecord::query()->count())->toBe(0);
+    });
+
     it('answers a request_key reused for another base take with a conflict, with no call', function (): void {
         Suggestions::fake(Suggestions::messageBody(Suggestions::proposal()));
         $key = (string) Str::uuid();

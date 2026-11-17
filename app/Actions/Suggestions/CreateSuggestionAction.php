@@ -18,6 +18,7 @@ use App\Enums\Billing\Provider;
 use App\Enums\Suggestions\SuggestionStatus;
 use App\Enums\Takes\TakeStatus;
 use App\Exceptions\Billing\InsufficientCreditsException;
+use App\Exceptions\Billing\TransactionNotAllowedException;
 use App\Exceptions\Suggestions\BaseTakeNotReadyException;
 use App\Exceptions\Suggestions\RequestKeyReusedException;
 use App\Exceptions\Suggestions\SuggestionAlreadyPendingException;
@@ -80,6 +81,7 @@ final readonly class CreateSuggestionAction
     ) {}
 
     /**
+     * @throws TransactionNotAllowedException when called inside a transaction
      * @throws AuthorizationException when the base take belongs to another customer
      * @throws BaseTakeNotReadyException when the base take has not succeeded
      * @throws SuggestionAlreadyPendingException when the base take already has a pending suggestion
@@ -88,6 +90,9 @@ final readonly class CreateSuggestionAction
      */
     public function execute(Customer $customer, Take $baseTake, CreateSuggestionDTO $request): Suggestion
     {
+        // The model call between T1 and T2 must hold no lock (M-16): never inside a caller's transaction.
+        TransactionNotAllowedException::unlessNoTransaction(self::class);
+
         if ($baseTake->customer_id !== $customer->id) {
             throw new AuthorizationException;
         }

@@ -52,7 +52,7 @@ Reviewers: a violation of any rule below is a **critical** finding unless the ru
   Tests: `tests/Feature/Billing/UsageActionsTest.php` (over-estimate case).
 - [ ] **M-16 No HTTP call inside a database transaction.** Provider calls (Pixelforge create/get, Anthropic) happen with no transaction open and no row locked; the result is applied in a new transaction afterwards (submit job, reconcile job, `CreateSuggestionAction` T1 → call → T2).
   Reject: `Http::`, `PixelforgeClient`, or the AI agent called inside `DB::transaction()` or after `lockForUpdate()`.
-  Tests: `tests/Feature/Billing/NoHttpInTransactionTest.php` (`Http::fake` callbacks assert `DB::transactionLevel() === 0` for submit and reconcile); suggestions: `tests/Feature/Suggestions/CreateSuggestionActionTest.php` (the Messages API fake asserts the call adds no transaction and the hold is already placed).
+  Tests: `tests/Feature/Billing/NoHttpInTransactionTest.php` (`Http::fake` callbacks assert `DB::transactionLevel() === 0` for submit and reconcile); suggestions: `tests/Feature/Suggestions/CreateSuggestionActionTest.php` (the Messages API fake asserts the call adds no transaction and the hold is already placed) and `tests/Committed/SuggestionTransactionGuardTest.php` (`CreateSuggestionAction` throws `TransactionNotAllowedException` inside a caller's transaction, before any call or hold).
 - [ ] **M-17 No queue delay above 900 s.** Every `delay`, `backoff`, `release()` and `retryUntil` step is ≤ 900 s (Laravel Cloud managed-queue limit). Long waits are chains of short delays (reconcile: 60, 120, 300, 600, 840 s).
   Tests: `tests/Arch/RepositoryTest.php` (max job delay/backoff 900 s for every job).
 

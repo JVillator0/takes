@@ -39,7 +39,8 @@ it('lets exactly one of two parallel suggestions hold when the balance covers on
         'DB_PASSWORD' => (string) $connection['password'],
         'AI_SUGGESTIONS_ENABLED' => 'true',
     ];
-    $startAt = (string) (microtime(true) + 2.0);
+    // Time for both processes to boot before the start line.
+    $startAt = (string) (microtime(true) + 3.0);
 
     $results = Process::pool(function (Pool $pool) use ($customer, $first, $second, $env, $startAt): void {
         foreach ([$first, $second] as $index => $take) {
@@ -53,7 +54,8 @@ it('lets exactly one of two parallel suggestions hold when the balance covers on
     $outputs = [];
 
     foreach (['0', '1'] as $index) {
-        expect($results[$index]->successful())->toBeTrue($results[$index]->errorOutput());
+        expect($results[$index]->exitCode())->not->toBe(3, 'A worker missed the start line: the processes did not race.')
+            ->and($results[$index]->successful())->toBeTrue($results[$index]->errorOutput());
         $outputs[] = trim($results[$index]->output());
     }
 

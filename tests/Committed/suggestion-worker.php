@@ -12,6 +12,7 @@ declare(strict_types=1);
  *   php tests/Committed/suggestion-worker.php <customerId> <takeId> <startAt> <callMs>
  *
  * Prints one word: the suggestion status (proposed | failed) or the denial reason.
+ * Exits 3 ("late" on stderr) when it boots after the start line.
  */
 
 use App\Actions\Suggestions\CreateSuggestionAction;
@@ -35,9 +36,14 @@ Suggestions::fake(function () use ($callMs) {
     return Http::response(Suggestions::messageBody(Suggestions::proposal()));
 });
 
-if ((float) $startAt > microtime(true)) {
-    time_sleep_until((float) $startAt);
+// A worker that boots after the start line would run alone, so the race
+// would not happen and the test could pass without the locks: report it.
+if (microtime(true) >= (float) $startAt) {
+    fwrite(STDERR, 'late');
+    exit(3);
 }
+
+time_sleep_until((float) $startAt);
 
 try {
     $suggestion = app(CreateSuggestionAction::class)->execute(
