@@ -31,7 +31,7 @@ type Props = {
     counts: TakeFilterCounts;
     details: Record<'done' | 'failed' | 'waiting', TakeDetailData>;
     estimates: Record<'square' | 'remix' | 'heavy', TakeEstimate>;
-    lowBalanceAvailable: string;
+    lowBalance: BalanceSummary;
     insufficientMessage: string;
 };
 
@@ -183,19 +183,13 @@ const caption = 'text-xs font-medium text-muted-foreground';
                 <h2 :class="sectionTitle">App shell and balance</h2>
                 <p class="text-sm text-muted-foreground">
                     The top bar above is <code>StudioLayout</code> with the
-                    balance pill and Buy credits. The pill hides labels at phone
-                    width (P10).
+                    balance pill and Buy credits. At phone width the pill keeps
+                    Available and On hold and drops only the word "Available"
+                    (P10).
                 </p>
                 <div class="flex flex-wrap items-center gap-3">
                     <BalancePill :balance="balance" />
-                    <BalancePill
-                        :balance="{
-                            available: lowBalanceAvailable,
-                            availableExact: lowBalanceAvailable,
-                            onHold: null,
-                            onHoldExact: null,
-                        }"
-                    />
+                    <BalancePill :balance="lowBalance" />
                 </div>
                 <ServiceNotConfiguredBanner />
             </section>
@@ -298,7 +292,7 @@ const caption = 'text-xs font-medium text-muted-foreground';
                         <EstimatePanel
                             :estimate="estimates.heavy"
                             state="denied"
-                            :available-display="lowBalanceAvailable"
+                            :available-display="lowBalance.available"
                             :denied-message="insufficientMessage"
                         />
                     </div>
@@ -339,7 +333,7 @@ const caption = 'text-xs font-medium text-muted-foreground';
                             "
                             :estimate="estimates.heavy"
                             estimate-state="denied"
-                            :available-display="lowBalanceAvailable"
+                            :available-display="lowBalance.available"
                             :denied-message="insufficientMessage"
                             show-buy-credits
                             @submit="log('submit')"

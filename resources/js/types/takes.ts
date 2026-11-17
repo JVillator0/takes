@@ -127,12 +127,15 @@ export type TakeFilter = 'all' | 'in_progress' | 'done' | 'failed';
 
 export type TakeFilterCounts = Record<TakeFilter, number>;
 
-/** Balance pill (D-024: customers see only Available and On hold). */
+/**
+ * Balance pill (D-024: customers see only Available and On hold). The server
+ * always sends both, "$0.0000" included, so the client formats no money.
+ */
 export type BalanceSummary = {
     available: string;
     availableExact: string;
-    onHold: string | null;
-    onHoldExact: string | null;
+    onHold: string;
+    onHoldExact: string;
 };
 
 /** The brief's test keywords offered as chips (D-044); `[overloaded]` is typed by hand. */

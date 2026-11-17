@@ -9,6 +9,7 @@ type Props = {
 
 defineProps<Props>();
 
+/** Available and On hold at every width (P10); only the word "Available" hides on phones. */
 const { t } = useCopy();
 </script>
 
@@ -21,7 +22,7 @@ const { t } = useCopy();
             {{
                 t('billing.balance_label', {
                     available: balance.available,
-                    on_hold: balance.onHold ?? '$0.0000',
+                    on_hold: balance.onHold,
                 })
             }}
         </span>
@@ -32,18 +33,11 @@ const { t } = useCopy();
             <strong class="font-semibold" :title="balance.availableExact">
                 {{ balance.available }}
             </strong>
-            <template v-if="balance.onHold">
-                <span class="hidden text-muted-foreground md:inline">·</span>
-                <span class="hidden text-muted-foreground md:inline">
-                    {{ t('billing.on_hold') }}
-                </span>
-                <span
-                    class="hidden md:inline"
-                    :title="balance.onHoldExact ?? undefined"
-                >
-                    {{ balance.onHold }}
-                </span>
-            </template>
+            <span class="text-muted-foreground">·</span>
+            <span class="text-muted-foreground">
+                {{ t('billing.on_hold') }}
+            </span>
+            <span :title="balance.onHoldExact">{{ balance.onHold }}</span>
         </span>
     </p>
 </template>
