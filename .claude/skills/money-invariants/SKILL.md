@@ -9,7 +9,7 @@ Correct money beats everything. Read `.claude/specs/3-domain-foundation/03-SPEC.
 
 ## The invariants
 
-1. **Integer nanodollars only** (D-002): `int` / `bigint`, wrapped in `App\Support\Money\Nanodollars`. No float, `/`, `round(`, `floatval(`, `number_format(` in `app/Support/Money` or `app/Actions/Billing` (an arch test scans for them). Divide with `intdiv`.
+1. **Integer nanodollars only** (D-002): `int` / `bigint`, wrapped in `App\Support\Money\Nanodollars`. No float, `/`, `round(`, `floatval(`, `number_format(` in `app/Support/Money` or `app/Actions/Billing`. Divide with `intdiv`.
 2. **Rates are integer nanodollars per 1M tokens** by kind (`RatesSnapshotDTO`, e.g. Pixelforge output 40_000_000_000). Never multiply by a decimal string.
 3. **cost = ceil(Σ units × rate / 1_000_000)** (`ProviderCost::calculate`); **charge = cost.withMarkup(markup_bps)** = ceil(cost × 12_500 / 10_000). The ceil logs `billing.cost_rounded_up`; with current rates it never fires.
 4. **Ledger = real money only** (D-024): `purchase`, `promo_grant`, `charge`, `adjustment`. Holds are not rows: an open usage's `max_charge_nanos` *is* the hold.
@@ -43,7 +43,7 @@ DB::transaction(fn () => $voidUsage->execute($usage));
 1. `App\Enums\Billing\Provider`: new case (+ the `usage_records_provider_check` CHECK).
 2. Units kinds: reuse `UsageKind` cases; a new kind = new enum case + a `<kind>_tokens` column.
 3. Rates source: map the provider's prices into `RatesSnapshotDTO` (integer nanodollars per 1M) — from its API or from `config/ai-pricing.php` strings parsed with `Nanodollars::perMillionFromDecimalString`.
-4. Estimator returning `EstimateDTO::fromCosts($minCost, $maxCost)`; the hold is `maxCharge`.
+4. Estimator returning `EstimateDTO::fromCosts($minCost, $maxCost)` (always the 25% markup, the same one Open snapshots); the hold is `maxCharge`.
 5. Wrap the call site in Open → Settle/Void as above; map the provider's usage object into `UsageUnitsDTO`.
 6. The billable model goes in the morph map (`AppServiceProvider`) and the `billable_type` CHECK.
 

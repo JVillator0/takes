@@ -31,17 +31,18 @@ final readonly class EstimateDTO
         }
     }
 
-    /** Charges are the costs with the markup (README rule, spec 3-03 §3). */
-    public static function fromCosts(
-        Nanodollars $minCost,
-        Nanodollars $maxCost,
-        int $markupBps = Nanodollars::DEFAULT_MARKUP_BPS,
-    ): self {
+    /**
+     * Charges are the costs with the README markup (spec 3-03 §3). There is
+     * one markup, Nanodollars::DEFAULT_MARKUP_BPS, the same one OpenUsageAction
+     * snapshots on the usage, so the hold and the charge always agree.
+     */
+    public static function fromCosts(Nanodollars $minCost, Nanodollars $maxCost): self
+    {
         return new self(
             $minCost,
             $maxCost,
-            $minCost->withMarkup($markupBps),
-            $maxCost->withMarkup($markupBps),
+            $minCost->withMarkup(Nanodollars::DEFAULT_MARKUP_BPS),
+            $maxCost->withMarkup(Nanodollars::DEFAULT_MARKUP_BPS),
         );
     }
 }
