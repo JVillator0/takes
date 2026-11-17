@@ -15,6 +15,8 @@ it('renders every take state in the gallery with copy from the lang files', func
             ->where('takes.3.moneyLine', 'Charged $0.0740')
             ->where('takes.4.failureMessage', 'The image could not be generated. You were not charged.')
             ->where('details.done.price.amount', '$0.0740375')
+            ->where('insufficientMessage', 'Your available credits are below the max price. Buy credits to continue.')
+            ->where('denialMessages.daily_take_cap', "You reached today's take limit. It resets at 00:00 UTC.")
         );
 });
 
@@ -30,14 +32,7 @@ it('resolves every copy key in the gallery payload', function (): void {
         }
     });
 
-    // lang/en/denials.php belongs to spec 3-01 (PR #92); until it lands, denial
-    // keys are the only ones allowed to render raw.
-    $unresolvedOutsideDenials = array_values(array_filter(
-        $unresolved,
-        fn (string $key): bool => ! str_starts_with($key, 'denials.'),
-    ));
-
-    expect($unresolvedOutsideDenials)->toBe([]);
+    expect($unresolved)->toBe([]);
 });
 
 it('is not reachable in production', function (): void {

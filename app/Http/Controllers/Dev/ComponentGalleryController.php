@@ -13,13 +13,11 @@ use Inertia\Response;
  *
  * Returns 404 outside the local and testing environments. Fixtures follow the
  * demo dataset (D-037, Ana López at 2026-11-17 12:02 UTC). Every sentence comes
- * from the lang files, so the gallery shows the real copy (D-057). The one
- * exception is the denial reason: `lang/en/denials.php` belongs to spec 3-01
- * (PR #92), so `insufficientMessage` renders its raw key until that file lands
- * (the gallery test allows `denials.*` keys only). Amounts are hard-coded
+ * from the lang files, so the gallery shows the real copy (D-057), including
+ * the denial reason from `lang/en/denials.php` (spec 3-01). Amounts are hard-coded
  * display strings here; in the app the server formats them (D-042).
  */
-class ComponentGalleryController extends Controller
+final class ComponentGalleryController extends Controller
 {
     public function __invoke(): Response
     {
@@ -52,6 +50,10 @@ class ComponentGalleryController extends Controller
                 'onHoldExact' => '$0.00',
             ],
             'insufficientMessage' => __('denials.insufficient_credits'),
+            'denialMessages' => [
+                'daily_take_cap' => __('denials.daily_take_cap'),
+                'rate_limited' => __('denials.rate_limited'),
+            ],
         ]);
     }
 
@@ -187,11 +189,11 @@ class ComponentGalleryController extends Controller
                 'imageUrl' => $this->image('#fb923c', '#1e3a8a', 1536, 1024),
             ],
             'versions' => [
-                ['id' => 6, 'label' => '#6 original', 'imageUrl' => $this->image('#94a3b8', '#0f172a', 1024, 1536), 'current' => false],
-                ['id' => 8, 'label' => '#8 warmer', 'imageUrl' => $this->image('#fb923c', '#1e3a8a', 1536, 1024), 'current' => false],
-                ['id' => 10, 'label' => '#10 this take', 'imageUrl' => $this->image('#f59e0b', '#7c2d12', 1024, 1024), 'current' => true],
-                ['id' => 11, 'label' => '#11 queued', 'imageUrl' => null, 'current' => false],
-                ['id' => 12, 'label' => '#12 processing', 'imageUrl' => null, 'current' => false],
+                ['id' => 6, 'label' => '#6 original', 'phase' => 'done', 'imageUrl' => $this->image('#94a3b8', '#0f172a', 1024, 1536), 'current' => false],
+                ['id' => 8, 'label' => '#8 warmer', 'phase' => 'done', 'imageUrl' => $this->image('#fb923c', '#1e3a8a', 1536, 1024), 'current' => false],
+                ['id' => 10, 'label' => '#10 this take', 'phase' => 'done', 'imageUrl' => $this->image('#f59e0b', '#7c2d12', 1024, 1024), 'current' => true],
+                ['id' => 11, 'label' => '#11 queued', 'phase' => 'queued', 'imageUrl' => null, 'current' => false],
+                ['id' => 12, 'label' => '#12 processing', 'phase' => 'processing', 'imageUrl' => null, 'current' => false],
             ],
             'downloadUrl' => $this->image('#f59e0b', '#7c2d12', 1024, 1024),
         ];

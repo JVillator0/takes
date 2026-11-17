@@ -18,7 +18,9 @@ defineProps<Props>();
 /**
  * Available and On hold at every width (P10); only the word "Available" hides
  * on phones. The pill is a focusable tooltip trigger, so the exact amounts are
- * reachable by hover, keyboard and screen reader alike.
+ * reachable by hover, keyboard and screen reader alike. Spec 4 can make On
+ * hold a link to the workspace's In progress filter (2-02) once that route
+ * exists; until then the pill has no click action.
  */
 const { t } = useCopy();
 </script>

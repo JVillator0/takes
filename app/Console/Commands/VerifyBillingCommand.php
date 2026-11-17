@@ -4,11 +4,12 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
-use App\Contracts\Billing\PixelforgeUsageSource;
 use App\Enums\Billing\Provider;
-use App\Exceptions\Billing\UsageSourceUnavailableException;
-use App\Queries\Billing\LedgerInvariantViolationsQuery;
-use App\Queries\Billing\SettledProviderCostPerDayQuery;
+use App\Exceptions\Pixelforge\PixelforgeException;
+use App\Exceptions\Pixelforge\PixelforgeNotConfigured;
+use App\Queries\Billing\GetPixelforgeDailyCostsQuery;
+use App\Queries\Billing\GetSettledDailyCostsQuery;
+use App\Queries\Billing\ListLedgerInvariantViolationsQuery;
 use App\Support\Money\Nanodollars;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonPeriodImmutable;
@@ -31,9 +32,9 @@ use InvalidArgumentException;
 final class VerifyBillingCommand extends Command
 {
     public function handle(
-        LedgerInvariantViolationsQuery $invariantViolations,
-        SettledProviderCostPerDayQuery $settledCostPerDay,
-        PixelforgeUsageSource $usageSource,
+        ListLedgerInvariantViolationsQuery $invariantViolations,
+        GetSettledDailyCostsQuery $settledCostPerDay,
+        GetPixelforgeDailyCostsQuery $pixelforgeDailyCosts,
     ): int {
         $range = null;
 
@@ -49,7 +50,7 @@ final class VerifyBillingCommand extends Command
         $violations = $invariantViolations->execute();
 
         if ($range !== null) {
-            $violations = [...$violations, ...$this->usageViolations($settledCostPerDay, $usageSource, ...$range)];
+            $violations = [...$violations, ...$this->usageViolations($settledCostPerDay, $pixelforgeDailyCosts, ...$range)];
         }
 
         if ($violations === []) {
@@ -95,16 +96,17 @@ final class VerifyBillingCommand extends Command
 
     /** @return list<string> */
     private function usageViolations(
-        SettledProviderCostPerDayQuery $settledCostPerDay,
-        PixelforgeUsageSource $usageSource,
+        GetSettledDailyCostsQuery $settledCostPerDay,
+        GetPixelforgeDailyCostsQuery $pixelforgeDailyCosts,
         CarbonImmutable $from,
         CarbonImmutable $to,
     ): array {
         try {
-            $theirs = $usageSource->dailyCosts($from, $to);
-        } catch (UsageSourceUnavailableException $e) {
-            // Asked for a comparison we cannot make: never report it as passed.
-            return ["--usage: {$e->getMessage()}"];
+            $theirs = $pixelforgeDailyCosts->execute($from, $to);
+        } catch (PixelforgeException|PixelforgeNotConfigured $e) {
+            // Asked for a comparison we cannot make (no key, API down):
+            // never report it as passed.
+            return ['--usage: Pixelforge usage is unavailable ('.class_basename($e).': '.$e->getMessage().')'];
         }
 
         $ours = $settledCostPerDay->execute(Provider::Pixelforge, $from, $to);

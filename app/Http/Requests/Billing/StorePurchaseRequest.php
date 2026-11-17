@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Billing;
 
+use App\Enums\Auth\CustomerPermission;
 use App\Models\Customer;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -16,14 +17,10 @@ use LogicException;
  */
 final class StorePurchaseRequest extends FormRequest
 {
-    /**
-     * Permission `credits.purchase` (spec 3-01). Resolved through the Gate, so
-     * spatie/laravel-permission answers it once 3-01 installs it; until then
-     * the ability is undefined and the request is denied (fails closed).
-     */
+    /** Permission `credits.purchase` (spec 3-01): both customer roles have it. */
     public function authorize(): bool
     {
-        return $this->customer()->can('credits.purchase');
+        return $this->customer()->can(CustomerPermission::CreditsPurchase->value);
     }
 
     /**

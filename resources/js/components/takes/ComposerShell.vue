@@ -16,6 +16,7 @@ import { useCopy } from '@/composables/useCopy';
 import { cn } from '@/lib/utils';
 import type {
     ComposerErrors,
+    DenialReason,
     EstimateState,
     TakeEstimate,
     TakeQuality,
@@ -27,6 +28,8 @@ type Props = {
     estimateState: EstimateState;
     /** Available credits (4 decimals) for the insufficient-balance state. */
     availableDisplay?: string | null;
+    /** Denial code when `estimateState` is `denied` (F-17); picks the extra lines. */
+    deniedReason?: DenialReason | null;
     /** Server denial sentence (`denials.*`) when `estimateState` is `denied`. */
     deniedMessage?: string | null;
     /** From the shared `pixelforge.configured` prop; false shows the banner and blocks submit. */
@@ -48,6 +51,7 @@ type Props = {
 
 const props = withDefaults(defineProps<Props>(), {
     availableDisplay: null,
+    deniedReason: null,
     deniedMessage: null,
     serviceConfigured: true,
     processing: false,
@@ -90,6 +94,10 @@ const ids = {
     reason: useId(),
     estimateMessage: useId(),
     pricePending: useId(),
+    sizeError: useId(),
+    qualityError: useId(),
+    referenceError: useId(),
+    referencesError: useId(),
     banner: useId(),
 };
 
@@ -127,6 +135,18 @@ const isHttpUrl = (value: string): boolean => {
 
 const referenceInvalid = (value: string): boolean =>
     value.trim() !== '' && !isHttpUrl(value.trim());
+
+/** Links a reference input to its own error and the server's list error (F-20). */
+const referenceDescribedBy = (index: number): string | undefined => {
+    const describedBy = [
+        referenceInvalid(references.value[index] ?? '')
+            ? `${ids.referenceError}-${index}`
+            : null,
+        props.errors.reference_images ? ids.referencesError : null,
+    ].filter((id): id is string => id !== null);
+
+    return describedBy.length > 0 ? describedBy.join(' ') : undefined;
+};
 
 const hasInvalidReference = computed(() =>
     references.value.some(referenceInvalid),
@@ -236,7 +256,12 @@ const segmentClass =
 </script>
 
 <template>
-    <form class="flex flex-col gap-4" novalidate @submit.prevent="submit">
+    <!--
+        The form never submits by itself: Enter in a reference URL must not
+        start a paid take. Only the Generate click and Cmd/Ctrl+Enter in the
+        prompt (2-02) call submit(), which keeps the price gate (F-15).
+    -->
+    <form class="flex flex-col gap-4" novalidate @submit.prevent>
         <div class="flex items-center justify-between gap-2">
             <h2 class="text-base font-semibold">
                 {{ t('takes.composer.title') }}
@@ -334,6 +359,10 @@ const segmentClass =
                         type="radio"
                         name="size"
                         :value="option.value"
+                        :aria-invalid="errors.size ? true : undefined"
+                        :aria-describedby="
+                            errors.size ? ids.sizeError : undefined
+                        "
                         class="sr-only"
                     />
                     <span class="inline-flex items-center gap-1">
@@ -351,6 +380,7 @@ const segmentClass =
             </div>
             <p
                 v-if="errors.size"
+                :id="ids.sizeError"
                 class="text-sm text-red-700 dark:text-red-300"
             >
                 {{ errors.size }}
@@ -374,6 +404,10 @@ const segmentClass =
                         type="radio"
                         name="quality"
                         :value="option"
+                        :aria-invalid="errors.quality ? true : undefined"
+                        :aria-describedby="
+                            errors.quality ? ids.qualityError : undefined
+                        "
                         class="sr-only"
                     />
                     {{ t(`takes.quality.${option}`) }}
@@ -381,6 +415,7 @@ const segmentClass =
             </div>
             <p
                 v-if="errors.quality"
+                :id="ids.qualityError"
                 class="text-sm text-red-700 dark:text-red-300"
             >
                 {{ errors.quality }}
@@ -411,8 +446,12 @@ const segmentClass =
                             })
                         "
                         :aria-invalid="
-                            referenceInvalid(reference) ? true : undefined
+                            referenceInvalid(reference) ||
+                            errors.reference_images
+                                ? true
+                                : undefined
                         "
+                        :aria-describedby="referenceDescribedBy(index)"
                         class="h-9 min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 text-base shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-invalid:border-destructive md:text-sm dark:bg-input/30"
                         @input="
                             updateReference(
@@ -437,6 +476,7 @@ const segmentClass =
                 </div>
                 <p
                     v-if="referenceInvalid(reference)"
+                    :id="`${ids.referenceError}-${index}`"
                     class="text-sm text-red-700 dark:text-red-300"
                 >
                     {{ t('takes.composer.reference_invalid') }}
@@ -444,6 +484,7 @@ const segmentClass =
             </div>
             <p
                 v-if="errors.reference_images"
+                :id="ids.referencesError"
                 class="text-sm text-red-700 dark:text-red-300"
             >
                 {{ errors.reference_images }}
@@ -465,6 +506,7 @@ const segmentClass =
             :estimate="estimate"
             :state="estimateState"
             :available-display="availableDisplay"
+            :denied-reason="deniedReason"
             :denied-message="deniedMessage"
             :message-id="ids.estimateMessage"
         />
@@ -472,9 +514,10 @@ const segmentClass =
         <div class="flex flex-col gap-2">
             <div class="flex flex-wrap gap-2">
                 <Button
-                    type="submit"
+                    type="button"
                     size="lg"
                     :aria-disabled="!canSubmit"
+                    @click="submit"
                     :aria-describedby="submitDescribedBy"
                     :class="[
                         'min-w-0 flex-1 tabular-nums',
@@ -505,7 +548,8 @@ const segmentClass =
                     {{ t('billing.buy_credits') }}
                 </Button>
             </div>
-            <span :id="ids.pricePending" class="sr-only">
+            <!-- Hidden: read only through Generate's aria-describedby while the price loads. -->
+            <span :id="ids.pricePending" hidden>
                 {{ t('takes.estimate.loading') }}
             </span>
             <div

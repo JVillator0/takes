@@ -39,6 +39,10 @@ const comparing = defineModel<boolean>('comparing', { default: false });
 
 const emit = defineEmits<{
     remix: [id: number];
+    /**
+     * Free by itself: the page opens the composer pre-filled (spec 4), and the
+     * paid submit happens there, with its max price on Generate (F-15).
+     */
     tryAgain: [id: number];
     describeChange: [id: number];
     cancel: [id: number];
@@ -349,11 +353,7 @@ const sectionLabel =
                                         <TakeImage
                                             :src="version.imageUrl"
                                             alt=""
-                                            :phase="
-                                                version.imageUrl
-                                                    ? 'done'
-                                                    : 'processing'
-                                            "
+                                            :phase="version.phase"
                                             class="aspect-square rounded-md"
                                         />
                                         <span

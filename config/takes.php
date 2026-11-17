@@ -43,6 +43,10 @@ return [
         'throttle_per_minute' => (int) env('TAKES_AI_THROTTLE_PER_MINUTE', 6),
     ],
 
+    // Credit packs a customer can buy, in whole US dollars (spec 3-03 §5,
+    // D-051). No env override; owned by 3-03, specs 4 and 6 only read it.
+    'purchase_packs_usd' => [5, 10, 25],
+
     'demo' => [
         // P02 demo panel with seeded logins (D-045). Off by default; production demo only.
         'enabled' => (bool) env('DEMO_LOGIN_ENABLED', false),
