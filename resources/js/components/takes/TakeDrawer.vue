@@ -21,6 +21,7 @@ import {
     SheetHeader,
     SheetTitle,
 } from '@/components/ui/sheet';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useCopy } from '@/composables/useCopy';
 import { cn } from '@/lib/utils';
 import type { TakeDetailData, TakePriceTone } from '@/types';
@@ -95,6 +96,15 @@ const copyPrompt = async (): Promise<void> => {
     }
 };
 
+const announcement = computed(() =>
+    props.take
+        ? t('takes.card.announcement', {
+              id: props.take.id,
+              status: props.take.statusLabel,
+          })
+        : '',
+);
+
 const sectionLabel =
     'text-xs font-semibold tracking-wide text-muted-foreground uppercase';
 </script>
@@ -105,20 +115,62 @@ const sectionLabel =
             side="right"
             class="w-full gap-0 overflow-y-auto p-0 sm:max-w-3xl lg:max-w-5xl"
         >
-            <template v-if="take">
-                <SheetHeader class="border-b p-4 pr-12 sm:px-6">
-                    <div class="flex flex-wrap items-center gap-2">
-                        <SheetTitle class="text-lg">
-                            {{ t('takes.card.title', { id: take.id }) }}
-                        </SheetTitle>
-                        <TakeStatusBadge
-                            :phase="take.phase"
-                            :label="take.statusLabel"
-                        />
-                    </div>
-                    <SheetDescription>{{ take.paramsLine }}</SheetDescription>
-                </SheetHeader>
+            <!--
+                The title is always rendered so the dialog has a name while the
+                take loads (`?take={id}` partial reload, 2-02).
+            -->
+            <SheetHeader class="border-b p-4 pr-12 sm:px-6">
+                <div class="flex flex-wrap items-center gap-2">
+                    <SheetTitle class="text-lg">
+                        {{
+                            take
+                                ? t('takes.card.title', { id: take.id })
+                                : t('takes.drawer.loading')
+                        }}
+                    </SheetTitle>
+                    <TakeStatusBadge
+                        v-if="take"
+                        :phase="take.phase"
+                        :label="take.statusLabel"
+                    />
+                </div>
+                <SheetDescription v-if="take">
+                    {{ take.paramsLine }}
+                </SheetDescription>
+                <SheetDescription v-else class="sr-only">
+                    {{ t('takes.drawer.loading') }}
+                </SheetDescription>
+            </SheetHeader>
 
+            <!--
+                The modal hides the grid (and its per-card live regions) from
+                assistive tech, so the drawer announces status changes itself.
+            -->
+            <p class="sr-only" aria-live="polite" aria-atomic="true">
+                {{ announcement }}
+            </p>
+
+            <div
+                v-if="!take"
+                aria-busy="true"
+                class="grid gap-6 p-4 sm:p-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]"
+            >
+                <div class="flex flex-col gap-4">
+                    <Skeleton class="aspect-square w-full rounded-lg" />
+                    <div class="flex gap-2">
+                        <Skeleton class="h-9 w-24" />
+                        <Skeleton class="h-9 w-36" />
+                        <Skeleton class="h-9 w-28" />
+                    </div>
+                </div>
+                <div class="flex flex-col gap-5">
+                    <Skeleton class="h-20 w-full" />
+                    <Skeleton class="h-24 w-full" />
+                    <Skeleton class="h-32 w-full" />
+                </div>
+            </div>
+
+            <template v-else>
                 <div
                     class="grid gap-6 p-4 sm:p-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]"
                 >
