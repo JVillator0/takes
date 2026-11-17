@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Services\Takes;
+namespace App\Support\Takes;
 
 use App\Contracts\Takes\CreatesSuggestedTake;
 use App\DTOs\Suggestions\SuggestedTakeDTO;

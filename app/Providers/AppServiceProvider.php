@@ -10,7 +10,7 @@ use App\Models\Customer;
 use App\Models\Suggestion;
 use App\Models\Take;
 use App\Models\User;
-use App\Services\Takes\UnavailableSuggestedTakeCreator;
+use App\Support\Takes\UnavailableSuggestedTakeCreator;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;

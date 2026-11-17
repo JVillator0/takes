@@ -15,7 +15,7 @@ use App\Models\Customer;
 use App\Models\Project;
 use App\Models\Suggestion;
 use App\Models\Take;
-use App\Services\Takes\UnavailableSuggestedTakeCreator;
+use App\Support\Takes\UnavailableSuggestedTakeCreator;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;

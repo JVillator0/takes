@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\File;
 use Tests\Support\SourceScan;
 
 /*
@@ -158,3 +159,16 @@ test('the usage-record lock scan sees Eloquent and query-builder locks', functio
         unlink($file);
     }
 });
+
+test('App\\Services holds only the Pixelforge client', function (): void {
+    $files = collect(File::allFiles(base_path('app/Services')))
+        ->map(fn (SplFileInfo $file): string => str_replace(DIRECTORY_SEPARATOR, '/', $file->getRelativePathname()))
+        ->values()
+        ->all();
+
+    expect($files)->toBe(['Pixelforge/PixelforgeClient.php']);
+});
+
+arch('App\\Contracts holds only interfaces (seams)')
+    ->expect('App\Contracts')
+    ->toBeInterfaces();

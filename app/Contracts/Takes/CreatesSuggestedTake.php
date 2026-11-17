@@ -21,6 +21,10 @@ use App\Models\Take;
  * - callable inside the caller's transaction, which holds the suggestion
  *   lock (lock order suggestion → customer, money rule M-10); no HTTP call
  *   inside it (M-16): pricing comes from the cache;
+ * - authorizes the new take exactly like the composer: TakePolicy::create
+ *   (restriction, daily caps, credits against the recomputed estimate),
+ *   re-checked under the customer lock, denials as SuggestionDeniedException
+ *   with the DenialReason (apply itself only checks ownership);
  * - recomputes the estimate from the real prompt and opens the hold;
  * - idempotent on (customer, idempotency key): a replay returns the
  *   existing take, with no second hold.
