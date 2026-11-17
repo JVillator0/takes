@@ -21,4 +21,17 @@ enum TransitionOutcome: string
     case IgnoredConflict = 'ignored_conflict';
     case OrphanSuccess = 'orphan_success';
     case InvalidSnapshot = 'invalid_snapshot';
+
+    /**
+     * PSR-3 level for the transition log line: a conflict or an orphan is a
+     * warning (spec 5 matrix), an invalid snapshot is critical (W-13).
+     */
+    public function logLevel(): string
+    {
+        return match ($this) {
+            self::Applied, self::IgnoredSameState, self::IgnoredStale => 'info',
+            self::IgnoredConflict, self::OrphanSuccess => 'warning',
+            self::InvalidSnapshot => 'critical',
+        };
+    }
 }

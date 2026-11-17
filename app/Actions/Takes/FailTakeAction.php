@@ -1,0 +1,105 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Actions\Takes;
+
+use App\Actions\Billing\VoidUsageAction;
+use App\Enums\Takes\AttentionReason;
+use App\Enums\Takes\FailureCode;
+use App\Enums\Takes\SubmitErrorKind;
+use App\Enums\Takes\TakeStatus;
+use App\Enums\Takes\TransitionOutcome;
+use App\Events\TakeUpdated;
+use App\Exceptions\Takes\TakeTransitionNotAllowedException;
+use App\Models\Take;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+
+/**
+ * Fails a take for a local reason, free (spec 3-02): a definite rejection at
+ * submit (content_policy, daily_limit, validation, internal), a cancel while
+ * waiting for capacity (D-044), or the end of the 30-minute submit window
+ * (provider_busy, submit_timeout; D-025). With ApplyTakeSnapshotAction, the
+ * only code that changes a take's status (M-11); the usage is voided in the
+ * same transaction, so the hold is released exactly once (M-12, M-13).
+ */
+final readonly class FailTakeAction
+{
+    public function __construct(private VoidUsageAction $voidUsage) {}
+
+    /**
+     * @throws TakeTransitionNotAllowedException for a provider-only code, or a cancel outside the capacity state; nothing is written
+     */
+    public function execute(Take $take, FailureCode $code, string $message): TransitionOutcome
+    {
+        if ($code === FailureCode::GenerationFailed || $code === FailureCode::InternalError) {
+            throw TakeTransitionNotAllowedException::providerCode($code);
+        }
+
+        return DB::transaction(function () use ($take, $code, $message): TransitionOutcome {
+            // Lock order: the take first; VoidUsageAction then locks only the customer (spec 3-03 §6).
+            Take::query()->whereKey($take->id)->lockForUpdate()->firstOrFail();
+            $take->refresh();
+
+            $from = $take->status;
+
+            $outcome = match (true) {
+                $from === TakeStatus::Failed => TransitionOutcome::IgnoredSameState,
+                // Terminal → a different terminal (spec 3-02).
+                $from === TakeStatus::Succeeded => TransitionOutcome::IgnoredConflict,
+                // Pixelforge accepted the take: its snapshots decide now. Only
+                // `internal` (a revoked key while reconciling, D-062) still fails it.
+                $from !== TakeStatus::Pending && $code !== FailureCode::Internal => TransitionOutcome::IgnoredStale,
+                default => TransitionOutcome::Applied,
+            };
+
+            // Cancel only while nothing can exist at Pixelforge (D-044): with an
+            // ambiguous submit in doubt, a cancel could hide a real generation.
+            if ($outcome === TransitionOutcome::Applied
+                && $code === FailureCode::Cancelled
+                && $take->last_submit_error_kind !== SubmitErrorKind::Capacity) {
+                throw TakeTransitionNotAllowedException::cancel($take);
+            }
+
+            if ($outcome === TransitionOutcome::Applied) {
+                $now = now();
+
+                $take->forceFill([
+                    'status' => TakeStatus::Failed,
+                    'failure_code' => $code,
+                    'failure_message' => $message,
+                    // Local failures use local time (spec 3-02).
+                    'completed_at' => $now,
+                    'last_event_at' => $now,
+                    // A configuration or code problem, never the customer's (D-054, D-062).
+                    'attention_reason' => $code === FailureCode::Internal ? AttentionReason::InternalFailure : $take->attention_reason,
+                ])->save();
+
+                // Failed = free: release the hold, charge nothing (D-024, M-13).
+                $this->voidUsage->execute($take->usageRecord()->firstOrFail());
+            } elseif ($outcome === TransitionOutcome::IgnoredConflict) {
+                $take->forceFill(['attention_reason' => AttentionReason::InternalFailure])->save();
+            }
+
+            $context = [
+                'take_id' => $take->id,
+                'failure_code' => $code->value,
+                'from' => $from->value,
+                'to' => $take->status->value,
+                'outcome' => $outcome->value,
+            ];
+
+            // Log and broadcast only once the outermost transaction commits.
+            DB::afterCommit(function () use ($outcome, $take, $context): void {
+                Log::log($outcome->logLevel(), 'takes.local_failure', $context);
+
+                if ($outcome === TransitionOutcome::Applied) {
+                    TakeUpdated::dispatch($take);
+                }
+            });
+
+            return $outcome;
+        });
+    }
+}
