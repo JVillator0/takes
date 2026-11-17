@@ -28,8 +28,8 @@ it('charges once when two processes apply the same success in parallel', functio
         'DB_USERNAME' => (string) $connection['username'],
         'DB_PASSWORD' => (string) $connection['password'],
     ];
-    // Time for both processes to boot before the start line.
-    $startAt = (string) (microtime(true) + 2.0);
+    // Time for both processes to boot before the start line (as ConcurrencyTest).
+    $startAt = (string) (microtime(true) + 3.0);
 
     $results = Process::pool(function (Pool $pool) use ($take, $env, $startAt): void {
         foreach (['first', 'second'] as $name) {
@@ -43,7 +43,8 @@ it('charges once when two processes apply the same success in parallel', functio
     $outcomes = [];
 
     foreach (['first', 'second'] as $name) {
-        expect($results[$name]->successful())->toBeTrue($results[$name]->errorOutput());
+        expect($results[$name]->exitCode())->not->toBe(3, 'A worker missed the start line: the processes did not race.')
+            ->and($results[$name]->successful())->toBeTrue($results[$name]->errorOutput());
         $outcomes[] = trim($results[$name]->output());
     }
 
