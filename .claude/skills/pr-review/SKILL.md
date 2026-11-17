@@ -93,3 +93,7 @@ Run it after any change to `.claude/workflows/pr-review.js`. The tests evaluate 
 - **Merge refused, CI still pending**: wait for CI, then re-run with `judgeOnly: true` and the same `round`.
 - **A reviewer agent failed**: the judge reviews that reviewer's files itself and the scorecard says so. Resume with `resumeFromRunId` to retry only what failed.
 - **Duplicate comments**: reviewers and the judge mark their posts with `<!-- pr-review:… sha=… round=… -->`; a re-run for the same SHA and round edits instead of posting again.
+
+## Escalation after round 3 (D-075)
+
+The lead (not Javier) decides. Fix the open important/critical findings, comment the decision on the PR, then run the workflow once more with `args: { pr, repo, cwd, round: 4, escalation: "D-075" }`. Round 5 is refused. Minors left after round 4 become a follow-up issue.

@@ -411,7 +411,7 @@ function renderScorecard({ verdict, score, judge, numbered, round, sha, reviewer
   return [
     `## Judge verdict: ${verdict} · ${score.toFixed(1)} / 10`,
     `<!-- pr-review:judge sha=${sha} round=${round} -->`,
-    `Round ${round} of ${MAX_ROUNDS} · reviewed head \`${short(sha)}\` · ${reviewerLine}`,
+    `Round ${round} of ${roundLimit}${escalation ? ' (' + escalation + ')' : ''} · reviewed head \`${short(sha)}\` · ${reviewerLine}`,
     '',
     '| Dimension | Score | Note |',
     '|---|---|---|',
@@ -485,8 +485,12 @@ if (ctx.state !== 'OPEN') {
 }
 
 const round = Number.isInteger(input.round) ? input.round : ctx.previousJudgeRounds + 1
-if (round < 1 || round > MAX_ROUNDS) {
-  log(`Round ${round} exceeds the ${MAX_ROUNDS}-round limit: escalate to Javier instead of re-running.`)
+// D-075: after round MAX_ROUNDS the lead may authorise exactly one extra round by passing
+// args.escalation (the decision id, e.g. "D-075"); anything beyond that is refused.
+const escalation = typeof input.escalation === 'string' && /^D-\d{3}$/.test(input.escalation) ? input.escalation : null
+const roundLimit = escalation ? MAX_ROUNDS + 1 : MAX_ROUNDS
+if (round < 1 || round > roundLimit) {
+  log(`Round ${round} exceeds the ${roundLimit}-round limit: escalate instead of re-running.`)
   return { verdict: null, score: null, merged: false, findings: [], round, reason: 'round limit reached; escalate to Javier' }
 }
 
@@ -691,16 +695,16 @@ const numbered = numberFindings(judge.findings)
 const scorecard = renderScorecard({ verdict, score, judge, numbered, round, sha: SHA, reviewerLine, reasons })
 const label = VERDICT_LABELS[verdict]
 const otherLabels = Object.values(VERDICT_LABELS).filter((l) => l !== label)
-const lastRound = round >= MAX_ROUNDS
+const lastRound = round >= roundLimit
 
 const decisions = {
   merged: 'Decision: merged with squash.',
   autoMerge: 'Decision: auto-merge enabled (squash); GitHub merges when the required checks pass.',
   nits: lastRound
-    ? `Decision: not merged. Round ${round} of ${MAX_ROUNDS} reached: the lead escalates to Javier.`
+    ? `Decision: not merged. Round ${round} of ${roundLimit} reached: the lead escalates${escalation ? ' (extra round already used, ' + escalation + ')' : ''}.`
     : `Decision: not merged. Fix the minor findings in new commits, reply "Fixed in <sha>" or "Won't fix: …" on each thread, then re-run with judgeOnly (round ${round + 1}).`,
   notMergeable: lastRound
-    ? `Decision: not merged. Round ${round} of ${MAX_ROUNDS} reached: the lead escalates to Javier.`
+    ? `Decision: not merged. Round ${round} of ${roundLimit} reached: the lead escalates${escalation ? ' (extra round already used, ' + escalation + ')' : ''}.`
     : `Decision: not merged. Fix the items above in new commits (no force-push), reply on each thread, then re-run the full workflow (round ${round + 1}).`,
 }
 
