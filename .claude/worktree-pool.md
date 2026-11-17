@@ -52,6 +52,7 @@ A worktree belongs to one agent at a time. The lock reason is the lease.
 ## Shared limits
 
 - **One full test suite at a time across the pool.** A filtered run (`scripts/test.sh --filter …`) is fine; announce a full run before starting it.
+- **Composer checks need the slot's test database too.** Only `scripts/test.sh` sets `DB_DATABASE`; `composer test` and `composer ci:check` fall back to `phpunit.xml`'s `takes_testing`, which is `main`'s. In a worktree run them as `DB_DATABASE=takes_testing_<l> composer ci:check` (or `composer test`).
 - **One process set per letter.** Each checkout runs its own `queue:work` (`QUEUE_CONNECTION=database`) only while it needs one, and uses its own Vite and Reverb ports.
 - **Only `main` talks to the real Pixelforge API.** Limits are per account, shared with the deployed demo and evaluators: **60 requests/min, 3 generations in flight, 500/day**. Worktrees use `Http::fake` and signed fixtures; worktree `.env` files have no provider keys unless `--with-secrets` was used for a stated reason. Only one manual smoke run at a time, and only from `main`.
 

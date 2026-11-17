@@ -74,6 +74,8 @@ Open http://localhost. To run the tests under Sail, create the test database onc
 
 The suite runs offline with no provider keys. CI (GitHub Actions, `postgres:17`) runs `composer ci:check` on every pull request.
 
+Tests use the `takes_testing` database (`phpunit.xml`). To point them elsewhere, export it: `DB_DATABASE=<name> composer ci:check`. In the parallel worktrees used to build this project, `scripts/test.sh` does that per checkout (see [`.claude/worktree-pool.md`](.claude/worktree-pool.md)).
+
 ## Harness files
 
 *To be completed:* the files that steer the agents that built this project.
