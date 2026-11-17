@@ -15,6 +15,11 @@ type Props = {
 
 defineProps<Props>();
 
+/** 2-02: clicking the pill opens the In progress filter, the takes that hold the amount. */
+const emit = defineEmits<{
+    showOnHold: [];
+}>();
+
 /**
  * Available and On hold at every width (P10); only the word "Available" hides
  * on phones. The pill is a focusable tooltip trigger, so the exact amounts are
@@ -30,7 +35,8 @@ const { t } = useCopy();
                 <button
                     type="button"
                     data-slot="balance-pill"
-                    class="inline-flex h-8 min-w-0 cursor-help items-center gap-1.5 rounded-full border bg-background px-3 text-sm whitespace-nowrap tabular-nums outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                    @click="emit('showOnHold')"
+                    class="inline-flex h-8 min-w-0 cursor-pointer items-center gap-1.5 rounded-full border bg-background px-3 text-sm whitespace-nowrap tabular-nums outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                 >
                     <span class="sr-only">
                         {{
@@ -38,7 +44,8 @@ const { t } = useCopy();
                                 available: balance.available,
                                 on_hold: balance.onHold,
                             })
-                        }}
+                        }}.
+                        {{ t('billing.show_on_hold') }}
                     </span>
                     <span aria-hidden="true" class="contents">
                         <span class="hidden text-muted-foreground sm:inline">

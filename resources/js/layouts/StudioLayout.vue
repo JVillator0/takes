@@ -25,13 +25,14 @@ import type { BalanceSummary, BreadcrumbItem } from '@/types';
  */
 type Props = {
     breadcrumbs?: BreadcrumbItem[];
+    /** Overrides the signed-in customer's shared balance (e.g. a live-updated one). */
     balance?: BalanceSummary | null;
     showBuyCredits?: boolean;
     /** Full-bleed pages (the workspace) manage their own padding. */
     fluid?: boolean;
 };
 
-withDefaults(defineProps<Props>(), {
+const props = withDefaults(defineProps<Props>(), {
     breadcrumbs: () => [],
     balance: null,
     showBuyCredits: false,
@@ -40,6 +41,8 @@ withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
     buyCredits: [];
+    /** The pill was clicked: the workspace opens its In progress filter (2-02). */
+    showOnHold: [];
 }>();
 
 defineSlots<{
@@ -54,6 +57,27 @@ defineSlots<{
 
 const page = usePage();
 const customer = computed(() => page.props.auth.customer);
+
+/**
+ * The pill on every customer page: the page's balance if it passes one,
+ * otherwise the shared `auth.customer` strings (renamed only, no money math).
+ */
+const shellBalance = computed<BalanceSummary | null>(() => {
+    if (props.balance) {
+        return props.balance;
+    }
+
+    const current = customer.value;
+
+    return current
+        ? {
+              available: current.available,
+              availableExact: current.available_exact,
+              onHold: current.on_hold,
+              onHoldExact: current.on_hold_exact,
+          }
+        : null;
+});
 const { t } = useCopy();
 </script>
 
@@ -91,7 +115,11 @@ const { t } = useCopy();
                 >
                     <slot name="status" />
                     <slot name="balance">
-                        <BalancePill v-if="balance" :balance="balance" />
+                        <BalancePill
+                            v-if="shellBalance"
+                            :balance="shellBalance"
+                            @show-on-hold="emit('showOnHold')"
+                        />
                     </slot>
                     <Button
                         v-if="showBuyCredits"

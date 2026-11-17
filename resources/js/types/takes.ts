@@ -79,6 +79,8 @@ export type TakeTimelineEntry = {
 export type TakeVersion = {
     id: number;
     label: string;
+    /** Drives the thumbnail state: running pulse, failed, or image unavailable. */
+    phase: TakePhase;
     imageUrl: string | null;
     current: boolean;
 };
