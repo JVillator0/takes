@@ -274,6 +274,28 @@ describe('idempotency and pending', function (): void {
             ->and(Suggestion::query()->count())->toBe(1);
     });
 
+    it('expires the customer\'s orphans on other takes too, before checking credits', function (): void {
+        Suggestions::fake(Suggestions::messageBody(Suggestions::proposal()));
+        $otherTake = Suggestions::baseTake($this->customer, ['project_id' => $this->take->project_id]);
+        $orphan = Suggestion::factory()->create([
+            'customer_id' => $this->customer->id,
+            'project_id' => $otherTake->project_id,
+            'base_take_id' => $otherTake->id,
+            'expires_at' => now()->subSecond(),
+        ]);
+        DB::transaction(fn () => app(OpenUsageAction::class)->execute(
+            Suggestion::query()->lockForUpdate()->findOrFail($orphan->id), Provider::Anthropic, Billing::estimate(400_000), Billing::anthropicRates(),
+        ));
+
+        suggest();
+
+        expect($orphan->refresh()->status)->toBe(SuggestionStatus::Failed)
+            ->and($orphan->failure_reason)->toBe(SuggestionFailureReason::Timeout)
+            ->and($this->customer->refresh()->held_nanos)->toBe(0);
+
+        Billing::assertCachedColumnsMatch($this->customer);
+    });
+
     it('expires a suggestion orphaned after T1 (killed before T2): voided, hold released, take unblocked', function (): void {
         Suggestions::fake(Suggestions::messageBody(Suggestions::proposal()));
         // What T1 leaves behind when the process dies before T2.

@@ -17,14 +17,12 @@ use Illuminate\Support\Facades\DB;
  * "Expiry", M-13). Its own transaction, lock order suggestion → customer
  * (VoidUsageAction locks the customer, M-10).
  *
- * Called lazily by CreateSuggestionAction for the base take it is about to
- * use, and by spec 5's sweeper for every stale pending suggestion. A
+ * Called lazily by CreateSuggestionAction for the customer's stale
+ * suggestions, and by spec 5's sweeper for every stale pending suggestion. A
  * suggestion that moved on, or has not expired yet, is left alone.
  */
 final readonly class ExpireSuggestionAction
 {
-    public const string FAILURE_REASON = 'timeout';
-
     public function __construct(private VoidUsageAction $voidUsage) {}
 
     /**

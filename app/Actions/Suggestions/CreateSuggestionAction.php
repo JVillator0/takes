@@ -38,10 +38,10 @@ use Illuminate\Support\Facades\Log;
  * "Describe a change" (spec 8 step 2): two transactions with the model call
  * between them, outside any lock (money rule M-16).
  *
- * Expiry: first, void this base take's pending suggestions past expires_at
- *     (ExpireSuggestionAction), so a crash between T1 and T2 never blocks the
- *     take: the next request on it voids the stale one and releases its hold
- *     (spec 5's sweeper does the same for every take).
+ * Expiry: first, void this customer's pending suggestions past expires_at
+ *     (ExpireSuggestionAction), so a crash between T1 and T2 never blocks a
+ *     take: the customer's next request voids the stale ones and releases
+ *     their holds (spec 5's sweeper does the same for every customer).
  * T1  serialize on the AI budget lock, lock the customer; a replayed
  *     request_key returns the existing suggestion (no call, no hold, D-033;
  *     the same key on another base take is a 409); reject a second unexpired
@@ -96,7 +96,7 @@ final readonly class CreateSuggestionAction
         $rates = new RatesSnapshotDTO($this->pricing->rates(Provider::Anthropic, TakeChangeAgent::MODEL));
         $estimate = $this->estimator->estimate((new TakeChangeAgent)->fixedRequestText().$input->toMessage(), $rates->toArray());
 
-        $this->expireStalePending($baseTake);
+        $this->expireStalePending($customer);
 
         [$suggestion, $usage] = $this->open($customer, $baseTake, $request, $estimate, $rates);
 
@@ -182,19 +182,25 @@ final readonly class CreateSuggestionAction
     }
 
     /**
-     * Lazy expiry (spec 8 "Expiry"): before T1, void the expired pending
-     * suggestions of this base take, each in its own transaction with the lock
-     * order suggestion → customer. Runs before T1 because T1 already holds the
-     * customer lock. Spec 5's sweeper covers every other take.
+     * Lazy expiry (spec 8 "Expiry"): before T1, void every expired pending
+     * suggestion of this customer (each in its own transaction, lock order
+     * suggestion → customer), so no orphaned hold lowers the available credit
+     * this request is checked against, and no stale row blocks the base take.
+     * Runs before T1 because T1 already holds the customer lock. Spec 5's
+     * sweeper does the same for customers who never come back.
      */
-    private function expireStalePending(Take $baseTake): void
+    private function expireStalePending(Customer $customer): void
     {
-        Suggestion::query()
-            ->where('base_take_id', $baseTake->id)
+        $stale = Suggestion::query()
+            ->where('customer_id', $customer->id)
             ->where('status', SuggestionStatus::Pending->value)
             ->where('expires_at', '<=', now())
-            ->get()
-            ->each(fn (Suggestion $stale): bool => $this->expireSuggestion->execute($stale));
+            ->get();
+
+        // Not Collection::each: a row another process already expired returns false, which would stop it.
+        foreach ($stale as $suggestion) {
+            $this->expireSuggestion->execute($suggestion);
+        }
     }
 
     /** T2: lock order suggestion → customer (the money actions lock the customer). */
