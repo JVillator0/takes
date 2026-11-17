@@ -9,6 +9,7 @@ use App\Enums\Auth\CustomerPermission;
 use App\Enums\Auth\DenialReason;
 use App\Models\Customer;
 use App\Models\Project;
+use App\Services\Pixelforge\PixelforgeClient;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -57,6 +58,11 @@ final class HandleInertiaRequests extends Middleware
             'auth' => fn (): array => [
                 'customer' => $this->customerProps($this->customer($request)),
                 'can' => $this->abilities($this->customer($request)),
+            ],
+            // Only the boolean, never the key (spec 3-04 issue 4). Spec 4 shows the
+            // "service not configured" banner and disables submit when false.
+            'pixelforge' => [
+                'configured' => app(PixelforgeClient::class)->isConfigured(),
             ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
