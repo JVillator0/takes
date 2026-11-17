@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 use App\Enums\Auth\AdminPermission;
+use App\Filament\Admin\Audit\AdminAuditResource;
 use App\Filament\Admin\Clusters\Billing\BillingCluster;
 use App\Filament\Admin\Clusters\Providers\ProvidersCluster;
 use App\Filament\Admin\Clusters\Providers\Resources\WebhookDeliveries\WebhookDeliveryResource;
@@ -12,7 +13,6 @@ use App\Filament\Admin\Pages\Dashboard;
 use BezhanSalleh\FilamentShield\Resources\Roles\RoleResource;
 use Filament\Widgets\AccountWidget;
 use Filament\Widgets\FilamentInfoWidget;
-use Rmsramos\Activitylog\Resources\Activitylog\ActivitylogResource;
 
 return [
 
@@ -195,15 +195,10 @@ return [
     'resources' => [
         'subject' => 'model',
         'manage' => [
-            RoleResource::class => [
-                'viewAny',
-                'view',
-                'create',
-                'update',
-                'delete',
-            ],
+            // Roles are defined in code (AdminRole::permissions(), seeded by AdminRolesSeeder): read-only here.
+            RoleResource::class => ['viewAny', 'view'],
             // The audit is read-only: nobody edits or deletes what an admin did.
-            ActivitylogResource::class => ['viewAny', 'view'],
+            AdminAuditResource::class => ['viewAny', 'view'],
             // Read-only console resources (D-074): their writes are custom permissions (AdminPermission).
             ProjectResource::class => ['viewAny', 'view'],
             TakeResource::class => ['viewAny', 'view'],

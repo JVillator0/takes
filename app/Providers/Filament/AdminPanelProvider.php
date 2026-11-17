@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Providers\Filament;
 
 use App\Enums\Auth\AdminRole;
+use App\Filament\Admin\Audit\AdminAuditResource;
 use App\Filament\Admin\Clusters\Billing\BillingCluster;
 use App\Filament\Admin\Clusters\Providers\ProvidersCluster;
 use App\Filament\Admin\Clusters\Studio\StudioCluster;
@@ -44,12 +45,12 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 use pxlrbt\FilamentEnvironmentIndicator\EnvironmentIndicatorPlugin;
 use Rmsramos\Activitylog\ActivitylogPlugin;
-use Rmsramos\Activitylog\Resources\Activitylog\ActivitylogResource;
 use Spatie\Activitylog\Models\Activity;
 use Spatie\Permission\Events\PermissionAttachedEvent;
 use Spatie\Permission\Events\PermissionDetachedEvent;
 use Spatie\Permission\Events\RoleAttachedEvent;
 use Spatie\Permission\Events\RoleDetachedEvent;
+use Spatie\Permission\Models\Role;
 
 /**
  * The admin console at /admin (spec 7): admins are the default `users` table on the `web` guard (D-012), with
@@ -103,12 +104,13 @@ final class AdminPanelProvider extends PanelProvider
                 ]))
                 ->group(NavigationGroup::make(__('console.groups.system'))->collapsible()->items([
                     ...self::navigationItemsOf(RoleResource::class),
-                    ...self::navigationItemsOf(ActivitylogResource::class),
+                    ...self::navigationItemsOf(AdminAuditResource::class),
                 ])))
             ->plugins([
                 FilamentShieldPlugin::make(),
                 FilamentEChartsPlugin::make(),
                 ActivitylogPlugin::make()
+                    ->resource(AdminAuditResource::class)
                     ->label(fn (): string => __('console.audit.entry'))
                     ->pluralLabel(fn (): string => __('console.audit.title')),
                 EnvironmentIndicatorPlugin::make()
@@ -144,8 +146,9 @@ final class AdminPanelProvider extends PanelProvider
         // Billing days are UTC; the console shows every time in UTC.
         FilamentTimezone::set('UTC');
 
-        // Shield's super admin may do everything; only an admin (`users`) can hold it.
-        Gate::before(fn (object $user): ?bool => $user instanceof User && $user->hasRole(AdminRole::SuperAdmin->value) ? true : null);
+        // Shield's super admin may do everything; only an admin (`users`) can hold it. Roles and the audit stay
+        // read-only even for it: AdminRole::permissions() is the single source of role definitions.
+        Gate::before(fn (object $user, string $ability, array $arguments): ?bool => self::superAdminGate($user, $ability, $arguments));
 
         Gate::policy(Activity::class, ActivityPolicy::class);
 
@@ -168,6 +171,24 @@ final class AdminPanelProvider extends PanelProvider
 
         return ! $user->hasRole(AdminRole::Auditor->value)
             || $user->hasAnyRole([AdminRole::SuperAdmin->value, AdminRole::Operator->value]);
+    }
+
+    /**
+     * The super admin's `Gate::before`: true for every ability, except writes on a role or an audit entry, which
+     * are false for everyone (the console defines roles in code and never edits its own audit).
+     *
+     * @param  array<int, mixed>  $arguments
+     */
+    public static function superAdminGate(object $user, string $ability, array $arguments): ?bool
+    {
+        $subject = $arguments[0] ?? null;
+        $subjectClass = is_object($subject) ? $subject::class : (is_string($subject) ? $subject : null);
+
+        if (in_array($subjectClass, [Role::class, Activity::class], true) && ! in_array($ability, ['viewAny', 'view'], true)) {
+            return false;
+        }
+
+        return $user instanceof User && $user->hasRole(AdminRole::SuperAdmin->value) ? true : null;
     }
 
     public static function environmentLabel(): string

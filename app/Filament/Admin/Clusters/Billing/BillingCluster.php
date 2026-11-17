@@ -11,7 +11,7 @@ use Filament\Support\Icons\Heroicon;
 
 /**
  * Money: the Reports page, ledger entries, purchases and invoices (A07).
- * Hidden from the sidebar until it holds a page or resource the admin may open.
+ * Hidden from the sidebar, and refused by URL, until it holds a page or resource the admin may open.
  */
 final class BillingCluster extends Cluster
 {
@@ -22,6 +22,16 @@ final class BillingCluster extends Cluster
     public static function getNavigationLabel(): string
     {
         return __('console.clusters.billing');
+    }
+
+    public function getTitle(): string
+    {
+        return __('console.clusters.billing');
+    }
+
+    public static function canAccess(): bool
+    {
+        return self::canAccessClusteredComponents();
     }
 
     public static function getClusterBreadcrumb(): string

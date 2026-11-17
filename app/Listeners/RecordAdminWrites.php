@@ -7,6 +7,7 @@ namespace App\Listeners;
 use App\Actions\Admin\RecordAdminActivityAction;
 use App\Enums\Auth\AdminRole;
 use App\Models\User;
+use App\Providers\Filament\AdminPanelProvider;
 use Filament\Facades\Filament;
 use Illuminate\Database\Eloquent\Model;
 use Spatie\Activitylog\Models\Activity;
@@ -14,10 +15,13 @@ use Spatie\Permission\Events\PermissionAttachedEvent;
 use Spatie\Permission\Events\PermissionDetachedEvent;
 use Spatie\Permission\Events\RoleAttachedEvent;
 use Spatie\Permission\Events\RoleDetachedEvent;
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 
 /**
  * Records every write an admin makes from the console (A07, Buxy's RecordAdminWrites): each record created,
- * updated or deleted, and each role or permission given or taken, by table and id. Writes outside the console (a
+ * updated or deleted by table and id, and each role or permission granted or revoked as its own event
+ * (`role_attached`, `role_detached`, `permission_attached`, `permission_detached`) with the names. Writes outside the console (a
  * customer's request, a job, a command) have no admin serving the panel and are not recorded here.
  */
 final readonly class RecordAdminWrites
@@ -54,22 +58,54 @@ final readonly class RecordAdminWrites
         $this->record($model, $event);
     }
 
+    /**
+     * A role or permission granted or revoked (Spatie events): a distinct event per direction, with the names.
+     */
     public function permissions(PermissionAttachedEvent|PermissionDetachedEvent|RoleAttachedEvent|RoleDetachedEvent $event): void
     {
-        $this->record($event->model, 'updated');
+        [$name, $property, $names] = match (true) {
+            $event instanceof RoleAttachedEvent => ['role_attached', 'roles', $this->names(Role::class, $event->rolesOrIds)],
+            $event instanceof RoleDetachedEvent => ['role_detached', 'roles', $this->names(Role::class, $event->rolesOrIds)],
+            $event instanceof PermissionAttachedEvent => ['permission_attached', 'permissions', $this->names(Permission::class, $event->permissionsOrIds)],
+            $event instanceof PermissionDetachedEvent => ['permission_detached', 'permissions', $this->names(Permission::class, $event->permissionsOrIds)],
+        };
+
+        $this->record($event->model, $name, [$property => $names]);
     }
 
-    private function record(Model $model, string $event): void
+    /**
+     * @param  array<string, string>  $extra
+     */
+    private function record(Model $model, string $event, array $extra = []): void
     {
+        // Cheap checks first: this runs on every Eloquent write in the app.
+        if (! Filament::isServing() || Filament::getCurrentPanel()?->getId() !== AdminPanelProvider::ID) {
+            return;
+        }
+
         $admin = auth()->guard(AdminRole::GUARD)->user();
 
-        if (! $admin instanceof User || ! Filament::isServing() || Filament::getCurrentPanel()?->getId() !== 'admin') {
+        if (! $admin instanceof User) {
             return;
         }
 
         $this->recordActivity->execute($admin, $event, $model, [
             'resource' => $model->getTable(),
             'record' => (string) $model->getKey(),
+            ...$extra,
         ]);
+    }
+
+    /**
+     * Spatie passes ids, a model or a collection of models; the audit keeps the names, sorted and comma-joined.
+     *
+     * @param  class-string<Role>|class-string<Permission>  $modelClass
+     */
+    private function names(string $modelClass, mixed $modelsOrIds): string
+    {
+        $items = collect(is_iterable($modelsOrIds) ? $modelsOrIds : [$modelsOrIds]);
+        $ids = $items->map(fn (mixed $item): mixed => $item instanceof Model ? $item->getKey() : $item)->filter()->all();
+
+        return $modelClass::query()->whereKey($ids)->orderBy('name')->pluck('name')->implode(',');
     }
 }

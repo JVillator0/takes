@@ -35,13 +35,29 @@ it('seeds no account whose email or password is missing', function (): void {
     expect(User::query()->count())->toBe(0);
 });
 
-it('never resets a seeded password when it runs again', function (): void {
+it('re-asserts the public auditor password and role on every run', function (): void {
     $this->seed(AdminUsersSeeder::class);
-    User::query()->where('email', 'auditor@example.com')->sole()->forceFill(['password' => 'rotated-secret'])->save();
-
-    $this->seed(AdminUsersSeeder::class);
-
     $auditor = User::query()->where('email', 'auditor@example.com')->sole();
-    expect(Hash::check('rotated-secret', $auditor->password))->toBeTrue()
+    $auditor->forceFill(['password' => 'drifted-secret'])->save();
+    $auditor->syncRoles([]);
+
+    $this->seed(AdminUsersSeeder::class);
+
+    $auditor->refresh();
+    expect(Hash::check('auditor-secret', $auditor->password))->toBeTrue()
+        ->and($auditor->getRoleNames()->all())->toBe([AdminRole::Auditor->value]);
+});
+
+it('never resets the super admin password nor re-grants a revoked super admin role', function (): void {
+    $this->seed(AdminUsersSeeder::class);
+    $admin = User::query()->where('email', 'admin@example.com')->sole();
+    $admin->forceFill(['password' => 'rotated-secret'])->save();
+    $admin->removeRole(AdminRole::SuperAdmin->value);
+
+    $this->seed(AdminUsersSeeder::class);
+
+    $admin->refresh();
+    expect(Hash::check('rotated-secret', $admin->password))->toBeTrue()
+        ->and($admin->hasRole(AdminRole::SuperAdmin->value))->toBeFalse()
         ->and(User::query()->count())->toBe(2);
 });
