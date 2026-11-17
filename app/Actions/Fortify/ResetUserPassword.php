@@ -12,7 +12,7 @@ use Laravel\Fortify\Contracts\ResetsUserPasswords;
 /**
  * Fortify's password reset hook, through the `customers` broker.
  */
-final class ResetUserPassword implements ResetsUserPasswords
+final readonly class ResetUserPassword implements ResetsUserPasswords
 {
     use PasswordValidationRules;
 

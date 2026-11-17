@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use Symfony\Component\Process\Process;
+
 /*
 | config/takes.php (spec 3-01, D-066): USD env strings become integer
 | nanodollars through Nanodollars::fromDecimalString, never a float.
@@ -22,44 +24,32 @@ const TAKES_ENV_KEYS = [
 ];
 
 /**
- * Loads config/takes.php with the given env values (and none of the others).
+ * Loads config/takes.php in a fresh PHP process with exactly the given env
+ * values: every other takes key is unset, so nothing leaks from the test
+ * process (and env is never touched outside config/, arch rule).
  *
  * @param  array<string, string>  $env
  * @return array<string, mixed>
  */
 function loadTakesConfig(array $env = []): array
 {
-    $saved = [];
+    $root = dirname(__DIR__, 3);
+    $variables = [...array_fill_keys(TAKES_ENV_KEYS, false), ...$env];
 
-    foreach (TAKES_ENV_KEYS as $key) {
-        $saved[$key] = [$_ENV[$key] ?? null, $_SERVER[$key] ?? null, getenv($key)];
-        unset($_ENV[$key], $_SERVER[$key]);
-        putenv($key);
+    $process = new Process(
+        [PHP_BINARY, '-r', 'require "vendor/autoload.php"; echo serialize(require "config/takes.php");'],
+        $root,
+        $variables,
+    );
+    $process->run();
+
+    if (! $process->isSuccessful()) {
+        throw new InvalidArgumentException(trim($process->getErrorOutput().$process->getOutput()));
     }
 
-    foreach ($env as $key => $value) {
-        $_ENV[$key] = $_SERVER[$key] = $value;
-        putenv("{$key}={$value}");
-    }
+    $config = unserialize($process->getOutput());
 
-    try {
-        return require dirname(__DIR__, 3).'/config/takes.php';
-    } finally {
-        foreach ($saved as $key => [$envValue, $serverValue, $processValue]) {
-            unset($_ENV[$key], $_SERVER[$key]);
-            putenv($key);
-
-            if ($envValue !== null) {
-                $_ENV[$key] = $envValue;
-            }
-            if ($serverValue !== null) {
-                $_SERVER[$key] = $serverValue;
-            }
-            if ($processValue !== false) {
-                putenv("{$key}={$processValue}");
-            }
-        }
-    }
+    return is_array($config) ? $config : throw new UnexpectedValueException('config/takes.php must return an array.');
 }
 
 it('loads the spec 3-01 defaults', function (): void {

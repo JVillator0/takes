@@ -16,11 +16,11 @@ use Laravel\Fortify\Contracts\CreatesNewUsers;
  * Fortify's registration hook. Fortify authenticates on the `customer` guard,
  * so a registration always creates a Customer, never an admin User (D-012).
  */
-final class CreateNewUser implements CreatesNewUsers
+final readonly class CreateNewUser implements CreatesNewUsers
 {
     use PasswordValidationRules, ProfileValidationRules;
 
-    public function __construct(private readonly RegisterCustomerAction $registerCustomer) {}
+    public function __construct(private RegisterCustomerAction $registerCustomer) {}
 
     /**
      * Validate and create a newly registered customer.

@@ -1,3 +1,21 @@
 {
-    "preset": "laravel"
+    "preset": "laravel",
+    "rules": {
+        "declare_strict_types": true,
+        "strict_comparison": true,
+        "strict_param": true,
+        "modernize_types_casting": true,
+        "no_useless_else": true,
+        "no_superfluous_elseif": true,
+        "ordered_class_elements": {
+            "order": [
+                "use_trait",
+                "case",
+                "constant",
+                "property",
+                "construct",
+                "method"
+            ]
+        }
+    }
 }
