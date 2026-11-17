@@ -19,6 +19,6 @@ enum ImagePersistOutcome: string
     case NotPng = 'not_png';
     case TooLarge = 'too_large';
 
-    /** The URL answered 4xx (expired or gone): retrying cannot help. */
+    /** The URL answered a final 4xx (expired or gone; not 408 or 429): retrying cannot help. */
     case Unavailable = 'unavailable';
 }

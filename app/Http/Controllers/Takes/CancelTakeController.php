@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Takes;
 use App\Actions\Takes\CancelTakeAction;
 use App\Exceptions\Takes\TakeCannotBeCancelledException;
 use App\Http\Controllers\Controller;
+use App\Http\Responses\DenialResponse;
 use App\Models\Customer;
 use App\Models\Take;
 use Illuminate\Http\JsonResponse;
@@ -30,13 +31,7 @@ final class CancelTakeController extends Controller
         try {
             $cancelTake->execute($take);
         } catch (TakeCannotBeCancelledException) {
-            $message = __('takes.cancel_unavailable');
-
-            if ($request->header('X-Inertia') === null && $request->expectsJson()) {
-                return new JsonResponse(['code' => TakeCannotBeCancelledException::CODE, 'message' => $message], 422);
-            }
-
-            return back(303)->withErrors(['cancel' => $message]);
+            return DenialResponse::rejected($request, TakeCannotBeCancelledException::CODE, __('takes.cancel_unavailable'), 'cancel');
         }
 
         return back(303);
