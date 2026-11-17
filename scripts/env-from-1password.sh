@@ -24,6 +24,8 @@ set -euo pipefail
 SECRET_KEYS="PIXELFORGE_API_KEY PIXELFORGE_WEBHOOK_SECRET ANTHROPIC_API_KEY"
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck source=scripts/lib/dotenv.sh
+. "$ROOT/scripts/lib/dotenv.sh"
 
 usage() {
     sed -n '3,5p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
@@ -31,23 +33,6 @@ usage() {
 
 info() { printf '  %s\n' "$*"; }
 warn() { printf '  ! %s\n' "$*" >&2; }
-
-# Replace KEY=... in place (first occurrence; later duplicates are dropped) or append it.
-# The value travels through the environment, never through argv.
-set_env_key() {
-    local file=$1 key=$2 value=$3 tmp
-    tmp=$(mktemp "$file.XXXXXX")
-    KEY=$key VALUE=$value awk '
-        BEGIN { key = ENVIRON["KEY"]; value = ENVIRON["VALUE"]; done = 0 }
-        $0 ~ "^[[:space:]]*(export[[:space:]]+)?" key "=" {
-            if (!done) { print key "=" value; done = 1 }
-            next
-        }
-        { print }
-        END { if (!done) print key "=" value }
-    ' "$file" >"$tmp"
-    mv "$tmp" "$file"
-}
 
 # Print the value of KEY from a dotenv file (last occurrence; surrounding quotes removed).
 # Exits 1 when the key is absent.

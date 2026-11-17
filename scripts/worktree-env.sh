@@ -20,6 +20,8 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck source=scripts/lib/dotenv.sh
+. "$ROOT/scripts/lib/dotenv.sh"
 PG_PORT=${TAKES_PG_PORT:-5417}
 PG_BIN=${TAKES_PG_BIN:-/opt/homebrew/opt/postgresql@17/bin}
 VALET_HOME=${VALET_HOME:-$HOME/.config/valet}
@@ -30,22 +32,6 @@ usage() {
 
 info() { printf '  %s\n' "$*"; }
 warn() { printf '  ! %s\n' "$*" >&2; }
-
-# Replace KEY=... in place (first occurrence; later duplicates are dropped) or append it.
-set_env_key() {
-    local file=$1 key=$2 value=$3 tmp
-    tmp=$(mktemp "$file.XXXXXX")
-    KEY=$key VALUE=$value awk '
-        BEGIN { key = ENVIRON["KEY"]; value = ENVIRON["VALUE"]; done = 0 }
-        $0 ~ "^[[:space:]]*(export[[:space:]]+)?" key "=" {
-            if (!done) { print key "=" value; done = 1 }
-            next
-        }
-        { print }
-        END { if (!done) print key "=" value }
-    ' "$file" >"$tmp"
-    mv "$tmp" "$file"
-}
 
 get_env_key() {
     sed -n "s/^$2=//p" "$1" | tail -n 1

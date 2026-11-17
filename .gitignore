@@ -47,3 +47,7 @@ yarn-error.log
 
 # Local 1Password secret references for scripts/env-from-1password.sh (D-004)
 /scripts/secrets.local.env
+
+# Any other dotenv file (local variants, temp copies written by scripts/lib/dotenv.sh)
+/.env.*
+!/.env.example
