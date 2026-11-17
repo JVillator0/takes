@@ -73,6 +73,12 @@ arch('controllers do not reference DB, query builder classes or App\Services')
         'App\Services',
     ]);
 
+// toUse() cannot see root-namespace names, so the global facade alias
+// (\DB::table(), registered by Facade::defaultAliases()) needs a token scan.
+test('controllers do not use the global DB facade alias', function (): void {
+    expect(SourceScan::globalClassReferences(['app/Http/Controllers'], ['DB']))->toBe([]);
+});
+
 // Allow-list from spec 1-01. Namespaces that do not exist yet are fine.
 arch('the Pixelforge client is only used from actions, queries, jobs, the shared-props middleware and Filament pages/widgets')
     ->expect('App\Services\Pixelforge')
@@ -97,14 +103,20 @@ arch('no debugging helpers are left behind')
     ->expect(['dd', 'ddd', 'dump', 'ray', 'var_dump', 'print_r', 'die'])
     ->not->toBeUsed();
 
-test('env() is only called from config/', function (): void {
-    $calls = SourceScan::functionCalls(
-        ['app', 'bootstrap', 'database', 'routes', 'resources/views', 'tests'],
-        ['env'],
-    );
+const OUTSIDE_CONFIG_PATHS = ['app', 'bootstrap', 'database', 'routes', 'resources/views', 'tests'];
 
-    expect($calls)->toBe([]);
+test('environment variables are only read from config/', function (): void {
+    $reads = [
+        ...SourceScan::functionCalls(OUTSIDE_CONFIG_PATHS, ['env', 'getenv', 'putenv']),
+        ...SourceScan::variableReferences(OUTSIDE_CONFIG_PATHS, ['$_ENV', '$_SERVER']),
+    ];
+
+    expect($reads)->toBe([]);
 });
+
+arch('Illuminate\Support\Env is only used from config/')
+    ->expect('Illuminate\Support\Env')
+    ->not->toBeUsed();
 
 test('money code never uses floats', function (): void {
     expect(SourceScan::floatViolations(MONEY_PATHS))->toBe([]);
