@@ -12,6 +12,7 @@ declare(strict_types=1);
  *   php tests/Committed/purchase-worker.php <customerId> <packUsd> <idempotencyKey> <startAt> <holdMs> [<nowIso>]
  *
  * Prints the purchase id and the invoice number: "<purchaseId> INV-2026-000001".
+ * Exits 3 ("late") when it boots after the start line.
  */
 
 use App\Actions\Billing\PurchaseCreditsAction;
@@ -32,10 +33,14 @@ if (isset($argv[6])) {
     CarbonImmutable::setTestNow($argv[6]);
 }
 
-// A slow boot may pass the start line; time_sleep_until() warns on a past time.
-if ((float) $startAt > microtime(true)) {
-    time_sleep_until((float) $startAt);
+// A worker that boots after the start line would run alone, so the race
+// would not happen and the test could pass without the lock: report it.
+if (microtime(true) >= (float) $startAt) {
+    fwrite(STDERR, 'late');
+    exit(3);
 }
+
+time_sleep_until((float) $startAt);
 
 $purchase = DB::transaction(function () use ($customerId, $packUsd, $key, $holdMs): Purchase {
     $customer = Customer::query()->findOrFail((int) $customerId);

@@ -60,7 +60,8 @@ function racePurchases(array $purchases): array
     return array_map(function (int $index) use ($results): array {
         $result = $results[(string) $index];
 
-        expect($result->successful())->toBeTrue($result->errorOutput());
+        expect($result->exitCode())->not->toBe(3, 'A worker missed the start line: the processes did not race.')
+            ->and($result->successful())->toBeTrue($result->errorOutput());
 
         [$purchase, $number] = explode(' ', trim($result->output()));
 
