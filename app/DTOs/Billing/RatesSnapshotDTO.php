@@ -16,40 +16,48 @@ use InvalidArgumentException;
  */
 final readonly class RatesSnapshotDTO
 {
+    /** @var array<string, int> nanodollars per 1M tokens, keyed by UsageKind value */
+    public array $nanosPerMillion;
+
     /**
-     * @param  array<string, int>  $nanosPerMillion  keyed by UsageKind value
+     * Validates at runtime: rates come from provider payloads and stored
+     * jsonb, where a float or decimal string ('40.00') must never reach the
+     * cost math.
+     *
+     * @param  array<array-key, mixed>  $nanosPerMillion  keyed by UsageKind value
      */
-    public function __construct(public array $nanosPerMillion)
+    public function __construct(array $nanosPerMillion)
     {
+        $validated = [];
+
         foreach ($nanosPerMillion as $kind => $rate) {
             if (UsageKind::tryFrom((string) $kind) === null) {
                 throw new InvalidArgumentException("Unknown usage kind [{$kind}].");
             }
 
+            if (! is_int($rate)) {
+                throw new InvalidArgumentException("Rate for [{$kind}] must be integer nanodollars per 1M tokens.");
+            }
+
             if ($rate < 0) {
                 throw new InvalidArgumentException("Rate for [{$kind}] cannot be negative.");
             }
+
+            $validated[(string) $kind] = $rate;
         }
+
+        $this->nanosPerMillion = $validated;
     }
 
     /**
-     * Rebuilds a snapshot read back from `usage_records.rates`.
+     * Rebuilds a snapshot read back from `usage_records.rates`; the
+     * constructor rejects anything that is not integer nanodollars.
      *
      * @param  array<array-key, mixed>  $stored
      */
     public static function fromStored(array $stored): self
     {
-        $rates = [];
-
-        foreach ($stored as $kind => $rate) {
-            if (! is_int($rate)) {
-                throw new InvalidArgumentException("Stored rate for [{$kind}] is not an integer.");
-            }
-
-            $rates[(string) $kind] = $rate;
-        }
-
-        return new self($rates);
+        return new self($stored);
     }
 
     /** Nanodollars per 1M tokens, or null when the snapshot has no rate for this kind. */
