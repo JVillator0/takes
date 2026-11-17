@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Actions\Billing\IssueInvoiceAction;
 use App\Actions\Billing\PurchaseCreditsAction;
 use App\Enums\Billing\InvoiceStatus;
+use App\Exceptions\Billing\ImmutableInvoiceException;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\LedgerEntry;
@@ -129,6 +130,26 @@ it('refuses to invoice a purchase that is not paid', function (): void {
 
     DB::transaction(fn () => app(IssueInvoiceAction::class)->execute($purchase));
 })->throws(InvalidArgumentException::class);
+
+describe('immutability', function (): void {
+    it('never updates an issued invoice', function (): void {
+        buyCredits($this->customer);
+        $invoice = Invoice::query()->sole();
+
+        expect(fn () => $invoice->forceFill(['total_nanos' => 1, 'billed_name' => 'Someone else'])->save())
+            ->toThrow(ImmutableInvoiceException::class)
+            ->and($invoice->fresh()?->total_nanos)->toBe(10_000_000_000)
+            ->and($invoice->fresh()?->billed_name)->toBe('Ana López');
+    });
+
+    it('never deletes an issued invoice, so the numbering keeps no gap', function (): void {
+        buyCredits($this->customer);
+        $invoice = Invoice::query()->sole();
+
+        expect(fn () => $invoice->delete())->toThrow(ImmutableInvoiceException::class)
+            ->and(Invoice::query()->whereKey($invoice->id)->exists())->toBeTrue();
+    });
+});
 
 describe('constraints', function (): void {
     it('allows one invoice per purchase', function (): void {
