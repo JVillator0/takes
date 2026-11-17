@@ -30,7 +30,7 @@ Reviews: product ☑ · technical ☑
 |---|---|---|
 | Empty grid | P04 | "No takes yet. Describe an image above and press Generate take." |
 | Low balance | P04 banner, P05 | "Your available credits are below the smallest take ($x.xxxx). Buy credits to keep generating." Banner shows when available < smallest possible max; the Buy credits link also sits on the disabled button. |
-| Reconnecting | P04 indicator | "Reconnecting… Updates may be a few seconds late." (client polls automatically, D-028); "Live" when the socket is connected. |
+| Reconnecting | P04 indicator | "Reconnecting… Updates may be a few seconds late." (client polls automatically, D-028); "Live" when the socket is connected. On phones the visible label is the first sentence, "Reconnecting…" (`takes.connection.reconnecting_short`), and screen readers still get the full line. |
 | Take not found | `?take=`, `/takes/{take}` or `/takes/{take}/image` of another customer or an unknown id | 404 page, identical for both cases (no existence leak; never 403). |
 | Retry a failed take | P06 on Failed | "Try again" creates a new take with the same parameters and a new idempotency key (D-033). Only for failures where a retry can help; hidden for `content_policy` and `internal` failures. |
 | Cancel a waiting take | P04 card, P06 | "Cancel" on **Waiting for capacity** only (pending with `last_submit_error_kind` = capacity): voids the hold, status Failed (cancelled), "Not charged". Never on Submitting. |

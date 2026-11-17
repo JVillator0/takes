@@ -85,6 +85,7 @@ return [
     'connection' => [
         'live' => 'Live',
         'reconnecting' => 'Reconnecting… Updates may be a few seconds late.',
+        'reconnecting_short' => 'Reconnecting…',
     ],
 
     'service' => [
