@@ -76,6 +76,10 @@ The suite runs offline with no provider keys. CI (GitHub Actions, `postgres:17`)
 
 Tests use the `takes_testing` database (`phpunit.xml`). To point them elsewhere, export it: `DB_DATABASE=<name> composer ci:check`. In the parallel worktrees used to build this project, `scripts/test.sh` does that per checkout (see [`.claude/worktree-pool.md`](.claude/worktree-pool.md)).
 
+## Design notes
+
+- **Invoice numbers are gapless per year** (`INV-2026-000004`, spec 6). Each purchase increments its year's row in `invoice_counters` under a row lock that is held until the purchase commits (lock order: customer, then the counter), so a rolled-back purchase leaves no gap. The cost is that purchases from all customers serialise on that one row for the length of their transaction, which is a few milliseconds and acceptable at this scale; a sharded or post-commit numbering would be the next step if purchases ever became hot.
+
 ## Harness files
 
 *To be completed:* the files that steer the agents that built this project.
