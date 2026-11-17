@@ -87,10 +87,11 @@ it('keeps roles read-only for every role, the super admin included', function (A
     'super admin' => [AdminRole::SuperAdmin],
 ]);
 
-it('refuses an empty cluster by URL', function (): void {
-    $this->actingAs(User::factory()->admin(AdminRole::SuperAdmin)->withAppAuthentication()->create())
-        ->get('/admin/billing')
-        ->assertForbidden();
+it('refuses a cluster by URL when the admin may open nothing in it', function (): void {
+    $auditor = User::factory()->admin(AdminRole::Auditor)->create();
+    $auditor->roles()->first()?->revokePermissionTo('View:Reports');
+
+    $this->actingAs($auditor)->get('/admin/billing')->assertForbidden();
 });
 
 it('keeps the audit read-only, even for the super admin', function (): void {
@@ -103,13 +104,11 @@ it('keeps the audit read-only, even for the super admin', function (): void {
         ->and(AdminAuditResource::hasPage('edit'))->toBeFalse();
 });
 
-it('lists the sidebar in the spec order and hides what the admin may not open', function (): void {
+it('lists the sidebar in the spec order', function (): void {
     $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create())
         ->get('/admin')
         ->assertOk()
-        ->assertSeeInOrder(['Dashboard', 'Operations', 'Studio', 'Providers', 'System', 'Roles', 'Activity log'])
-        // An empty cluster hides itself until a page or resource lands in it.
-        ->assertDontSee('Billing');
+        ->assertSeeInOrder(['Dashboard', 'Operations', 'Studio', 'Billing', 'Providers', 'System', 'Roles', 'Activity log']);
 });
 
 it('creates the admin roles from the deploy seeder', function (): void {
