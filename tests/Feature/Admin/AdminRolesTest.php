@@ -44,8 +44,10 @@ it('gives the auditor view permissions only', function (): void {
     $permissions = permissionsOf(AdminRole::Auditor);
 
     expect($permissions)->toContain('ViewAny:Role', 'View:Role', 'ViewAny:Activity', 'View:Activity')
+        ->toContain('ViewAny:Take', 'View:Take', 'ViewAny:Project', 'ViewAny:WebhookDelivery')
+        ->toContain('View:TakeStatsOverview', 'View:WebhookDeliveryStatsOverview')
         ->and(array_filter($permissions, fn (string $permission): bool => ! str_starts_with($permission, 'View')))->toBe([])
-        ->and(Permission::query()->whereIn('name', ['Create:Activity', 'Update:Activity', 'Delete:Activity'])->exists())->toBeFalse();
+        ->and(Permission::query()->whereIn('name', ['Create:Activity', 'Create:Take', 'Update:Take', 'Delete:Project'])->exists())->toBeFalse();
 });
 
 it('gives the operator the view permissions plus every custom write permission', function (): void {
@@ -91,8 +93,7 @@ it('lists the sidebar in the spec order and hides what the admin may not open', 
     $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create())
         ->get('/admin')
         ->assertOk()
-        ->assertSeeInOrder(['Dashboard', 'System', 'Roles', 'Activity Log'])
-        // Empty clusters hide themselves until a page or resource lands in them.
-        ->assertDontSee('Studio')
+        ->assertSeeInOrder(['Dashboard', 'Operations', 'Studio', 'Providers', 'System', 'Roles', 'Activity Log'])
+        // An empty cluster hides itself until a page or resource lands in it.
         ->assertDontSee('Billing');
 });

@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Enums\Takes;
 
+use Filament\Support\Contracts\HasColor;
+use Filament\Support\Contracts\HasLabel;
+
 /**
  * The take state machine (spec 3-02).
  *
@@ -16,10 +19,9 @@ namespace App\Enums\Takes;
  * `processing` or before the create response. Transitions happen only in
  * ApplyTakeSnapshotAction and FailTakeAction.
  *
- * label()/color() follow Filament's HasLabel/HasColor shape so the interfaces
- * can be added when Filament is installed (M7, D-048).
+ * label()/color() back Filament's HasLabel/HasColor in the admin console (spec 7).
  */
-enum TakeStatus: string
+enum TakeStatus: string implements HasColor, HasLabel
 {
     /** Row exists locally, not yet accepted by Pixelforge. */
     case Pending = 'pending';
@@ -85,5 +87,17 @@ enum TakeStatus: string
             self::Succeeded => 'success',
             self::Failed => 'danger',
         };
+    }
+
+    /** Admin console label (Filament HasLabel). */
+    public function getLabel(): string
+    {
+        return $this->label();
+    }
+
+    /** Admin console badge color (Filament HasColor). */
+    public function getColor(): string
+    {
+        return $this->color();
     }
 }
