@@ -4,21 +4,104 @@ declare(strict_types=1);
 
 namespace App\Jobs;
 
+use App\Actions\Takes\FlagTakeAttentionAction;
+use App\Actions\Takes\ReconcileTakeAction;
+use App\Enums\Takes\AttentionReason;
+use App\Models\Take;
+use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\Log;
 
 /**
- * Interface stub (D-068, spec 3-02 issue 3): the final name and constructor so
- * ApplyTakeSnapshotAction can dispatch it before spec 5 exists.
+ * The polling safety net (spec 5, W-15): asks Pixelforge for the generation
+ * and applies it, then polls again after 60, 120, 300, 600 and 840 s (about
+ * 32 min, longer than Pixelforge's ~27 min of webhook retries) until the take
+ * is terminal. When the chain runs out the take is flagged
+ * `reconcile_exhausted` (D-054).
+ *
+ * Every delay is at most 840 s (Laravel Cloud's managed queue rejects more
+ * than 900 s, M-17). A chain starts when the take first gets its
+ * `pixelforge_id` (ApplyTakeSnapshotAction, delayed by the first step);
+ * the sweeper restarts lost chains (D-036).
+ *
+ * Unique by take until it starts processing: while a poll is waiting in the
+ * queue, another dispatch for the same take is dropped, and the running job
+ * can still schedule its own next poll.
  */
-final class ReconcileTakeJob implements ShouldQueue
+final class ReconcileTakeJob implements ShouldBeUniqueUntilProcessing, ShouldQueue
 {
     use Queueable;
 
-    public function __construct(public readonly string $takeId) {}
+    /** Seconds before each poll; DELAYS[n] is the wait before poll n. */
+    public const array DELAYS = [60, 120, 300, 600, 840];
 
-    public function handle(): void
+    /** The longest wait the chain ever asks the queue for (≤ 900 s, M-17). */
+    public const int MAX_DELAY_SECONDS = 840;
+
+    /** A queued poll holds the take's lock at most this long. */
+    public int $uniqueFor = 900;
+
+    /** Each poll is its own job; a crash is recovered by the next sweep. */
+    public int $tries = 1;
+
+    public function __construct(
+        public readonly string $takeId,
+        public readonly int $attempt = 0,
+    ) {}
+
+    /**
+     * Starts a fresh chain for a take Pixelforge just accepted (spec 4 calls
+     * this after the create response; ApplyTakeSnapshotAction does the same).
+     */
+    public static function start(string $takeId): void
     {
-        // TODO(spec 5): fetch the generation from Pixelforge, apply the snapshot and re-chain while non-terminal.
+        self::dispatch($takeId)->delay(min(self::DELAYS[0], self::MAX_DELAY_SECONDS))->afterCommit();
+    }
+
+    /**
+     * Polls right away (after commit), e.g. when a succeeded webhook came
+     * without the rates needed to settle it.
+     */
+    public static function fetchNow(string $takeId): void
+    {
+        self::dispatch($takeId)->afterCommit();
+    }
+
+    public function uniqueId(): string
+    {
+        return $this->takeId;
+    }
+
+    public function handle(ReconcileTakeAction $reconcile, FlagTakeAttentionAction $flagAttention): void
+    {
+        $take = Take::query()->find($this->takeId);
+
+        if ($take === null) {
+            return;
+        }
+
+        $result = $reconcile->execute($take);
+
+        if (! $result->status->pollAgain()) {
+            return;
+        }
+
+        $next = $this->attempt + 1;
+
+        if (! array_key_exists($next, self::DELAYS)) {
+            Log::warning('Reconcile exhausted: the take is still not finished.', [
+                'take_id' => $take->id,
+                'status' => $take->status->value,
+            ]);
+            $flagAttention->execute($take, AttentionReason::ReconcileExhausted);
+
+            return;
+        }
+
+        // Honour Retry-After when Pixelforge asks for a longer wait (429/503).
+        $delay = max(self::DELAYS[$next], $result->retryAfterSeconds ?? 0);
+
+        self::dispatch($take->id, $next)->delay(min($delay, self::MAX_DELAY_SECONDS));
     }
 }
