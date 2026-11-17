@@ -2,13 +2,17 @@
 
 declare(strict_types=1);
 
+use App\Actions\Billing\RecordLedgerEntryAction;
+use App\Enums\Billing\LedgerEntryType;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\LedgerEntry;
 use App\Models\User;
 use App\Queries\Billing\ListBillingActivityQuery;
+use App\Support\Money\Nanodollars;
 use Carbon\CarbonImmutable;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Support\Billing;
@@ -174,6 +178,29 @@ it('buys the pack whose id the page sent', function (): void {
         ->assertRedirect();
 
     expect($customer->refresh()->balance()->formatExact())->toBe($pack['total']);
+});
+
+it('lists promotional credits and adjustments in both directions with the running balance', function (): void {
+    $customer = Customer::factory()->withRole()->create();
+    $record = fn (string $at, LedgerEntryType $type, int $nanos, string $reason) => BillingDemo::at($at, fn () => DB::transaction(
+        fn () => app(RecordLedgerEntryAction::class)->execute($customer, $type, Nanodollars::fromInt($nanos), reason: $reason),
+    ));
+
+    $record('2026-11-10T09:00:00Z', LedgerEntryType::PromoGrant, 2_000_000_000, 'demo_seed');
+    $record('2026-11-11T09:00:00Z', LedgerEntryType::Adjustment, 250_000_000, 'goodwill');
+    $record('2026-11-12T09:00:00Z', LedgerEntryType::Adjustment, -125_000_000, 'correction');
+    CarbonImmutable::setTestNow('2026-11-17T12:00:00Z');
+
+    $rows = collect($this->actingAs($customer, 'customer')->get(route('billing.show'))->inertiaProps('activity.rows'))
+        ->map(fn (array $row): array => [$row['occurredAtLabel'], $row['kind'], $row['status'], $row['amount'], $row['balance'], $row['detail']])
+        ->all();
+
+    // Admin reasons are internal: never sent as the line's detail.
+    expect($rows)->toBe([
+        ['Nov 12 09:00', 'adjustment', null, '-$0.125', '$2.125', null],
+        ['Nov 11 09:00', 'adjustment', null, '+$0.25', '$2.25', null],
+        ['Nov 10 09:00', 'promo_grant', null, '+$2.00', '$2.00', null],
+    ]);
 });
 
 it('renders exact amounts whose 4-decimal rounding would differ', function (): void {

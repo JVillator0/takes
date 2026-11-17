@@ -1,7 +1,13 @@
 <script setup lang="ts">
-import { Head, router, setLayoutProps, usePage } from '@inertiajs/vue3';
+import {
+    Head,
+    router,
+    setLayoutProps,
+    useRemember,
+    usePage,
+} from '@inertiajs/vue3';
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui';
-import { ref } from 'vue';
+import { reactive, ref } from 'vue';
 import ActivityTable from '@/components/billing/ActivityTable.vue';
 import BuyCreditsDialog from '@/components/billing/BuyCreditsDialog.vue';
 import InvoicesTable from '@/components/billing/InvoicesTable.vue';
@@ -35,7 +41,22 @@ const page = usePage();
 
 /** The pack whose purchase dialog is open. */
 const selectedPack = ref<CreditPack | null>(null);
-const tab = ref<'activity' | 'invoices'>('activity');
+type BillingTab = 'activity' | 'invoices';
+
+/** `?tab=invoices` (the invoice's Back link) opens the Invoices tab. */
+const requestedTab: BillingTab =
+    new URLSearchParams(page.url.split('?')[1] ?? '').get('tab') === 'invoices'
+        ? 'invoices'
+        : 'activity';
+
+/**
+ * The selected tab survives history navigation (browser Back from an
+ * invoice). A reactive input makes useRemember return a reactive object.
+ */
+const view = useRemember(
+    reactive({ tab: requestedTab }),
+    'billing/Show:view',
+) as { tab: BillingTab };
 
 // The top bar pill reads the shared `auth.customer` strings (4 decimals,
 // exact on hover); this page only adds its breadcrumb.
@@ -164,7 +185,7 @@ const tabClass =
             </article>
         </section>
 
-        <TabsRoot v-model="tab" class="flex flex-col gap-4">
+        <TabsRoot v-model="view.tab" class="flex flex-col gap-4">
             <TabsList
                 :aria-label="t('billing.tabs.label')"
                 class="flex gap-6 overflow-x-auto border-b"

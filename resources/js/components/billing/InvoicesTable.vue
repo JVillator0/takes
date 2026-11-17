@@ -58,7 +58,11 @@ const captionId = useId();
                         >
                             {{ t('billing.invoices.status') }}
                         </th>
-                        <td class="border-b px-3 py-2" />
+                        <th scope="col" class="border-b px-3 py-2">
+                            <span class="sr-only">
+                                {{ t('billing.invoices.view') }}
+                            </span>
+                        </th>
                     </tr>
                 </thead>
                 <tbody>

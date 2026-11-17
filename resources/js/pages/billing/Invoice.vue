@@ -40,7 +40,7 @@ function print(): void {
             class="flex flex-wrap items-center justify-between gap-2 print:hidden"
         >
             <Link
-                :href="show()"
+                :href="show({ query: { tab: 'invoices' } })"
                 class="inline-flex items-center gap-1 text-sm text-muted-foreground underline-offset-4 hover:underline"
             >
                 <ArrowLeft class="size-4" aria-hidden="true" />
