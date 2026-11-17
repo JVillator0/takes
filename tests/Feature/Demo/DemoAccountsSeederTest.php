@@ -1,0 +1,95 @@
+<?php
+
+declare(strict_types=1);
+
+use App\Enums\Auth\CustomerRole;
+use App\Enums\Auth\DemoAccount;
+use App\Enums\Billing\LedgerEntryType;
+use App\Enums\Billing\PurchaseStatus;
+use App\Models\Customer;
+use App\Models\LedgerEntry;
+use App\Models\Purchase;
+use App\Models\Take;
+use App\Models\UsageRecord;
+use Database\Seeders\DemoAccountsSeeder;
+use Illuminate\Support\Facades\Hash;
+
+function demoCustomer(DemoAccount $account): Customer
+{
+    return Customer::query()->where('email', $account->email())->sole();
+}
+
+it('seeds the showcase customer and the fixed-state accounts with the customer role', function (): void {
+    $this->seed(DemoAccountsSeeder::class);
+
+    foreach (DemoAccount::cases() as $account) {
+        $customer = demoCustomer($account);
+
+        expect($customer->name)->toBe($account->customerName())
+            ->and($customer->is_demo)->toBeFalse()
+            ->and($customer->demo_expires_at)->toBeNull()
+            ->and($customer->hasRole(CustomerRole::Customer->value))->toBeTrue()
+            ->and(Hash::check('password', $customer->password))->toBeTrue();
+    }
+});
+
+it('gives each account its starting money through ledger entries (local dataset)', function (): void {
+    $this->seed(DemoAccountsSeeder::class);
+
+    $expected = [
+        DemoAccount::Showcase->value => 0,
+        DemoAccount::DemoCustomer->value => 10_000_000_000,
+        DemoAccount::LowBalance->value => 10_000_000,
+        DemoAccount::NewCustomer->value => 0,
+    ];
+
+    foreach (DemoAccount::cases() as $account) {
+        $customer = demoCustomer($account);
+
+        expect($customer->balance_nanos)->toBe($expected[$account->value])
+            ->and((int) $customer->ledgerEntries()->sum('amount_nanos'))->toBe($customer->balance_nanos)
+            ->and($customer->held_nanos)->toBe(0);
+    }
+
+    expect(LedgerEntry::query()->pluck('type')->unique()->values()->all())->toBe([LedgerEntryType::PromoGrant])
+        ->and(Purchase::query()->count())->toBe(0);
+});
+
+it('is idempotent: re-running never doubles a balance or resets a used account', function (): void {
+    $this->seed(DemoAccountsSeeder::class);
+    $demo = demoCustomer(DemoAccount::DemoCustomer);
+    $demo->forceFill(['name' => 'Renamed by someone'])->save();
+
+    $this->seed(DemoAccountsSeeder::class);
+
+    expect(Customer::query()->whereIn('email', DemoAccount::emails())->count())->toBe(4)
+        ->and(LedgerEntry::query()->count())->toBe(2)
+        ->and(demoCustomer(DemoAccount::DemoCustomer)->balance_nanos)->toBe(10_000_000_000)
+        ->and(demoCustomer(DemoAccount::DemoCustomer)->name)->toBe('Renamed by someone');
+});
+
+it('keeps an operator-restricted demo account restricted', function (): void {
+    $this->seed(DemoAccountsSeeder::class);
+    demoCustomer(DemoAccount::LowBalance)->syncRoles([CustomerRole::Restricted->value]);
+
+    $this->seed(DemoAccountsSeeder::class);
+
+    expect(demoCustomer(DemoAccount::LowBalance)->getRoleNames()->all())->toBe(['restricted']);
+});
+
+it('seeds a paid $10 purchase and no takes or usage in production', function (): void {
+    app()->detectEnvironment(fn (): string => 'production');
+
+    // Called directly: `db:seed` asks for confirmation in production.
+    app(DemoAccountsSeeder::class)->setContainer(app())->__invoke();
+
+    $demo = demoCustomer(DemoAccount::DemoCustomer);
+    $entry = $demo->ledgerEntries()->sole();
+
+    expect($entry->type)->toBe(LedgerEntryType::Purchase)
+        ->and($entry->amount_nanos)->toBe(10_000_000_000)
+        ->and($entry->purchase?->status)->toBe(PurchaseStatus::Paid)
+        ->and($demo->balance_nanos)->toBe(10_000_000_000)
+        ->and(Take::query()->count())->toBe(0)
+        ->and(UsageRecord::query()->count())->toBe(0);
+});
