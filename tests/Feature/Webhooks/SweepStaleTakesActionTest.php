@@ -140,6 +140,7 @@ it('queues no polls while Pixelforge is not configured', function (): void {
 });
 
 it('runs at most once per throttle window', function (): void {
+    $this->freezeTime();
     takeAged('processing', 5);
     Queue::fake();
     Cache::flush();

@@ -14,6 +14,7 @@ namespace App\DTOs\Takes;
  * @phpstan-type TakeLiveUpdatePayload array{
  *     take: array{id: string, projectId: string, status: string, failureCode: string|null, updatedAt: string|null},
  *     balance: array{available: string, availableExact: string, onHold: string, onHoldExact: string},
+ *     balanceAt: string,
  * }
  */
 final readonly class TakeLiveUpdateDTO
@@ -28,6 +29,7 @@ final readonly class TakeLiveUpdateDTO
         public string $availableExact,
         public string $onHold,
         public string $onHoldExact,
+        public string $balanceAt,
     ) {}
 
     /**
@@ -45,6 +47,7 @@ final readonly class TakeLiveUpdateDTO
             availableExact: $data['balance']['availableExact'],
             onHold: $data['balance']['onHold'],
             onHoldExact: $data['balance']['onHoldExact'],
+            balanceAt: $data['balanceAt'],
         );
     }
 
@@ -67,6 +70,7 @@ final readonly class TakeLiveUpdateDTO
                 'onHold' => $this->onHold,
                 'onHoldExact' => $this->onHoldExact,
             ],
+            'balanceAt' => $this->balanceAt,
         ];
     }
 }

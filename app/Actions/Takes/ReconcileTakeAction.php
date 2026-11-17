@@ -8,6 +8,7 @@ use App\DTOs\Takes\ReconcileResultDTO;
 use App\Enums\Takes\AttentionReason;
 use App\Enums\Takes\FailureCode;
 use App\Enums\Takes\ReconcileStatus;
+use App\Exceptions\Billing\TransactionNotAllowedException;
 use App\Exceptions\Pixelforge\PixelforgeBusy;
 use App\Exceptions\Pixelforge\PixelforgeRejected;
 use App\Exceptions\Pixelforge\PixelforgeUnavailable;
@@ -41,6 +42,9 @@ final readonly class ReconcileTakeAction
      */
     public function execute(Take $take, ?string $generationId = null): ReconcileResultDTO
     {
+        // The GET below must never run with a row lock held (M-16).
+        TransactionNotAllowedException::unlessNoTransaction(self::class);
+
         $take->refresh();
         $generationId = $take->pixelforge_id ?? $generationId;
 

@@ -2,12 +2,14 @@
 
 declare(strict_types=1);
 
+use App\Actions\Takes\ReconcileTakeAction;
 use App\Enums\Billing\UsageStatus;
 use App\Enums\Takes\AttentionReason;
 use App\Enums\Takes\FailureCode;
 use App\Enums\Takes\ReconcileStatus;
 use App\Enums\Takes\TakeStatus;
 use App\Events\TakeUpdated;
+use App\Exceptions\Billing\TransactionNotAllowedException;
 use App\Jobs\ReconcileTakeJob;
 use App\Models\LedgerEntry;
 use App\Models\Take;
@@ -281,4 +283,13 @@ it('clears a definitive stop once a poll applies a snapshot again', function ():
     app()->call([new ReconcileTakeJob($take->id), 'handle']);
 
     expect(ReconcileStopMarker::stopped([$take->id]))->toBe([]);
+});
+
+it('refuses to poll Pixelforge inside a transaction (M-16)', function (): void {
+    $take = Takes::in('processing');
+    Http::fake();
+
+    expect(fn () => DB::transaction(fn () => app(ReconcileTakeAction::class)->execute($take)))
+        ->toThrow(TransactionNotAllowedException::class);
+    Http::assertNothingSent();
 });

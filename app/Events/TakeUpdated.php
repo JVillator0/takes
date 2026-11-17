@@ -72,6 +72,9 @@ final class TakeUpdated implements ShouldBroadcast, ShouldDispatchAfterCommit, S
             availableExact: $available->formatExact(),
             onHold: $held->format(4),
             onHoldExact: $held->formatExact(),
+            // When the balance was read, to the microsecond: the client keeps
+            // the newest balance whichever take's update carried it.
+            balanceAt: now()->utc()->format('Y-m-d\\TH:i:s.u\\Z'),
         ))->toArray();
     }
 }

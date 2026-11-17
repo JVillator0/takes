@@ -14,6 +14,9 @@ use Tests\Support\PixelforgeWebhook;
 */
 
 beforeEach(function (): void {
+    // The tolerance edges (300 s / 301 s) are exact: no clock tick between
+    // signing and verifying.
+    $this->freezeTime();
     PixelforgeWebhook::configure();
     Log::spy();
 });

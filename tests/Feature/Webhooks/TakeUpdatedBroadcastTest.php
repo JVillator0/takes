@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Enums\Takes\TakeStatus;
 use App\Events\TakeUpdated;
+use Carbon\CarbonImmutable;
 use Illuminate\Broadcasting\Broadcasters\Broadcaster;
 use Illuminate\Broadcasting\BroadcastEvent;
 use Illuminate\Broadcasting\BroadcastException;
@@ -39,6 +40,7 @@ it('goes to the owner channel as take.updated', function (): void {
 });
 
 it('carries the take status and the balance pill as server strings', function (): void {
+    $this->travelTo(CarbonImmutable::parse('2026-11-17T12:00:00.123456Z'));
     $take = Takes::in('processing');
     $payload = (new TakeUpdated($take))->broadcastWith();
 
@@ -57,6 +59,7 @@ it('carries the take status and the balance pill as server strings', function ()
             'onHold' => '$0.4673',
             'onHoldExact' => '$0.46734375',
         ],
+        'balanceAt' => '2026-11-17T12:00:00.123456Z',
     ]);
 });
 
