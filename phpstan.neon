@@ -3,11 +3,16 @@ includes:
     - vendor/nesbot/carbon/extension.neon
 
 parameters:
+    level: 8
+
     paths:
         - app/
         - bootstrap/app.php
         - config/
         - database/
         - routes/
+        - tests/Support/
 
-    level: 7
+    treatPhpDocTypesAsCertain: false
+    reportUnmatchedIgnoredErrors: true
+    checkMissingCallableSignature: true

@@ -49,10 +49,22 @@ const handleDelete = () => {
                         {{ passkey.authenticator }}
                     </span>
                 </div>
-                <p class="text-sm text-muted-foreground">
-                    Added {{ passkey.created_at_diff }}
+                <p
+                    v-if="passkey.created_at_diff || passkey.last_used_at_diff"
+                    class="text-sm text-muted-foreground"
+                >
+                    <template v-if="passkey.created_at_diff">
+                        Added {{ passkey.created_at_diff }}
+                    </template>
                     <template v-if="passkey.last_used_at_diff">
-                        <span class="mx-1 text-muted-foreground/50">/</span>
+                        <template v-if="passkey.created_at_diff">
+                            <span class="sr-only">, </span>
+                            <span
+                                aria-hidden="true"
+                                class="mx-1 text-muted-foreground/50"
+                                >/</span
+                            >
+                        </template>
                         Last used {{ passkey.last_used_at_diff }}
                     </template>
                 </p>
