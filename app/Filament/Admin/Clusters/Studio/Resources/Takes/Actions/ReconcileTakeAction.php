@@ -30,6 +30,8 @@ final class ReconcileTakeAction
             ->modalHeading(__('console.takes.reconcile.heading'))
             ->modalDescription(__('console.takes.reconcile.description'))
             ->authorize(fn (): bool => self::admin()?->can(AdminPermission::ReconcileTake->value) === true)
+            // A succeeded or failed take is final: there is nothing to poll, so the action is not offered.
+            ->visible(fn (Take $record): bool => ! $record->status->isTerminal())
             ->action(function (Take $record): void {
                 $admin = self::admin();
 
@@ -38,6 +40,13 @@ final class ReconcileTakeAction
                 }
 
                 $statusBefore = $record->status;
+
+                if ($statusBefore->isTerminal()) {
+                    Notification::make()->title(__('console.takes.reconcile.already_final'))->info()->send();
+
+                    return;
+                }
+
                 $result = app(ReconcileTakeNowAction::class)->execute($admin, $record);
                 $checked = in_array($result->status, [ReconcileStatus::Terminal, ReconcileStatus::InFlight], true);
 

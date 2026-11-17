@@ -22,7 +22,8 @@ use Illuminate\Support\Str;
 /**
  * Every verified delivery with its outcome (A11, D-027): duplicates and late events stay visible, which is the
  * evidence for the webhook requirements. Also the take view's relation manager table (A06), without the take
- * column.
+ * column and filter. The type filter lists the documented Pixelforge event types; a delivery of any other type
+ * (outcome `ignored_type`, W-10) is found through the outcome filter.
  */
 final class WebhookDeliveriesTable
 {
@@ -41,16 +42,17 @@ final class WebhookDeliveriesTable
                 TextColumn::make('attempt')->label(__('console.webhooks.attempt'))->alignEnd(),
                 TextColumn::make('outcome')->label(__('console.webhooks.outcome'))->badge(),
             ])))
-            ->filters([
+            ->filters(array_values(array_filter([
                 SelectFilter::make('type')->label(__('console.webhooks.type'))
                     ->options(collect(PixelforgeEventType::cases())->mapWithKeys(fn (PixelforgeEventType $type): array => [$type->value => $type->value])->all()),
-                Filter::make('take')
+                // Only on the full list: the take view's table is already scoped to one take.
+                $showTake ? Filter::make('take')
                     ->label(__('console.webhooks.take_filter'))
                     ->schema([TextInput::make('take_id')->label(__('console.webhooks.take_filter'))])
                     ->query(fn (Builder $query, array $data): Builder => $query->when(
                         $data['take_id'] ?? null,
                         fn (Builder $inner, string $takeId): Builder => $inner->where('take_id', trim($takeId)),
-                    )),
+                    )) : null,
                 SelectFilter::make('outcome')->label(__('console.webhooks.outcome'))->options(WebhookOutcome::class)->multiple(),
                 Filter::make('received')
                     ->label(__('console.webhooks.received_at'))
@@ -61,7 +63,7 @@ final class WebhookDeliveriesTable
                     ->query(fn (Builder $query, array $data): Builder => $query
                         ->when($data['from'] ?? null, fn (Builder $inner, string $day): Builder => $inner->where('received_at', '>=', CarbonImmutable::parse($day, 'UTC')->startOfDay()))
                         ->when($data['until'] ?? null, fn (Builder $inner, string $day): Builder => $inner->where('received_at', '<', CarbonImmutable::parse($day, 'UTC')->addDay()->startOfDay()))),
-            ])
+            ])))
             ->recordActions([
                 ViewPayloadAction::make(),
             ])

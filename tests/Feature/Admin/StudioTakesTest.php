@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Actions\Takes\ReconcileTakeNowAction;
 use App\DTOs\Takes\TakeStatsDTO;
 use App\Enums\Auth\AdminRole;
 use App\Enums\Billing\LedgerEntryType;
@@ -13,6 +14,7 @@ use App\Filament\Admin\Clusters\Studio\Resources\Takes\Pages\ViewTake;
 use App\Filament\Admin\Clusters\Studio\Resources\Takes\TakeResource;
 use App\Filament\Admin\Clusters\Studio\StudioCluster;
 use App\Filament\Admin\Support\Money;
+use App\Filament\Admin\Widgets\TakeStatsOverview;
 use App\Jobs\ReconcileTakeJob;
 use App\Models\LedgerEntry;
 use App\Models\Take;
@@ -30,6 +32,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
 use Spatie\Activitylog\Models\Activity;
+use Spatie\Permission\PermissionRegistrar;
 use Tests\Support\PixelforgeFixture;
 use Tests\Support\Takes;
 
@@ -173,13 +176,14 @@ it('reconciles a take once through the spec 5 action, reports what it applied an
         ->callAction('reconcile')
         ->assertNotified('Applied: Succeeded, charged '.$charged);
 
-    Livewire::test(ViewTake::class, ['record' => $take->id])
-        ->callAction('reconcile')
-        ->assertNotified('No change');
+    // Settled now: final, so Reconcile now is no longer offered, and a repeat poll changes nothing.
+    Livewire::test(ViewTake::class, ['record' => $take->id])->assertActionHidden('reconcile');
+    expect(app(ReconcileTakeNowAction::class)->execute($operator, $take)->status)->toBe(ReconcileStatus::Terminal);
 
     $entry = Activity::query()->where('event', 'reconciled')->orderBy('id')->first();
     expect($take->refresh()->status)->toBe(TakeStatus::Succeeded)
         ->and(LedgerEntry::query()->where('type', LedgerEntryType::Charge)->count())->toBe(1)
+        ->and(Http::recorded())->toHaveCount(1)
         ->and((int) $entry?->causer_id)->toBe($operator->id)
         ->and($entry?->subject_type)->toBe('take')
         ->and([$entry?->properties['status_before'] ?? null, $entry?->properties['status_after'] ?? null, $entry?->properties['reconcile'] ?? null])
@@ -238,5 +242,28 @@ it('computes the take stats: nulls when empty, rate and median over 30 days, in 
     $stats = app(GetTakeStatsQuery::class)->execute();
 
     expect([$stats->inProgress, $stats->stuck, $stats->failureRateBps, $stats->medianDurationSeconds])
-        ->toBe([1, 0, 3333, 10]);
+        ->toBe([1, 0, 3333, 20]); // median of 10 s and 30 s
+});
+
+it('does not offer Reconcile now on a final take', function (TakeStatus $status): void {
+    $take = $status === TakeStatus::Succeeded ? Take::factory()->succeeded()->create() : Take::factory()->failed()->create();
+    $this->actingAs(User::factory()->admin(AdminRole::Operator)->withAppAuthentication()->create());
+
+    Livewire::test(ViewTake::class, ['record' => $take->id])->assertActionHidden('reconcile');
+    Livewire::test(ListTakes::class)->assertActionHidden(TestAction::make('reconcile')->table($take));
+})->with([
+    'succeeded' => [TakeStatus::Succeeded],
+    'failed' => [TakeStatus::Failed],
+]);
+
+it('hides the take stats widget without its permission', function (): void {
+    $auditor = User::factory()->admin(AdminRole::Auditor)->create();
+    $this->actingAs($auditor);
+    expect(TakeStatsOverview::canView())->toBeTrue();
+
+    $auditor->roles()->first()?->revokePermissionTo('View:TakeStatsOverview');
+    app(PermissionRegistrar::class)->forgetCachedPermissions();
+    $this->actingAs($auditor->refresh());
+
+    expect(TakeStatsOverview::canView())->toBeFalse();
 });

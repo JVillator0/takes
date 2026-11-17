@@ -42,7 +42,7 @@ final readonly class GetTakeStatsQuery
             ->whereNotNull('submitted_at')
             ->whereNotNull('completed_at')
             ->toBase()
-            ->selectRaw('floor(extract(epoch from percentile_disc(0.5) within group (order by completed_at - submitted_at)))::bigint as median_seconds')
+            ->selectRaw('floor(extract(epoch from percentile_cont(0.5) within group (order by completed_at - submitted_at)))::bigint as median_seconds')
             ->value('median_seconds');
 
         return TakeStatsDTO::fromArray([
