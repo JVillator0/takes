@@ -25,6 +25,9 @@ final class Constraint
     /** A plpgsql RAISE EXCEPTION (e.g. the append-only ledger trigger). */
     public const string RAISE_EXCEPTION = 'P0001';
 
+    /**
+     * @param  Closure(): mixed  $write
+     */
     public static function assertRejects(Closure $write, string $sqlState, ?string $constraint = null, ?string $message = null): void
     {
         try {
