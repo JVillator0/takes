@@ -8,12 +8,14 @@ use App\Contracts\Takes\CreatesSuggestedTake;
 use App\DTOs\Suggestions\SuggestedTakeDTO;
 use App\DTOs\Suggestions\TakeChangeProposalDTO;
 use App\Enums\Suggestions\SuggestionStatus;
+use App\Exceptions\Suggestions\BaseImageUnavailableException;
 use App\Exceptions\Suggestions\SuggestionDeniedException;
 use App\Exceptions\Suggestions\SuggestionNotProposedException;
 use App\Exceptions\Takes\TakeCreationUnavailableException;
 use App\Models\Customer;
 use App\Models\Suggestion;
 use App\Models\Take;
+use App\Support\Suggestions\ProposalReferences;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Ramsey\Uuid\Uuid;
@@ -22,7 +24,8 @@ use Ramsey\Uuid\Uuid;
  * *Generate take* on a proposal (spec 8 step 4). One transaction, lock order
  * suggestion → customer (the take creator locks the customer, M-10):
  * require `proposed`, create the take through spec 4's pipeline (source
- * `ai_change`, `parent_take_id` = base take, `suggestion_id`), which
+ * `ai_change`, `parent_take_id` = base take, `suggestion_id`, the references
+ * from ProposalReferences, spec 4's remix source order), which
  * recomputes the estimate from the real prompt and opens the hold, then set
  * `applied` and `resulting_take_id`.
  *
@@ -41,6 +44,7 @@ final readonly class ApplySuggestionAction
     /**
      * @throws AuthorizationException when the suggestion belongs to another customer
      * @throws SuggestionNotProposedException when it is not `proposed` (nor already `applied`)
+     * @throws BaseImageUnavailableException when the base image was asked for and has no usable URL
      * @throws SuggestionDeniedException when the new take is denied (credits, caps)
      * @throws TakeCreationUnavailableException until spec 4 binds the take creator
      */
@@ -70,7 +74,7 @@ final readonly class ApplySuggestionAction
                 prompt: $proposal->prompt,
                 size: $proposal->size,
                 quality: $proposal->quality,
-                referenceImages: self::referenceImages($proposal, $base),
+                referenceImages: ProposalReferences::urls($proposal, $base),
                 idempotencyKey: self::idempotencyKey($suggestion->id),
                 parentTakeId: $base->id,
                 suggestionId: $suggestion->id,
@@ -83,24 +87,6 @@ final readonly class ApplySuggestionAction
 
             return $take;
         });
-    }
-
-    /**
-     * The real URLs, re-attached by the server: the base take's references
-     * when kept, plus the base take's own image when asked (the model only
-     * ever chose booleans, never a URL).
-     *
-     * @return list<string>
-     */
-    private static function referenceImages(TakeChangeProposalDTO $proposal, Take $base): array
-    {
-        $references = $proposal->keepReferences ? $base->reference_images : [];
-
-        if ($proposal->addBaseImageAsReference && $base->image_url !== null) {
-            $references[] = $base->image_url;
-        }
-
-        return array_values($references);
     }
 
     private static function idempotencyKey(string $suggestionId): string

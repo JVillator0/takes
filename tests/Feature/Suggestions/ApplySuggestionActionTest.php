@@ -6,19 +6,23 @@ use App\Actions\Suggestions\ApplySuggestionAction;
 use App\Actions\Suggestions\DiscardSuggestionAction;
 use App\Contracts\Takes\CreatesSuggestedTake;
 use App\DTOs\Suggestions\SuggestedTakeDTO;
+use App\DTOs\Suggestions\TakeChangeProposalDTO;
 use App\Enums\Suggestions\SuggestionStatus;
 use App\Enums\Takes\TakeSource;
 use App\Enums\Takes\TakeStatus;
+use App\Exceptions\Suggestions\BaseImageUnavailableException;
 use App\Exceptions\Suggestions\SuggestionNotProposedException;
 use App\Exceptions\Takes\TakeCreationUnavailableException;
 use App\Models\Customer;
 use App\Models\Project;
 use App\Models\Suggestion;
 use App\Models\Take;
+use App\Support\Suggestions\ProposalReferences;
 use App\Support\Takes\UnavailableSuggestedTakeCreator;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Ramsey\Uuid\Uuid;
 use Tests\Support\Suggestions;
 
@@ -176,5 +180,48 @@ describe('discard', function (): void {
 
         expect(fn () => app(DiscardSuggestionAction::class)->execute($this->customer, $this->suggestion))
             ->toThrow(SuggestionNotProposedException::class);
+    });
+});
+
+describe('base image reference (spec 4 remix source order)', function (): void {
+    it('prefers the persisted copy as a temporary URL over the provider URL', function (): void {
+        Storage::fake('local');
+        Storage::disk('local')->buildTemporaryUrlsUsing(fn (string $path): string => "https://files.test/{$path}?signature=1");
+        $this->base->forceFill(['image_path' => 'takes/base.png'])->save();
+
+        $take = applySuggestion();
+
+        expect($take->reference_images)->toBe([...$this->base->reference_images, 'https://files.test/takes/base.png?signature=1']);
+    });
+
+    it('refuses apply when the base image has no usable URL, and keeps the proposal', function (array $image): void {
+        $this->base->forceFill($image)->save();
+
+        expect(fn () => applySuggestion())->toThrow(BaseImageUnavailableException::class)
+            ->and($this->suggestion->refresh()->status)->toBe(SuggestionStatus::Proposed)
+            ->and($this->creator->calls)->toBe([]);
+    })->with([
+        'provider URL expired' => [['image_path' => null, 'image_url_expires_at' => now()->subMinute()]],
+        // A succeeded take always has an image_url (takes_succeeded_has_result_check); with no
+        // recorded expiry it is valid for 24 h after completion.
+        'no expiry recorded, completed two days ago' => [['image_path' => null, 'image_url_expires_at' => null, 'completed_at' => now()->subDays(2)]],
+    ]);
+
+    it('applies without the base image when the proposal does not ask for it, even if it expired', function (): void {
+        $this->base->forceFill(['image_url_expires_at' => now()->subMinute()])->save();
+        $this->suggestion->forceFill(['proposal' => Suggestions::proposal(['add_base_image_as_reference' => false])])->save();
+
+        expect(applySuggestion()->reference_images)->toBe($this->base->reference_images);
+    });
+
+    it('prices exactly the references apply attaches', function (): void {
+        $proposal = TakeChangeProposalDTO::fromArray(Suggestions::proposal());
+
+        expect(ProposalReferences::count($proposal, $this->base))->toBe(2);
+
+        $this->base->forceFill(['image_url_expires_at' => now()->subMinute()])->save();
+
+        expect(ProposalReferences::count($proposal, $this->base))->toBe(1)
+            ->and(ProposalReferences::baseImageUnavailable($proposal, $this->base))->toBeTrue();
     });
 });

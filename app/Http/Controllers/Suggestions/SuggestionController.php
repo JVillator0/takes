@@ -9,6 +9,7 @@ use App\Actions\Suggestions\CreateSuggestionAction;
 use App\Actions\Suggestions\DiscardSuggestionAction;
 use App\DTOs\Suggestions\CreateSuggestionDTO;
 use App\Enums\Auth\DenialReason;
+use App\Exceptions\Suggestions\BaseImageUnavailableException;
 use App\Exceptions\Suggestions\BaseTakeNotReadyException;
 use App\Exceptions\Suggestions\RequestKeyReusedException;
 use App\Exceptions\Suggestions\SuggestionAlreadyPendingException;
@@ -92,6 +93,8 @@ final class SuggestionController extends Controller
             return self::denied($exception->reason);
         } catch (SuggestionNotProposedException) {
             return self::rejected(409, 'not_proposed', __('suggestions.not_proposed'));
+        } catch (BaseImageUnavailableException) {
+            return self::rejected(409, 'image_unavailable', __('takes.image_unavailable'));
         } catch (TakeCreationUnavailableException) {
             return self::rejected(503, 'apply_unavailable', __('suggestions.apply_unavailable'));
         }

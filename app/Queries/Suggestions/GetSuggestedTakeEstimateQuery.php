@@ -12,6 +12,7 @@ use App\Enums\Takes\TakeSize;
 use App\Models\Take;
 use App\Services\Pixelforge\PixelforgeClient;
 use App\Support\Pricing\TakeEstimator;
+use App\Support\Suggestions\ProposalReferences;
 
 /**
  * The new take's price range shown on a proposal (P07 "New take: $x – $y",
@@ -45,7 +46,7 @@ final class GetSuggestedTakeEstimateQuery
             $proposal->prompt,
             $proposal->size,
             $proposal->quality,
-            $proposal->referenceCount(count($base->reference_images)),
+            ProposalReferences::count($proposal, $base),
             $pricing->rates->toNanosPerMillion(),
             new TokenFactsDTO(
                 $pricing->charactersPerTextToken,

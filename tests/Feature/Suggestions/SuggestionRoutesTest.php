@@ -230,3 +230,17 @@ it('never tells the customer a charged suggestion was not charged when it can no
             ->and($response->json('message'))->not->toContain('not charged');
     }
 });
+
+it('marks an unavailable base image on the references row and refuses apply with the 2-01 reason', function (): void {
+    Suggestions::fake(Suggestions::messageBody(Suggestions::proposal()));
+    $this->take->forceFill(['image_path' => null, 'image_url_expires_at' => now()->subMinute()])->save();
+
+    $response = postSuggestion()->assertOk()
+        ->assertJsonPath('baseImageUnavailable', true)
+        ->assertJsonPath('diff.rows.2.after', '1')
+        ->assertJsonPath('diff.rows.2.note', 'This image is no longer available');
+
+    $this->actingAs($this->customer, 'customer')->postJson(route('suggestions.apply', $response->json('id')))
+        ->assertConflict()
+        ->assertExactJson(['reason' => 'image_unavailable', 'message' => 'This image is no longer available']);
+});

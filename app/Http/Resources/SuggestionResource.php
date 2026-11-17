@@ -15,6 +15,7 @@ use App\Enums\Takes\TakeSize;
 use App\Models\Take;
 use App\Support\Money\Nanodollars;
 use App\Support\Money\RoundingMode;
+use App\Support\Suggestions\ProposalReferences;
 use App\Support\Suggestions\WordDiff;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -59,6 +60,8 @@ final class SuggestionResource extends JsonResource
             'charge' => $this->charge(),
             'diff' => $proposal === null ? null : $this->diff($proposal, $details->baseTake),
             'newTake' => $this->newTake(),
+            // The proposal adds the base image but it has no usable URL: apply is refused.
+            'baseImageUnavailable' => $proposal !== null && ProposalReferences::baseImageUnavailable($proposal, $details->baseTake),
             'resultingTakeId' => $suggestion->resulting_take_id,
         ];
     }
@@ -111,7 +114,9 @@ final class SuggestionResource extends JsonResource
     {
         $baseReferences = count($base->reference_images);
         $keptReferences = $proposal->keepReferences ? $baseReferences : 0;
-        $afterReferences = $proposal->addBaseImageAsReference
+        // Same resolver as apply and the estimate (spec 4 remix source order).
+        $imageUnavailable = ProposalReferences::baseImageUnavailable($proposal, $base);
+        $afterReferences = $proposal->addBaseImageAsReference && ! $imageUnavailable
             ? __('suggestions.diff.references_with_image', ['count' => $keptReferences])
             : (string) $keptReferences;
 
@@ -123,7 +128,13 @@ final class SuggestionResource extends JsonResource
             'rows' => [
                 self::row('size', self::sizeLabel($base->size), self::sizeLabel($proposal->size), $base->size !== $proposal->size),
                 self::row('quality', self::qualityLabel($base->quality), self::qualityLabel($proposal->quality), $base->quality !== $proposal->quality),
-                self::row('references', (string) $baseReferences, $afterReferences, $proposal->referenceCount($baseReferences) !== $baseReferences || $proposal->addBaseImageAsReference),
+                self::row(
+                    'references',
+                    (string) $baseReferences,
+                    $afterReferences,
+                    $proposal->referenceCount($baseReferences) !== $baseReferences || $proposal->addBaseImageAsReference,
+                    $imageUnavailable ? self::copy('takes.image_unavailable') : null,
+                ),
             ],
         ];
     }
@@ -152,9 +163,9 @@ final class SuggestionResource extends JsonResource
     }
 
     /**
-     * @return array{key: string, label: string, before: string, after: string, changed: bool}
+     * @return array{key: string, label: string, before: string, after: string, changed: bool, note: string|null}
      */
-    private static function row(string $key, string $before, string $after, bool $changed): array
+    private static function row(string $key, string $before, string $after, bool $changed, ?string $note = null): array
     {
         return [
             'key' => $key,
@@ -162,6 +173,7 @@ final class SuggestionResource extends JsonResource
             'before' => $before,
             'after' => $after,
             'changed' => $changed,
+            'note' => $note,
         ];
     }
 
