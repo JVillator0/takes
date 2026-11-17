@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useForm, usePage } from '@inertiajs/vue3';
-import { computed, onMounted, ref, toRef } from 'vue';
+import { computed, onMounted, ref, toRef, watch } from 'vue';
 import ComposerShell from '@/components/takes/ComposerShell.vue';
 import { useBuyCredits } from '@/composables/useBuyCredits';
 import { useCopy } from '@/composables/useCopy';
@@ -27,6 +27,8 @@ type Props = {
     config: ComposerConfig;
     /** Available credits, 4 decimals, for the insufficient-balance line. */
     availableDisplay: string | null;
+    /** Exact available credits; a change re-checks the estimate's policy answer. */
+    availableExact?: string | null;
 };
 
 const props = defineProps<Props>();
@@ -66,6 +68,27 @@ const { estimate, state, deniedMessage, deniedReason, refresh } =
         quality: toRef(form, 'quality'),
         references: toRef(form, 'reference_images'),
     });
+
+/*
+ * A purchase or a finished take changes the available balance; the same
+ * inputs may be allowed now, so a stale insufficient-credits denial (from
+ * the estimate or from the create) must not keep blocking Generate (F-15).
+ * Watches the workspace's live balance and the shared `auth` one.
+ */
+watch(
+    [
+        () => props.availableExact,
+        () => page.props.auth.customer?.available_exact,
+    ],
+    (now, before) => {
+        if (now[0] === before[0] && now[1] === before[1]) {
+            return;
+        }
+
+        form.clearErrors('denial' as never);
+        refresh();
+    },
+);
 
 const errors = computed<ComposerErrors>(() => {
     const referenceError = Object.entries(form.errors).find(([key]) =>

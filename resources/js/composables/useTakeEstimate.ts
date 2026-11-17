@@ -1,3 +1,4 @@
+import { HttpCancelledError } from '@inertiajs/core';
 import { useHttp } from '@inertiajs/vue3';
 import { useDebounceFn } from '@vueuse/core';
 import { computed, ref, shallowRef, watch } from 'vue';
@@ -38,19 +39,28 @@ export function useTakeEstimate(inputs: EstimateInputs) {
         () => inputs.references.value.filter((url) => url.trim() !== '').length,
     );
 
+    /*
+     * Each request takes a number; only the latest one may write. useHttp
+     * resets `processing` in its own `finally` before a cancelled request
+     * reaches this catch, so `processing` cannot tell a superseded request
+     * from a failed one (F-09).
+     */
+    let latestRequest = 0;
+
     const fetchEstimate = useDebounceFn(async (): Promise<void> => {
+        const request = ++latestRequest;
+        http.cancel();
+
         if (inputs.prompt.value.trim() === '') {
-            http.cancel();
             estimate.value = null;
             state.value = 'idle';
 
             return;
         }
 
-        http.cancel();
-
         try {
-            const response = await http.get(
+            // A 422 (an input the server refuses) resolves to undefined, not a throw.
+            const response: TakeEstimate | undefined = await http.get(
                 estimateRoute.url({
                     query: {
                         chars: characters.value,
@@ -61,14 +71,29 @@ export function useTakeEstimate(inputs: EstimateInputs) {
                 }),
             );
 
+            if (request !== latestRequest) {
+                return;
+            }
+
+            if (response === undefined) {
+                state.value = 'error';
+
+                return;
+            }
+
             estimate.value = response;
             state.value = response.can?.allowed === false ? 'denied' : 'ready';
-        } catch {
-            // A cancelled request is superseded by the next one; anything
+        } catch (error) {
+            // A superseded request is replaced by the next one; anything
             // else keeps the last price, dimmed, with the 2-01 error line.
-            if (!http.processing) {
-                state.value = 'error';
+            if (
+                error instanceof HttpCancelledError ||
+                request !== latestRequest
+            ) {
+                return;
             }
+
+            state.value = 'error';
         }
     }, DEBOUNCE_MS);
 

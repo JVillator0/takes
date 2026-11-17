@@ -367,6 +367,7 @@ const canManage = computed(
                         :project-id="project.id"
                         :config="composer"
                         :available-display="balance.available"
+                        :available-exact="balance.availableExact"
                     />
                 </div>
             </aside>
