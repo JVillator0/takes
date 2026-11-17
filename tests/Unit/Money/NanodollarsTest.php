@@ -32,6 +32,8 @@ describe('parsing', function (): void {
         'comma' => ['1,5'],
         'empty' => [''],
         'currency sign' => ['$1'],
+        'trailing newline' => ["5\n"],
+        'trailing newline after decimals' => ["0.373875000\n"],
     ]);
 
     it('rejects amounts that do not fit in 64 bits', function (): void {
@@ -53,6 +55,7 @@ describe('parsing', function (): void {
             ->and(Nanodollars::fromInt('0')->toInt())->toBe(0);
 
         expect(fn () => Nanodollars::fromInt('12.0'))->toThrow(InvalidArgumentException::class);
+        expect(fn () => Nanodollars::fromInt("373875000\n"))->toThrow(InvalidArgumentException::class);
         expect(fn () => Nanodollars::fromInt(PHP_INT_MIN))->toThrow(OverflowException::class);
     });
 });

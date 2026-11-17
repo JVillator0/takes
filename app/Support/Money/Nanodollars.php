@@ -59,7 +59,7 @@ final readonly class Nanodollars
      */
     public static function fromDecimalString(string $value): self
     {
-        if (preg_match('/^(-?)(\d+)(?:\.(\d{1,9}))?$/', $value, $matches) !== 1) {
+        if (preg_match('/^(-?)(\d+)(?:\.(\d{1,9}))?$/D', $value, $matches) !== 1) {
             throw new InvalidArgumentException("Invalid USD decimal string [{$value}]: expected digits with at most 9 decimals.");
         }
 
@@ -95,7 +95,7 @@ final readonly class Nanodollars
             return new self($nanos);
         }
 
-        if (preg_match('/^(-?)(\d+)$/', $nanos, $matches) !== 1) {
+        if (preg_match('/^(-?)(\d+)$/D', $nanos, $matches) !== 1) {
             throw new InvalidArgumentException("Invalid integer nanodollar string [{$nanos}].");
         }
 
