@@ -44,16 +44,17 @@ final class SourceScan
 
     /**
      * Operators that can turn integers into a float (`/` gives a float unless
-     * the division is exact; `**` does for a negative exponent or on overflow).
-     * Integer division is `intdiv()`, with the remainder from `%`.
+     * the division is exact; `**` does for a negative exponent or on overflow),
+     * each with the integer replacement the violation suggests. This table is
+     * the only list the scan reads.
      *
-     * @var array<int|string, string> token id (or the bare character) => operator
+     * @var array<int|string, array{0: string, 1: string}> token id (or the bare character) => [operator, hint]
      */
     public const array FLOAT_OPERATORS = [
-        '/' => '/',
-        T_DIV_EQUAL => '/=',
-        T_POW => '**',
-        T_POW_EQUAL => '**=',
+        '/' => ['/', 'use intdiv() and % for the remainder'],
+        T_DIV_EQUAL => ['/=', 'use intdiv() and % for the remainder'],
+        T_POW => ['**', 'use a powers table such as Nanodollars::POWERS_OF_TEN, or multiplication'],
+        T_POW_EQUAL => ['**=', 'use a powers table such as Nanodollars::POWERS_OF_TEN, or multiplication'],
     ];
 
     /**
@@ -139,7 +140,7 @@ final class SourceScan
                     $id === T_DOUBLE_CAST => "float cast {$text}",
                     $id === T_DNUMBER => "float literal {$text}",
                     $id === T_STRING && strtolower($text) === 'float' && ! self::isMemberAccess($tokens, $index) => 'float type',
-                    $id === 0 && $text === '/', isset(self::FLOAT_OPERATORS[$id]) => 'operator '.self::FLOAT_OPERATORS[$id === 0 ? $text : $id].' (use intdiv())',
+                    isset(self::FLOAT_OPERATORS[$id === 0 ? $text : $id]) => self::operatorViolation(self::FLOAT_OPERATORS[$id === 0 ? $text : $id]),
                     default => self::functionReference($tokens, $index, self::FLOAT_FUNCTIONS),
                 };
 
@@ -493,6 +494,14 @@ final class SourceScan
     public static function root(): string
     {
         return dirname(__DIR__, 2);
+    }
+
+    /**
+     * @param  array{0: string, 1: string}  $operator  [operator, hint]
+     */
+    private static function operatorViolation(array $operator): string
+    {
+        return "operator {$operator[0]} ({$operator[1]})";
     }
 
     /**

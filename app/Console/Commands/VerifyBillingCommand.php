@@ -39,8 +39,9 @@ final class VerifyBillingCommand extends Command
         $range = null;
 
         // A range only scopes --usage: alone it would check nothing it names
-        // and still print a pass, so refuse it instead of ignoring it.
-        if (! $this->option('usage') && ($this->option('from') !== null || $this->option('to') !== null)) {
+        // and still print a pass, so refuse it instead of ignoring it. Presence,
+        // not value: a bare `--from` (no value) leaves the option null.
+        if (! $this->option('usage') && $this->input->hasParameterOption(['--from', '--to'], true)) {
             $this->error('--from and --to only apply to --usage; add --usage to compare that range.');
 
             return self::FAILURE;
@@ -141,7 +142,8 @@ final class VerifyBillingCommand extends Command
 
     /**
      * Null when the option is absent; a strict Y-m-d date otherwise
-     * (2026-02-30 does not roll over into March).
+     * (2026-02-30 does not roll over into March). An option given without a
+     * value (`--from`) is refused, never read as "use the default".
      *
      * @throws InvalidArgumentException
      */
@@ -150,6 +152,10 @@ final class VerifyBillingCommand extends Command
         $value = $this->option($name);
 
         if ($value === null) {
+            if ($this->input->hasParameterOption('--'.$name, true)) {
+                throw new InvalidArgumentException('--'.$name.' needs a Y-m-d date, got none.');
+            }
+
             return null;
         }
 

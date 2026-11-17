@@ -181,6 +181,9 @@ describe('--usage', function (): void {
         'both' => ['--from=2026-11-01 --to=2026-11-15'],
         'only --from' => ['--from=2026-11-01'],
         'only --to' => ['--to=2026-11-15'],
+        'bare --from' => ['--from'],
+        'bare --to' => ['--to'],
+        'empty --from' => ['--from='],
     ]);
 
     it('fails, never passes, when Pixelforge has no API key', function (): void {
@@ -215,6 +218,15 @@ describe('--usage', function (): void {
         'wrong format' => ['--from=17/11/2026'],
         'empty' => ['--from='],
     ]);
+
+    it('refuses --from or --to given without a value instead of using the default', function (string $option): void {
+        fakePixelforgeUsage([]);
+
+        $this->artisan("billing:verify --usage {$option}")
+            ->expectsOutputToContain("{$option} needs a Y-m-d date, got none.")
+            ->doesntExpectOutputToContain('matches')
+            ->assertFailed();
+    })->with(['--from', '--to']);
 
     it('refuses an inverted range instead of passing vacuously', function (): void {
         fakePixelforgeUsage([]);
