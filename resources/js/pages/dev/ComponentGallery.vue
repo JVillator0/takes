@@ -3,6 +3,7 @@ import { Head } from '@inertiajs/vue3';
 import { computed, reactive, ref } from 'vue';
 import BalancePill from '@/components/takes/BalancePill.vue';
 import ComposerShell from '@/components/takes/ComposerShell.vue';
+import DescribeChangePanel from '@/components/takes/DescribeChangePanel.vue';
 import EstimatePanel from '@/components/takes/EstimatePanel.vue';
 import ServiceNotConfiguredBanner from '@/components/takes/ServiceNotConfiguredBanner.vue';
 import TakeDrawer from '@/components/takes/TakeDrawer.vue';
@@ -14,6 +15,8 @@ import StudioLayout from '@/layouts/StudioLayout.vue';
 import { gallery } from '@/routes/dev';
 import type {
     BalanceSummary,
+    SuggestionData,
+    SuggestionQuote,
     TakeCardData,
     TakeDetailData,
     TakeEstimate,
@@ -33,6 +36,13 @@ type Props = {
     estimates: Record<'square' | 'remix' | 'heavy', TakeEstimate>;
     lowBalance: BalanceSummary;
     insufficientMessage: string;
+    describeChange: {
+        quote: SuggestionQuote;
+        paused: SuggestionQuote;
+        proposed: SuggestionData;
+        unaffordable: SuggestionData;
+        failed: SuggestionData;
+    };
 };
 
 const props = defineProps<Props>();
@@ -415,6 +425,62 @@ const caption = 'text-xs font-medium text-muted-foreground';
                             estimate-state="ready"
                             processing
                             @submit="log('submit')"
+                        />
+                    </div>
+                </div>
+            </section>
+
+            <section id="describe-change" class="flex flex-col gap-4">
+                <h2 :class="sectionTitle">Describe a change</h2>
+                <p class="text-sm text-muted-foreground">
+                    P07 panel states. Fixtures only: nothing here calls the
+                    server until you press a button.
+                </p>
+                <div class="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+                    <div class="flex flex-col gap-2 rounded-xl border p-4">
+                        <span class="text-xs text-muted-foreground">Ask</span>
+                        <DescribeChangePanel
+                            take-id="01JGALLERYTAKE000000000010"
+                            :initial-quote="describeChange.quote"
+                        />
+                    </div>
+                    <div class="flex flex-col gap-2 rounded-xl border p-4">
+                        <span class="text-xs text-muted-foreground"
+                            >Proposal</span
+                        >
+                        <DescribeChangePanel
+                            take-id="01JGALLERYTAKE000000000010"
+                            :initial-quote="describeChange.quote"
+                            :initial-suggestion="describeChange.proposed"
+                        />
+                    </div>
+                    <div class="flex flex-col gap-2 rounded-xl border p-4">
+                        <span class="text-xs text-muted-foreground"
+                            >Proposal, new take unaffordable</span
+                        >
+                        <DescribeChangePanel
+                            take-id="01JGALLERYTAKE000000000010"
+                            :initial-quote="describeChange.quote"
+                            :initial-suggestion="describeChange.unaffordable"
+                        />
+                    </div>
+                    <div class="flex flex-col gap-2 rounded-xl border p-4">
+                        <span class="text-xs text-muted-foreground"
+                            >Failed (not charged)</span
+                        >
+                        <DescribeChangePanel
+                            take-id="01JGALLERYTAKE000000000010"
+                            :initial-quote="describeChange.quote"
+                            :initial-suggestion="describeChange.failed"
+                        />
+                    </div>
+                    <div class="flex flex-col gap-2 rounded-xl border p-4">
+                        <span class="text-xs text-muted-foreground"
+                            >Paused (ai_paused)</span
+                        >
+                        <DescribeChangePanel
+                            take-id="01JGALLERYTAKE000000000010"
+                            :initial-quote="describeChange.paused"
                         />
                     </div>
                 </div>

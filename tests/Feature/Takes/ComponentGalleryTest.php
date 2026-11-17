@@ -16,6 +16,8 @@ it('renders every take state in the gallery with copy from the lang files', func
             ->where('takes.4.failureMessage', 'The image could not be generated. You were not charged.')
             ->where('details.done.price.amount', '$0.0740375')
             ->where('insufficientMessage', 'Your available credits are below the max price. Buy credits to continue.')
+            ->where('describeChange.proposed.charge.disclosure', 'Suggestion cost $0.0003175. Charged even if you discard.')
+            ->where('describeChange.failed.message', 'Suggestion failed. You were not charged.')
         );
 });
 
@@ -26,7 +28,7 @@ it('resolves every copy key in the gallery payload', function (): void {
     // takes.estimate.range") is caught too.
     $unresolved = [];
     array_walk_recursive($props, function (mixed $value) use (&$unresolved): void {
-        if (is_string($value) && preg_match_all('/\b(?:takes|billing|landing|denials)(?:\.[a-z0-9_]+)+/', $value, $matches) > 0) {
+        if (is_string($value) && preg_match_all('/\b(?:takes|billing|landing|denials|suggestions)(?:\.[a-z0-9_]+)+/', $value, $matches) > 0) {
             array_push($unresolved, ...$matches[0]);
         }
     });

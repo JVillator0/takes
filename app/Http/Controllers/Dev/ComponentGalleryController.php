@@ -50,7 +50,72 @@ class ComponentGalleryController extends Controller
                 'onHoldExact' => '$0.00',
             ],
             'insufficientMessage' => __('denials.insufficient_credits'),
+            'describeChange' => $this->describeChange(),
         ]);
+    }
+
+    /**
+     * The P07 panel's states (spec 8), shaped like SuggestionResource. The
+     * worked example: 1,480 + 212 tokens charged $0.0003175 (D-037 dataset).
+     *
+     * @return array<string, mixed>
+     */
+    private function describeChange(): array
+    {
+        $proposed = [
+            'id' => '01JGALLERYSUGGESTION0000001',
+            'status' => 'proposed',
+            'instruction' => 'Make it portrait, golden hour, more detail on the waves',
+            'rationale' => 'Switched to portrait and high quality for wave detail; kept your composition.',
+            'message' => null,
+            'noChange' => false,
+            'hold' => null,
+            'charge' => [
+                'exact' => '$0.0003175',
+                'disclosure' => __('suggestions.charge_disclosure', ['amount' => '$0.0003175']),
+            ],
+            'diff' => [
+                'prompt' => [
+                    'changed' => true,
+                    'segments' => [
+                        ['type' => 'same', 'text' => 'Lighthouse at '],
+                        ['type' => 'removed', 'text' => 'dusk, warm light, '],
+                        ['type' => 'added', 'text' => 'golden hour, low sun, '],
+                        ['type' => 'same', 'text' => 'cinematic '],
+                        ['type' => 'removed', 'text' => 'wide shot, '],
+                        ['type' => 'added', 'text' => 'portrait shot, '],
+                        ['type' => 'same', 'text' => 'detailed crashing waves'],
+                    ],
+                ],
+                'rows' => [
+                    ['key' => 'size', 'label' => __('suggestions.diff.size'), 'before' => __('takes.sizes.1024x1024').' 1024×1024', 'after' => __('takes.sizes.1024x1536').' 1024×1536', 'changed' => true],
+                    ['key' => 'quality', 'label' => __('suggestions.diff.quality'), 'before' => __('takes.quality.medium'), 'after' => __('takes.quality.high'), 'changed' => true],
+                    ['key' => 'references', 'label' => __('suggestions.diff.references'), 'before' => '1', 'after' => __('suggestions.diff.references_with_image', ['count' => 1]), 'changed' => true],
+                ],
+            ],
+            'newTake' => [
+                'range' => __('suggestions.new_take', ['range' => __('takes.estimate.range', ['min' => '$0.3573', 'max' => '$0.4668'])]),
+                'generate' => __('takes.composer.submit_with_max', ['amount' => '$0.4668']),
+                'canAfford' => true,
+            ],
+            'resultingTakeId' => null,
+        ];
+
+        return [
+            'quote' => ['quote' => __('suggestions.quote', ['amount' => '$0.0012']), 'denial' => null],
+            'paused' => ['quote' => __('suggestions.quote', ['amount' => '$0.0012']), 'denial' => ['reason' => 'ai_paused', 'message' => __('denials.ai_paused')]],
+            'proposed' => $proposed,
+            'unaffordable' => [...$proposed, 'newTake' => [...$proposed['newTake'], 'canAfford' => false]],
+            'failed' => [
+                ...$proposed,
+                'status' => 'failed',
+                'rationale' => null,
+                'message' => __('suggestions.failed'),
+                'charge' => null,
+                'diff' => null,
+                'newTake' => null,
+            ],
+        ];
     }
 
     /**
