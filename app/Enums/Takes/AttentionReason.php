@@ -15,4 +15,15 @@ enum AttentionReason: string
     case ReconcileExhausted = 'reconcile_exhausted';
     case InternalFailure = 'internal_failure';
     case OverEstimate = 'over_estimate';
+
+    /**
+     * Whether this reason may take the single attention_reason column from
+     * $current. An orphan success is never overwritten by another reason:
+     * it marks absorbed provider cost that reconciliation must keep showing
+     * in its own group (D-058).
+     */
+    public function replaces(?self $current): bool
+    {
+        return $current !== self::OrphanSuccess || $this === self::OrphanSuccess;
+    }
 }
