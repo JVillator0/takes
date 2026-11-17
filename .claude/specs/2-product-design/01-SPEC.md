@@ -312,3 +312,34 @@ Billing page and invoice strings added with spec 6 (P08, P09). Keys are the full
 | `billing.invoice.no_expiry` | P09 printable invoice | "Credits do not expire." |
 | `billing.invoice.print` | P09 printable invoice | "Print / Save as PDF" |
 | `billing.invoice.back` | P09 printable invoice | "Back to billing" |
+
+Describe a change (P07) chrome added with spec 8. Prices reuse `takes.money.on_hold`, `takes.estimate.range` and `takes.composer.submit_with_max`; Buy credits reuses `billing.buy_credits`; the 2-01 AI strings above are `suggestions.failed`, `suggestions.unavailable`, `suggestions.no_change`, `suggestions.charge_disclosure`, `suggestions.already_pending` and `suggestions.chips.*`.
+
+| Key | Where | Copy |
+|---|---|---|
+| `suggestions.label` | P07 ask | "What should change?" |
+| `suggestions.count` | P07 ask | ":count / :max" |
+| `suggestions.quote` | P07 ask, price before action | "AI suggestion · up to :amount on hold" |
+| `suggestions.quote_note` | P07 ask | "Charged even if you discard the suggestion." |
+| `suggestions.suggest` | P07 ask button | "Suggest change" |
+| `suggestions.thinking` | P07 thinking | "Thinking…" |
+| `suggestions.review` | P07 proposal | "Review the proposal" |
+| `suggestions.diff.prompt` | P07 proposal | "Prompt" |
+| `suggestions.diff.setting` | P07 proposal table | "Setting" |
+| `suggestions.diff.before` | P07 proposal table | "Before" |
+| `suggestions.diff.after` | P07 proposal table | "After" |
+| `suggestions.diff.size` | P07 proposal table | "Size" |
+| `suggestions.diff.quality` | P07 proposal table | "Quality" |
+| `suggestions.diff.references` | P07 proposal table | "References" |
+| `suggestions.diff.references_with_image` | P07 proposal table | ":count + take image" |
+| `suggestions.new_take` | P07 proposal | "New take: :range" |
+| `suggestions.discard` | P07 proposal | "Discard" |
+| `suggestions.discarded` | P07 result | "Suggestion discarded." |
+| `suggestions.applied` | P07 result | "Your new take has started." |
+| `suggestions.base_not_ready` | P07, take not finished | "Describe a change works on finished takes." |
+| `suggestions.apply_unavailable` | P07, apply before spec 4 | "Generating a take from a suggestion is not available yet. Your suggestion is saved." |
+| `suggestions.not_proposed` | P07, apply or discard from a stale tab (no charge claim: it may have been charged) | "This suggestion can no longer be used. Describe a new change." |
+| `suggestions.request_key_reused` | P07, a request key replayed for another take | "This request was already sent for another take. Try again." |
+| `suggestions.uncertain` | P07, connection lost or server error after Suggest (the call may have finished and been charged): no charge claim | "We couldn't confirm the result yet. Check again to see it." |
+| `suggestions.check_again` | P07 button for `suggestions.uncertain` (replays the same request key, never pays twice) | "Check again" |
+| `suggestions.action_failed` | P07, Generate take or Discard failed without a server reason (the suggestion was already charged): no charge claim | "That didn't go through. Try again in a moment." |
