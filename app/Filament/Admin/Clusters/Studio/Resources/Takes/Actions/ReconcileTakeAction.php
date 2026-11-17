@@ -55,8 +55,8 @@ final class ReconcileTakeAction
         $charge = $take->usageRecord()->value('charge_nanos');
 
         return $charge === null
-            ? __('console.takes.reconcile.applied', ['status' => $take->status->getLabel()])
-            : __('console.takes.reconcile.applied_charged', ['status' => $take->status->getLabel(), 'amount' => Money::exact($charge)]);
+            ? __('console.takes.reconcile.applied', ['state' => $take->status->getLabel()])
+            : __('console.takes.reconcile.applied_charged', ['state' => $take->status->getLabel(), 'amount' => Money::exact($charge)]);
     }
 
     private static function admin(): ?User
