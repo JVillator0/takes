@@ -169,6 +169,23 @@ it('fails when a terminal take still holds an open usage', function (): void {
 });
 
 describe('--usage', function (): void {
+    it('refuses --from or --to without --usage instead of ignoring the range', function (string $options): void {
+        cleanDataset();
+        Http::preventStrayRequests();
+
+        $this->artisan("billing:verify {$options}")
+            ->expectsOutputToContain('--from and --to only apply to --usage')
+            ->doesntExpectOutputToContain('Billing invariants hold.')
+            ->assertFailed();
+    })->with([
+        'both' => ['--from=2026-11-01 --to=2026-11-15'],
+        'only --from' => ['--from=2026-11-01'],
+        'only --to' => ['--to=2026-11-15'],
+        'bare --from' => ['--from'],
+        'bare --to' => ['--to'],
+        'empty --from' => ['--from='],
+    ]);
+
     it('fails, never passes, when Pixelforge has no API key', function (): void {
         config(['pixelforge.api_key' => null]);
         Http::preventStrayRequests();
@@ -201,6 +218,15 @@ describe('--usage', function (): void {
         'wrong format' => ['--from=17/11/2026'],
         'empty' => ['--from='],
     ]);
+
+    it('refuses --from or --to given without a value instead of using the default', function (string $option): void {
+        fakePixelforgeUsage([]);
+
+        $this->artisan("billing:verify --usage {$option}")
+            ->expectsOutputToContain("{$option} needs a Y-m-d date, got none.")
+            ->doesntExpectOutputToContain('matches')
+            ->assertFailed();
+    })->with(['--from', '--to']);
 
     it('refuses an inverted range instead of passing vacuously', function (): void {
         fakePixelforgeUsage([]);

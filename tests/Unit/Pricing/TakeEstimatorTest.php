@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\DTOs\Billing\EstimateDTO;
 use App\DTOs\Pixelforge\TokenFactsDTO;
 use App\Enums\Takes\TakeQuality;
 use App\Enums\Takes\TakeSize;
@@ -11,6 +12,7 @@ use App\Support\Money\TokenCost;
 use App\Support\Pricing\PixelforgeTokenTable;
 use App\Support\Pricing\TakeEstimator;
 use Tests\Support\RecordingLogger;
+use Tests\Support\SourceScan;
 
 /*
 | Oracles come from https://pixelforge.promptedit.dev/docs (retrieved
@@ -211,10 +213,12 @@ describe('invariants', function (): void {
             ->and($estimate->maxCost->toInt())->toBe(1);
     });
 
-    it('applies a different markup when given one', function (): void {
-        $estimate = $this->estimator->estimateForCharacters(400, TakeSize::Landscape, TakeQuality::High, 2, $this->rates, markupBps: 0);
+    it('always charges the default markup, the one OpenUsageAction snapshots', function (): void {
+        $estimate = $this->estimator->estimateForCharacters(400, TakeSize::Landscape, TakeQuality::High, 2, $this->rates);
 
-        expect($estimate->maxCharge->toInt())->toBe(373_875_000);
+        expect($estimate->maxCost->toInt())->toBe(373_875_000)
+            ->and($estimate->maxCharge->toInt())->toBe(467_343_750)
+            ->and($estimate)->toEqual(EstimateDTO::fromCosts($estimate->minCost, $estimate->maxCost));
     });
 });
 
@@ -335,19 +339,9 @@ describe('demo dataset (.claude/specs/2-product-design/demo-dataset.md)', functi
 });
 
 it('contains no float or built-in rounding helpers in the pricing code', function (string $path): void {
-    $tokens = token_get_all((string) file_get_contents(dirname(__DIR__, 3).'/'.$path));
-    $code = implode('', array_map(
-        fn (array|string $token): string => is_array($token)
-            ? (in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true) ? '' : $token[1])
-            : $token,
-        $tokens,
-    ));
-
-    expect(array_filter($tokens, fn (array|string $token): bool => is_array($token) && $token[0] === T_DNUMBER))->toBe([]);
-
-    foreach (['float', 'round(', 'floatval', 'number_format(', 'floor(', 'ceil(', 'bcmath', '**'] as $forbidden) {
-        expect(str_contains($code, $forbidden))->toBeFalse("{$path} must not use [{$forbidden}].");
-    }
+    // phpFiles() skips a missing path: make sure the scan sees the file.
+    expect(SourceScan::phpFiles([$path]))->toHaveCount(1)
+        ->and(SourceScan::floatViolations([$path]))->toBe([]);
 })->with([
     'app/Support/Pricing/TakeEstimator.php',
     'app/Support/Pricing/PixelforgeTokenTable.php',

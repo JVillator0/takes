@@ -6,11 +6,13 @@ use App\Enums\Auth\AdminPermission;
 use App\Enums\Auth\AdminRole;
 use App\Filament\Admin\Audit\AdminAuditResource;
 use App\Models\User;
+use App\Providers\Filament\AdminPanelProvider;
 use BezhanSalleh\FilamentShield\Resources\Roles\Pages\ListRoles;
 use Database\Seeders\AdminRolesSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Livewire\Livewire;
+use Rmsramos\Activitylog\ActivitylogPlugin;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
@@ -118,4 +120,14 @@ it('creates the admin roles from the deploy seeder', function (): void {
         ->toBe(['auditor', 'operator', 'super_admin'])
         ->and(permissionsOf(AdminRole::Operator))->toContain(...AdminPermission::values())
         ->and(permissionsOf(AdminRole::Auditor))->toContain('ViewAny:Role', 'ViewAny:Activity');
+});
+
+it('never lets anyone restore from the audit, the super admin included', function (): void {
+    $superAdmin = User::factory()->admin(AdminRole::SuperAdmin)->withAppAuthentication()->create();
+    $this->actingAs($superAdmin);
+    $plugin = ActivitylogPlugin::get();
+
+    expect($superAdmin->can(AdminPanelProvider::AUDIT_RESTORE_ABILITY))->toBeFalse()
+        ->and($plugin->getIsRestoreActionHidden())->toBeTrue()
+        ->and($plugin->getIsRestoreModelActionHidden())->toBeTrue();
 });
