@@ -93,7 +93,7 @@ const isInsufficient = computed(
                 v-if="range"
                 :class="[
                     'text-2xl font-semibold tracking-tight tabular-nums transition-opacity',
-                    isLoading && 'opacity-50',
+                    (isLoading || state === 'error') && 'opacity-50',
                 ]"
             >
                 {{ range }}
