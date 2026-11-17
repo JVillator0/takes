@@ -2,75 +2,67 @@
 
 declare(strict_types=1);
 
+use App\Models\Customer;
 use App\Models\User;
 use Illuminate\Support\Facades\RateLimiter;
-use Laravel\Fortify\Features;
 
-test('login screen can be rendered', function (): void {
+it('renders the sign-in page', function (): void {
     $this->get(route('login'))->assertOk();
 });
 
-test('users can authenticate using the login screen', function (): void {
-    $user = User::factory()->create();
+it('signs a customer in on the customer guard, never on web', function (): void {
+    $customer = Customer::factory()->create();
 
     $response = $this->post(route('login.store'), [
-        'email' => $user->email,
+        'email' => $customer->email,
         'password' => 'password',
     ]);
 
-    $this->assertAuthenticated();
+    $this->assertAuthenticatedAs($customer, 'customer');
+    $this->assertGuest('web');
     $response->assertRedirect(route('dashboard', absolute: false));
 });
 
-test('users with two factor enabled are redirected to two factor challenge', function (): void {
-    $this->skipUnlessFortifyHas(Features::twoFactorAuthentication());
-
-    Features::twoFactorAuthentication([
-        'confirm' => true,
-        'confirmPassword' => true,
-    ]);
-
-    $user = User::factory()->withTwoFactor()->create();
-
-    $response = $this->post(route('login'), [
-        'email' => $user->email,
-        'password' => 'password',
-    ]);
-
-    $response->assertRedirect(route('two-factor.login'));
-    $response->assertSessionHas('login.id', $user->id);
-    $this->assertGuest();
-});
-
-test('users can not authenticate with invalid password', function (): void {
-    $user = User::factory()->create();
+it('does not sign an admin user in through the public login', function (): void {
+    $admin = User::factory()->create();
 
     $this->post(route('login.store'), [
-        'email' => $user->email,
+        'email' => $admin->email,
+        'password' => 'password',
+    ])->assertSessionHasErrors('email');
+
+    $this->assertGuest('customer');
+    $this->assertGuest('web');
+});
+
+it('rejects an invalid password', function (): void {
+    $customer = Customer::factory()->create();
+
+    $this->post(route('login.store'), [
+        'email' => $customer->email,
         'password' => 'wrong-password',
     ]);
 
-    $this->assertGuest();
+    $this->assertGuest('customer');
 });
 
-test('users can logout', function (): void {
-    $user = User::factory()->create();
+it('logs a customer out', function (): void {
+    $customer = Customer::factory()->create();
 
-    $response = $this->actingAs($user)->post(route('logout'));
+    $this->actingAs($customer, 'customer')
+        ->post(route('logout'))
+        ->assertRedirect(route('home'));
 
-    $response->assertRedirect(route('home'));
-    $this->assertGuest();
+    $this->assertGuest('customer');
 });
 
-test('users are rate limited', function (): void {
-    $user = User::factory()->create();
+it('rate limits sign-in attempts', function (): void {
+    $customer = Customer::factory()->create();
 
-    RateLimiter::increment(md5('login'.implode('|', [$user->email, '127.0.0.1'])), amount: 5);
+    RateLimiter::increment(md5('login'.implode('|', [$customer->email, '127.0.0.1'])), amount: 5);
 
-    $response = $this->post(route('login.store'), [
-        'email' => $user->email,
+    $this->post(route('login.store'), [
+        'email' => $customer->email,
         'password' => 'wrong-password',
-    ]);
-
-    $response->assertTooManyRequests();
+    ])->assertTooManyRequests();
 });
