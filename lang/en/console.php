@@ -122,8 +122,8 @@ return [
             'heading' => 'Reconcile this take now?',
             'description' => 'Fetches the generation from Pixelforge and applies it through the normal path. Safe to repeat.',
             'no_change' => 'No change',
-            'applied' => 'Applied: :status',
-            'applied_charged' => 'Applied: :status, charged :amount',
+            'applied' => 'Applied: :state',
+            'applied_charged' => 'Applied: :state, charged :amount',
         ],
     ],
 
