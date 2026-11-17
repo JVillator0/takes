@@ -1,3 +1,5 @@
 export * from './auth';
+export * from './copy';
 export * from './navigation';
+export * from './takes';
 export * from './ui';

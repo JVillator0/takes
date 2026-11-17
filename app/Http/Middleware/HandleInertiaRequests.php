@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use Illuminate\Http\Request;
+use Inertia\Inertia;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
@@ -42,6 +43,24 @@ class HandleInertiaRequests extends Middleware
                 'user' => $request->user(),
             ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
+            'copy' => Inertia::once(fn (): array => self::copy()),
+        ];
+    }
+
+    /**
+     * Customer-facing UI copy for the Vue `trans()` helper (D-057).
+     *
+     * An Inertia once prop: sent on the first page load and kept by the client
+     * across visits, because the strings never change while the app runs.
+     * Only these two files are exposed; they hold no secrets.
+     *
+     * @return array{takes: mixed, billing: mixed}
+     */
+    private static function copy(): array
+    {
+        return [
+            'takes' => trans('takes'),
+            'billing' => trans('billing'),
         ];
     }
 }
