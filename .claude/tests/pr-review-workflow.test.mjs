@@ -1,4 +1,4 @@
-// Tests for .claude/workflows/pr-review.js. Run: node --test .claude/tests/
+// Tests for .claude/workflows/pr-review.js. Run: node --test '.claude/tests/*.test.mjs'
 //
 // The workflow is a Workflow-tool script (top-level await and return, no imports),
 // so it is evaluated here as the body of an async function with stubbed runtime
@@ -67,7 +67,7 @@ const context = (files, o = {}) => ({
 })
 
 // ---------- full-run harness ----------
-async function run({ args = ARGS, ctx, judge, judgeRetry, reviews = {}, throwFor = [] }) {
+async function run({ args = ARGS, ctx, judge, judgeRetry, reviews = {}, throwFor = [], post }) {
   const calls = []
   const agent = async (prompt, opts) => {
     calls.push({ label: opts.label, prompt })
@@ -76,6 +76,7 @@ async function run({ args = ARGS, ctx, judge, judgeRetry, reviews = {}, throwFor
     if (opts.label === 'pr-judge') return judge
     if (opts.label === 'pr-judge (retry)') return judgeRetry ?? judge
     if (opts.label.startsWith('post ')) {
+      if (post !== undefined) return typeof post === 'function' ? post(opts.label) : post
       return { posted: true, alreadyPosted: false, reviewUrl: `r/${opts.label}`, inlineComments: 0, movedToBody: 0, error: null }
     }
     if (opts.label === 'publish verdict') {
@@ -252,6 +253,11 @@ test('an invalid head SHA stops the run before any review', async () => {
   await assert.rejects(run({ ctx: context(['routes/web.php'], { headSha: 'abc1234' }), judge: judgeResult() }), /invalid SHA/)
 })
 
+test('an invalid base SHA or base ref stops the run before any review', async () => {
+  await assert.rejects(run({ ctx: context(['routes/web.php'], { baseSha: 'main' }), judge: judgeResult() }), /invalid SHA/)
+  await assert.rejects(run({ ctx: context(['routes/web.php'], { baseRef: 'main; rm -rf /' }), judge: judgeResult() }), /invalid base ref/)
+})
+
 test('unfetched commits stop the run before any review', async () => {
   await assert.rejects(run({ ctx: context(['routes/web.php'], { objectsFetched: false }), judge: judgeResult() }), /Could not fetch/)
 })
@@ -266,6 +272,35 @@ test('a reviewer that throws is reported as failed, not N/A', async () => {
   assert.equal(result.reviewers['filament-reviewer'], 'n/a')
   const judgePrompt = calls.find((c) => c.label === 'pr-judge').prompt
   assert.ok(judgePrompt.includes('the files of every reviewer with status "failed"'))
+})
+
+test('a post step that returns null or posted=false keeps the findings but reports the review as not posted', async () => {
+  const minor = { path: 'routes/web.php', line: 3, severity: 'minor', title: 't', body: 'b' }
+  for (const post of [
+    null,
+    { posted: false, alreadyPosted: false, reviewUrl: null, inlineComments: 0, movedToBody: 0, error: 'HTTP 422' },
+  ]) {
+    const { result, logs, calls } = await run({
+      ctx: context(['routes/web.php']),
+      judge: judgeResult(),
+      reviews: { 'laravel-backend-reviewer': [minor] },
+      post,
+    })
+    assert.equal(result.reviewers['laravel-backend-reviewer'], 'ran')
+    assert.ok(logs.some((l) => l.includes('review NOT posted')), JSON.stringify(logs))
+    const facts = calls.find((c) => c.label === 'pr-judge').prompt
+    assert.ok(facts.includes('"title": "t"'), 'reviewer findings still reach the judge')
+  }
+})
+
+test('MERGEABLE merge step falls back to a direct squash merge and decides from the PR state', async () => {
+  const { calls } = await run({ ctx: context(['routes/web.php']), judge: judgeResult() })
+  const prompt = calls.find((c) => c.label === 'publish verdict').prompt
+  assert.match(prompt, /--squash --auto --delete-branch --match-head-commit a{40}/)
+  assert.match(prompt, /fails with "clean status"/)
+  assert.match(prompt, /gh pr merge 5 -R JVillator0\/takes --squash --delete-branch --match-head-commit a{40}/)
+  assert.match(prompt, /could not determine current branch/)
+  assert.match(prompt, /--json state,autoMergeRequest/)
 })
 
 test('an invalid scorecard is retried once; still invalid means NOT MERGEABLE', async () => {
