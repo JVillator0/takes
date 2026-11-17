@@ -79,13 +79,13 @@ final class ProjectController extends Controller
      */
     public function show(
         ShowProjectRequest $request,
+        Project $project,
         GetProjectWorkspaceQuery $workspace,
         GetTakeDetailQuery $takeDetail,
         EstimateTakeQuery $estimateTake,
         GetCustomerTakeQuery $customerTake,
     ): Response {
         $customer = $request->customer();
-        $project = $request->project();
         $data = $workspace->execute($project, $request->filter(), $request->integer('pages', 1));
         $takeId = $request->query('take');
         $balance = BalanceSummaryDTO::fromCustomer($customer);
@@ -104,6 +104,10 @@ final class ProjectController extends Controller
             'filter' => $data->filter->value,
             'counts' => $data->counts,
             'balance' => $balance->toArray(),
+            // 2-01 negative-balance banner: by how much (4 decimals), null when not below zero.
+            'negativeBalance' => $balance->available->isNegative()
+                ? Nanodollars::zero()->minus($balance->available)->format(4, RoundingMode::HalfUp)
+                : null,
             'smallestTake' => fn (): array => $this->smallestTake($estimateTake, $balance),
             'take' => is_string($takeId) && $takeId !== ''
                 ? fn (): array => (new TakeDetailResource($takeDetail->execute(
