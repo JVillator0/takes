@@ -12,7 +12,7 @@ namespace App\Enums\Auth;
  */
 enum DemoAccount: string
 {
-    /** Read-mostly real history (README credentials); topped up by an operator only. */
+    /** Read-only real history (README credentials, role `restricted`); topped up by an operator only. */
     case Showcase = 'showcase';
 
     /** Normal flow, $10.00. */
@@ -42,6 +42,16 @@ enum DemoAccount: string
             self::LowBalance => 'Low balance',
             self::NewCustomer => 'New customer',
         };
+    }
+
+    /**
+     * The role seeded on creation (D-072): the showcase is read-only, since
+     * anyone with the README credentials may sign in. `takes:showcase
+     * --unlock` lifts it for spec 9's smoke test.
+     */
+    public function defaultRole(): CustomerRole
+    {
+        return $this === self::Showcase ? CustomerRole::Restricted : CustomerRole::Customer;
     }
 
     /** Starting credit in nanodollars (demo dataset, D-037). */

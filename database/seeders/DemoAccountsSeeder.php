@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
-use App\Enums\Auth\CustomerRole;
 use App\Enums\Auth\DemoAccount;
 use App\Enums\Billing\LedgerEntryType;
 use App\Enums\Billing\PurchaseStatus;
@@ -12,7 +11,9 @@ use App\Models\Customer;
 use App\Models\LedgerEntry;
 use App\Models\Purchase;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
 /**
@@ -26,6 +27,8 @@ use Illuminate\Support\Str;
  * dataset); in production it gets a $10.00 paid purchase instead, and no
  * takes or usage records are ever seeded there. The showcase customer gets
  * no credit: an operator tops it up and its history comes from real calls.
+ * The showcase is read-only (role `restricted`, D-072); spec 9's smoke test
+ * unlocks it with `takes:showcase --unlock` and locks it again.
  */
 final class DemoAccountsSeeder extends Seeder
 {
@@ -46,8 +49,15 @@ final class DemoAccountsSeeder extends Seeder
         }
     }
 
+    /**
+     * Creates the account once. On every run it re-asserts the public
+     * password, so a shared login always works (D-072); it assigns the
+     * account's default role only when it has none, so an operator's (or
+     * `takes:showcase`'s) later choice survives a re-run.
+     */
     private function findOrCreateCustomer(DemoAccount $account): Customer
     {
+        $password = Config::string('takes.demo.password');
         $customer = Customer::query()->where('email', $account->email())->first();
 
         if ($customer === null) {
@@ -55,12 +65,14 @@ final class DemoAccountsSeeder extends Seeder
             $customer->forceFill([
                 'name' => $account->customerName(),
                 'email' => $account->email(),
-                'password' => config('takes.demo.password'),
+                'password' => $password,
             ])->save();
+        } elseif (! Hash::check($password, $customer->password)) {
+            $customer->forceFill(['password' => $password])->save();
         }
 
-        if (! $customer->hasRole(CustomerRole::Customer->value) && ! $customer->hasRole(CustomerRole::Restricted->value)) {
-            $customer->assignRole(CustomerRole::Customer->value);
+        if ($customer->roles()->doesntExist()) {
+            $customer->assignRole($account->defaultRole()->value);
         }
 
         return $customer;

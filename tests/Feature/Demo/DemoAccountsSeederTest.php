@@ -19,7 +19,7 @@ function demoCustomer(DemoAccount $account): Customer
     return Customer::query()->where('email', $account->email())->sole();
 }
 
-it('seeds the showcase customer and the fixed-state accounts with the customer role', function (): void {
+it('seeds the read-only showcase customer and the fixed-state accounts', function (): void {
     $this->seed(DemoAccountsSeeder::class);
 
     foreach (DemoAccount::cases() as $account) {
@@ -28,9 +28,31 @@ it('seeds the showcase customer and the fixed-state accounts with the customer r
         expect($customer->name)->toBe($account->customerName())
             ->and($customer->is_demo)->toBeFalse()
             ->and($customer->demo_expires_at)->toBeNull()
-            ->and($customer->hasRole(CustomerRole::Customer->value))->toBeTrue()
+            ->and($customer->getRoleNames()->all())->toBe([$account->defaultRole()->value])
             ->and(Hash::check('password', $customer->password))->toBeTrue();
     }
+
+    // D-072: the showcase can view but not create takes or buy credits.
+    expect(demoCustomer(DemoAccount::Showcase)->getRoleNames()->all())->toBe(['restricted'])
+        ->and(demoCustomer(DemoAccount::DemoCustomer)->getRoleNames()->all())->toBe(['customer']);
+});
+
+it('re-asserts the configured public password on existing demo accounts', function (): void {
+    $this->seed(DemoAccountsSeeder::class);
+    demoCustomer(DemoAccount::DemoCustomer)->forceFill(['password' => 'changed-by-someone'])->save();
+
+    $this->seed(DemoAccountsSeeder::class);
+
+    expect(Hash::check('password', demoCustomer(DemoAccount::DemoCustomer)->password))->toBeTrue();
+});
+
+it('keeps an unlocked showcase unlocked on a re-run', function (): void {
+    $this->seed(DemoAccountsSeeder::class);
+    $this->artisan('takes:showcase', ['--unlock' => true])->assertSuccessful();
+
+    $this->seed(DemoAccountsSeeder::class);
+
+    expect(demoCustomer(DemoAccount::Showcase)->getRoleNames()->all())->toBe(['customer']);
 });
 
 it('gives each account its starting money through ledger entries (local dataset)', function (): void {
