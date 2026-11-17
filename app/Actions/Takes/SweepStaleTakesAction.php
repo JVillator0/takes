@@ -7,12 +7,12 @@ namespace App\Actions\Takes;
 use App\Actions\Suggestions\ExpireSuggestionAction;
 use App\DTOs\Takes\SweepResultDTO;
 use App\Enums\Suggestions\SuggestionStatus;
-use App\Enums\Takes\AttentionReason;
 use App\Enums\Takes\TakeStatus;
 use App\Jobs\ReconcileTakeJob;
 use App\Models\Suggestion;
 use App\Models\Take;
 use App\Services\Pixelforge\PixelforgeClient;
+use App\Support\Takes\ReconcileStopMarker;
 use Illuminate\Support\Facades\Cache;
 
 /**
@@ -38,12 +38,6 @@ final readonly class SweepStaleTakesAction
     /** Bounds one sweep; the next one picks up the rest. */
     public const int BATCH = 100;
 
-    /**
-     * Chains that stopped for good: the full window ran out, or the
-     * generation cannot be settled. An admin reconciles these by hand.
-     */
-    private const array STOPPED = [AttentionReason::ReconcileExhausted, AttentionReason::InvalidSnapshot];
-
     public function __construct(
         private ExpireSuggestionAction $expireSuggestion,
         private PixelforgeClient $client,
@@ -61,15 +55,22 @@ final readonly class SweepStaleTakesAction
         $staleBefore = now()->subSeconds(self::STALE_AFTER_SECONDS);
 
         // Without an API key nothing can be polled; do not queue no-op polls.
-        $takeIds = ! $this->client->isConfigured() ? collect() : Take::query()
+        $candidates = ! $this->client->isConfigured() ? [] : Take::query()
             ->whereIn('status', array_map(fn (TakeStatus $status): string => $status->value, TakeStatus::nonTerminal()))
             ->where('created_at', '<=', $staleBefore)
-            ->where(fn ($query) => $query
-                ->whereNull('attention_reason')
-                ->orWhereNotIn('attention_reason', array_map(fn (AttentionReason $reason): string => $reason->value, self::STOPPED)))
             ->orderBy('created_at')
-            ->limit(self::BATCH)
-            ->pluck('id');
+            // Room for takes whose chain stopped for good, filtered out below.
+            ->limit(self::BATCH * 2)
+            ->get(['id'])
+            ->map(fn (Take $take): string => $take->id)
+            ->values()
+            ->all();
+
+        // Only a definitive stop (404, a fetched generation without rates) is
+        // skipped; a flag from a webhook or from a run of 429/5xx is not
+        // (W-16): those takes keep being swept until they finish.
+        $stopped = ReconcileStopMarker::stopped($candidates);
+        $takeIds = collect($candidates)->reject(fn (string $id): bool => in_array($id, $stopped, true))->take(self::BATCH)->values();
 
         foreach ($takeIds as $takeId) {
             ReconcileTakeJob::dispatch($takeId);

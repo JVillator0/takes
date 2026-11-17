@@ -9,6 +9,7 @@ use App\Enums\Billing\Provider;
 use App\Enums\Billing\UsageStatus;
 use App\Enums\Suggestions\SuggestionStatus;
 use App\Enums\Takes\AttentionReason;
+use App\Enums\Takes\ReconcileStatus;
 use App\Events\TakeUpdated;
 use App\Http\Middleware\SweepStaleTakes;
 use App\Jobs\ReconcileTakeJob;
@@ -16,6 +17,7 @@ use App\Models\Suggestion;
 use App\Models\Take;
 use App\Models\UsageRecord;
 use App\Models\User;
+use App\Support\Takes\ReconcileStopMarker;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -24,6 +26,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\Support\Billing;
+use Tests\Support\PixelforgeWebhook;
 use Tests\Support\Takes;
 
 /*
@@ -75,26 +78,46 @@ it('queues a reconcile poll for every take still in flight after 2 minutes', fun
     $stale = [takeAged('queued', 3), takeAged('processing', 10), takeAged('pending', 5)];
     $fresh = takeAged('processing', 1);
     $done = takeAged('succeeded', 30);
-    $exhausted = takeAged('processing', 40);
-    $exhausted->forceFill(['attention_reason' => AttentionReason::ReconcileExhausted])->save();
-    $invalid = takeAged('processing', 40);
-    $invalid->forceFill(['attention_reason' => AttentionReason::InvalidSnapshot])->save();
-    $flaggedOtherwise = takeAged('processing', 40);
-    $flaggedOtherwise->forceFill(['attention_reason' => AttentionReason::OverEstimate])->save();
-    $stale[] = $flaggedOtherwise;
+
+    // Flags alone never stop the sweep: a malformed webhook (invalid_snapshot)
+    // or 32 min of 429/5xx (reconcile_exhausted) leave the take in flight.
+    foreach ([AttentionReason::InvalidSnapshot, AttentionReason::ReconcileExhausted, AttentionReason::OverEstimate] as $reason) {
+        $take = takeAged('processing', 40);
+        $take->forceFill(['attention_reason' => $reason])->save();
+        $stale[] = $take;
+    }
+
+    $notFound = takeAged('processing', 40);
+    $noRates = takeAged('processing', 40);
     Queue::fake();
     Cache::flush();
+    // Definitive stops recorded by the reconcile action (404, fetched generation without rates).
+    ReconcileStopMarker::mark($notFound->id, ReconcileStatus::NotFound);
+    ReconcileStopMarker::mark($noRates->id, ReconcileStatus::Invalid);
 
     $result = sweep();
 
-    expect($result->ran)->toBeTrue()->and($result->reconcilesDispatched)->toBe(4);
+    expect($result->ran)->toBeTrue()->and($result->reconcilesDispatched)->toBe(count($stale));
     foreach ($stale as $take) {
         Queue::assertPushed(ReconcileTakeJob::class, fn (ReconcileTakeJob $job): bool => $job->takeId === $take->id);
     }
-    // A chain that stopped for good (window ran out, unsettleable generation) is not restarted.
-    foreach ([$fresh, $done, $exhausted, $invalid] as $take) {
+    foreach ([$fresh, $done, $notFound, $noRates] as $take) {
         Queue::assertNotPushed(ReconcileTakeJob::class, fn (ReconcileTakeJob $job): bool => $job->takeId === $take->id);
     }
+});
+
+it('keeps sweeping a take a malformed webhook flagged invalid_snapshot', function (): void {
+    PixelforgeWebhook::configure();
+    $take = takeAged('processing', 5);
+    PixelforgeWebhook::post($this, PixelforgeWebhook::forTake($take, 'succeeded', overrides: ['usage' => null]))
+        ->assertExactJson(['status' => 'invalid_snapshot']);
+    expect($take->refresh()->attention_reason)->toBe(AttentionReason::InvalidSnapshot);
+    Queue::fake();
+    Cache::flush();
+
+    sweep();
+
+    Queue::assertPushed(ReconcileTakeJob::class, fn (ReconcileTakeJob $job): bool => $job->takeId === $take->id);
 });
 
 it('queues no polls while Pixelforge is not configured', function (): void {

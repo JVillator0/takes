@@ -48,11 +48,13 @@ final class ReconcileTakeJob implements ShouldBeUniqueUntilProcessing, ShouldQue
     /**
      * @param  int  $attempt  index into DELAYS of this poll
      * @param  bool  $continuesChain  false for a one-off fetch that never schedules another poll
+     * @param  string|null  $generationId  for a take that has no `pixelforge_id` yet (found by webhook metadata)
      */
     public function __construct(
         public readonly string $takeId,
         public readonly int $attempt = 0,
         public readonly bool $continuesChain = true,
+        public readonly ?string $generationId = null,
     ) {}
 
     /**
@@ -66,13 +68,15 @@ final class ReconcileTakeJob implements ShouldBeUniqueUntilProcessing, ShouldQue
 
     /**
      * Polls once right away (after commit), e.g. when a succeeded webhook
-     * came without the rates needed to settle it. Unique on its own key, so
-     * a chain poll already waiting in the queue does not swallow it; it never
-     * schedules another poll, the chain carries on as before.
+     * came without the rates needed to settle it (D-077(a)). Unique on its
+     * own key, so a chain poll already waiting in the queue does not swallow
+     * it; it never schedules another poll, the chain carries on as before.
+     * $generationId covers a take found by metadata that has no
+     * `pixelforge_id` yet.
      */
-    public static function fetchNow(string $takeId): void
+    public static function fetchNow(string $takeId, ?string $generationId = null): void
     {
-        self::dispatch($takeId, 0, false)->afterCommit();
+        self::dispatch($takeId, 0, false, $generationId)->afterCommit();
     }
 
     public function uniqueId(): string
@@ -88,7 +92,7 @@ final class ReconcileTakeJob implements ShouldBeUniqueUntilProcessing, ShouldQue
             return;
         }
 
-        $result = $reconcile->execute($take);
+        $result = $reconcile->execute($take, $this->generationId);
 
         if (! $this->continuesChain || ! $result->status->pollAgain()) {
             return;

@@ -5,16 +5,19 @@ declare(strict_types=1);
 use App\Enums\Billing\UsageStatus;
 use App\Enums\Takes\AttentionReason;
 use App\Enums\Takes\FailureCode;
+use App\Enums\Takes\ReconcileStatus;
 use App\Enums\Takes\TakeStatus;
 use App\Events\TakeUpdated;
 use App\Jobs\ReconcileTakeJob;
 use App\Models\LedgerEntry;
 use App\Models\Take;
+use App\Support\Takes\ReconcileStopMarker;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Tests\Support\PixelforgeFixture;
 use Tests\Support\Takes;
@@ -231,4 +234,51 @@ it('reconciles one take now from the command, without scheduling a poll', functi
 
     expect($take->refresh()->status)->toBe(TakeStatus::Succeeded);
     Queue::assertNotPushed(ReconcileTakeJob::class);
+});
+
+it('flags a fetched generation without rates and stops, charging nothing', function (): void {
+    Log::spy();
+    $take = Takes::in('processing');
+    fakeGeneration($take, 'succeeded', ['rates' => null]);
+
+    runReconcile($take);
+
+    expect($take->refresh()->status)->toBe(TakeStatus::Processing)
+        ->and($take->attention_reason)->toBe(AttentionReason::InvalidSnapshot)
+        ->and(Takes::usage($take)->status)->toBe(UsageStatus::Open)
+        ->and(LedgerEntry::query()->where('type', 'charge')->count())->toBe(0)
+        ->and(ReconcileStopMarker::stopped([$take->id]))->toBe([$take->id]);
+    Queue::assertNotPushed(ReconcileTakeJob::class);
+    Log::shouldHaveReceived('critical')->withArgs(fn (string $message): bool => str_contains($message, 'no rates'))->once();
+});
+
+it('marks a 404 as a definitive stop', function (): void {
+    $take = Takes::in('processing');
+    Http::fake(['pixelforge.test/v1/generations/*' => Http::response(PixelforgeFixture::error('not_found'), 404)]);
+
+    runReconcile($take);
+
+    expect(ReconcileStopMarker::stopped([$take->id]))->toBe([$take->id]);
+});
+
+it('keeps polling after a rejection that is not a 404', function (): void {
+    $take = Takes::in('processing');
+    Http::fake(['pixelforge.test/v1/generations/*' => Http::response(PixelforgeFixture::error('daily_limit_exceeded'), 429)]);
+
+    runReconcile($take);
+
+    expect($take->refresh()->attention_reason)->toBeNull()
+        ->and(ReconcileStopMarker::stopped([$take->id]))->toBe([]);
+    Queue::assertPushed(ReconcileTakeJob::class, fn (ReconcileTakeJob $job): bool => $job->attempt === 1 && $job->delay === 120);
+});
+
+it('clears a definitive stop once a poll applies a snapshot again', function (): void {
+    $take = Takes::in('processing');
+    fakeGeneration($take, 'processing');
+    Cache::flush();
+    ReconcileStopMarker::mark($take->id, ReconcileStatus::NotFound);
+
+    app()->call([new ReconcileTakeJob($take->id), 'handle']);
+
+    expect(ReconcileStopMarker::stopped([$take->id]))->toBe([]);
 });
