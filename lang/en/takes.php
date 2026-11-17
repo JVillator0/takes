@@ -205,6 +205,8 @@ return [
         'name' => 'Name',
         'create' => 'Create project',
         'rename' => 'Rename',
+        'actions' => 'Project actions',
+        'breadcrumb' => 'Breadcrumb',
         'save' => 'Save',
         'archive' => 'Archive project',
         'archive_confirm' => 'Archive this project? It leaves your projects list; its takes stay in your billing history.',

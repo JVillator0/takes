@@ -362,6 +362,8 @@ Strings added with spec 4 (takes and generation). Same rules: keys are the full 
 | `takes.projects.name` | P03 dialog field | "Name" |
 | `takes.projects.create` | P03 dialog button | "Create project" |
 | `takes.projects.rename` | P04 project menu | "Rename" |
+| `takes.projects.actions` | P04 project menu trigger (icon-only, accessible name) | "Project actions" |
+| `takes.projects.breadcrumb` | P04 header breadcrumb (accessible name) | "Breadcrumb" |
 | `takes.projects.save` | P04 rename dialog | "Save" |
 | `takes.projects.archive` | P04 project menu | "Archive project" |
 | `takes.projects.archive_confirm` | P04 archive confirmation | "Archive this project? It leaves your projects list; its takes stay in your billing history." |

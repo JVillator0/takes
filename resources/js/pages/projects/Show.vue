@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import { ChevronUp, EllipsisVertical } from '@lucide/vue';
+import { useMediaQuery } from '@vueuse/core';
 import { computed, nextTick, ref, watch } from 'vue';
 import { toast } from 'vue-sonner';
 import InputError from '@/components/InputError.vue';
@@ -210,6 +211,15 @@ const cancel = (id: string): void => {
 const composerRef = ref<InstanceType<typeof TakeComposer> | null>(null);
 const composerPanel = ref<HTMLElement | null>(null);
 const sheetExpanded = ref(false);
+/*
+ * Below lg (64rem, Tailwind's breakpoint) the collapsed sheet only clips
+ * the composer; inert takes its controls out of the tab order, so a hidden
+ * Cmd/Ctrl+Enter can never start a paid take (F-20).
+ */
+const isDesktop = useMediaQuery('(min-width: 64rem)');
+const composerCollapsed = computed(
+    () => !isDesktop.value && !sheetExpanded.value,
+);
 
 const focusComposer = async (): Promise<void> => {
     sheetExpanded.value = true;
@@ -310,7 +320,7 @@ const canManage = computed(
         <template #switcher>
             <nav
                 class="flex min-w-0 items-center gap-1.5 text-sm"
-                aria-label="Breadcrumb"
+                :aria-label="t('takes.projects.breadcrumb')"
             >
                 <Link
                     :href="projectsIndex()"
@@ -348,6 +358,7 @@ const canManage = computed(
                     type="button"
                     class="flex w-full items-center justify-between gap-2 px-4 py-3 text-sm font-semibold outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 lg:hidden"
                     :aria-expanded="sheetExpanded"
+                    aria-controls="composer-sheet"
                     @click="sheetExpanded = !sheetExpanded"
                 >
                     {{ t('takes.composer.title') }}
@@ -360,6 +371,8 @@ const canManage = computed(
                     />
                 </button>
                 <div
+                    id="composer-sheet"
+                    :inert="composerCollapsed"
                     class="p-4 pt-0 lg:sticky lg:top-14 lg:max-h-[calc(100svh-3.5rem)] lg:overflow-y-auto lg:p-6"
                 >
                     <TakeComposer
@@ -440,7 +453,7 @@ const canManage = computed(
                                     variant="ghost"
                                     size="icon"
                                     class="size-8 shrink-0"
-                                    :aria-label="t('takes.projects.rename')"
+                                    :aria-label="t('takes.projects.actions')"
                                 >
                                     <EllipsisVertical aria-hidden="true" />
                                 </Button>
