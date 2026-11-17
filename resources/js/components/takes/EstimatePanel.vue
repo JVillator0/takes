@@ -15,8 +15,9 @@ type Props = {
     /** Denial sentence from the server (`denials.*`, owned by spec 3-01). */
     deniedMessage?: string | null;
     /**
-     * Id of the denied/error message region, so the composer can point
-     * Generate's aria-describedby at it (one is generated when omitted).
+     * Id of the message region (no price yet, denied or error), so the
+     * composer can point Generate's aria-describedby at it (one is generated
+     * when omitted).
      */
     messageId?: string;
     class?: string;
@@ -88,9 +89,6 @@ const isDenied = computed(() => props.state === 'denied');
                 {{ range }}
             </p>
             <Skeleton v-else-if="isLoading" class="h-8 w-48" />
-            <p v-else class="text-sm text-muted-foreground">
-                {{ t('takes.estimate.idle') }}
-            </p>
         </div>
 
         <!--
@@ -128,6 +126,13 @@ const isDenied = computed(() => props.state === 'denied');
                 class="mt-2 text-sm text-red-700 dark:text-red-300"
             >
                 {{ t('takes.estimate.error') }}
+            </p>
+
+            <p
+                v-else-if="state === 'idle' && !estimate"
+                class="text-sm text-muted-foreground"
+            >
+                {{ t('takes.estimate.idle') }}
             </p>
         </div>
 

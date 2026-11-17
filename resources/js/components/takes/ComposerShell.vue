@@ -68,7 +68,11 @@ const references = defineModel<string[]>('references', {
 });
 
 const emit = defineEmits<{
-    submit: [];
+    /**
+     * Carries the estimate whose max was on the button: submit cannot be
+     * emitted without a current server price (F-15, 2-01 principle 1).
+     */
+    submit: [estimate: TakeEstimate];
     buyCredits: [];
     cancelRemix: [];
 }>();
@@ -85,6 +89,7 @@ const ids = {
     promptError: useId(),
     reason: useId(),
     estimateMessage: useId(),
+    pricePending: useId(),
     banner: useId(),
 };
 
@@ -127,8 +132,24 @@ const hasInvalidReference = computed(() =>
     references.value.some(referenceInvalid),
 );
 
+/**
+ * The price Generate may run at: only a settled server estimate. Idle (no
+ * price yet), loading (the price may change), error and denied never qualify.
+ */
+const currentEstimate = computed<TakeEstimate | null>(() =>
+    props.estimateState === 'ready' ? props.estimate : null,
+);
+
+/** A previous max is on the button but a newer one is pending or failed (2-02: dimmed). */
+const priceIsStale = computed(
+    () =>
+        props.estimate !== null &&
+        (props.estimateState === 'loading' || props.estimateState === 'error'),
+);
+
 const canSubmit = computed(
     () =>
+        currentEstimate.value !== null &&
         props.serviceConfigured &&
         !props.disabled &&
         !props.processing &&
@@ -157,7 +178,10 @@ const submitLabel = computed(() => {
 const submitDescribedBy = computed(() => {
     const describedBy = [
         props.serviceConfigured ? null : ids.banner,
-        props.estimateState === 'denied' || props.estimateState === 'error'
+        props.estimateState === 'loading' ? ids.pricePending : null,
+        props.estimateState === 'idle' ||
+        props.estimateState === 'denied' ||
+        props.estimateState === 'error'
             ? ids.estimateMessage
             : null,
         promptError.value ? ids.promptError : null,
@@ -168,8 +192,8 @@ const submitDescribedBy = computed(() => {
 });
 
 const submit = (): void => {
-    if (canSubmit.value) {
-        emit('submit');
+    if (canSubmit.value && currentEstimate.value) {
+        emit('submit', currentEstimate.value);
     }
 };
 
@@ -462,7 +486,14 @@ const segmentClass =
                         class="motion-safe:animate-spin"
                         aria-hidden="true"
                     />
-                    <span class="truncate">{{ submitLabel }}</span>
+                    <span
+                        :class="[
+                            'truncate transition-opacity',
+                            priceIsStale && 'opacity-50',
+                        ]"
+                    >
+                        {{ submitLabel }}
+                    </span>
                 </Button>
                 <Button
                     v-if="showBuyCredits"
@@ -474,6 +505,9 @@ const segmentClass =
                     {{ t('billing.buy_credits') }}
                 </Button>
             </div>
+            <span :id="ids.pricePending" class="sr-only">
+                {{ t('takes.estimate.loading') }}
+            </span>
             <div
                 v-if="disabledReason || $slots['disabled-reason']"
                 :id="ids.reason"
