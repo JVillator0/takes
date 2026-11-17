@@ -52,15 +52,15 @@ valet link takes-a && valet secure takes-a
 
 It prints, per worktree: branch, commits ahead of `origin/main`, uncommitted files, lock reason and live processes. A worktree is **free** when it is not locked, has no uncommitted files, no agent process lives in it, and its branch is merged or abandoned. A squash-merged branch still shows commits ahead; check the PR.
 
-**Take one (the lease is the lock):**
+**Take one (the lease is the lock, so lock first):**
 
 ```bash
-git -C ../takes-b fetch origin
-git -C ../takes-b switch -c <type>/<slug> origin/main
-git -C ../takes-b worktree lock --reason "<agent>: <spec or issue> (<YYYY-MM-DD>)" .
+git -C ../takes-b worktree lock --reason "<agent>: <spec or issue> (<YYYY-MM-DD>)" . \
+  && git -C ../takes-b fetch origin \
+  && git -C ../takes-b switch -c <type>/<slug> origin/main
 ```
 
-`git worktree lock --reason` shows in `git worktree list` and in the status script, and keeps `git worktree prune` / `remove` away from a worktree in use. Refresh caches before handing it out (section 4).
+`git worktree lock` fails when the worktree is already locked, so it is the atomic lease: if it fails, someone else holds the letter; pick another one and touch nothing here. Locking before the fetch and switch means two agents picking the same letter can never both change its branch. The lock shows in `git worktree list` and in the status script, and keeps `git worktree prune` / `remove` away from a worktree in use. Refresh caches before handing it out (section 4).
 
 **Integrate:** only through a PR. The agent opens it (`gh pr create`, Conventional Commit title, the 1-01 template), waits for `gh pr checks <n> --watch`, and the `pr-review` workflow (spec 1-03) reviews and squash-merges it. Agents never push to `main`, merge or force-push. If `main` moves, the agent rebases **only when asked** and then stops running tests until it reports; never rebase while the review workflow is reading the branch.
 
