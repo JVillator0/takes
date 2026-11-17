@@ -203,7 +203,6 @@ UI chrome strings added with the UI foundation (PR #99). Keys are the full `lang
 | `billing.on_hold` | balance pill and Buy credits (P03, P04, P10) | "on hold" |
 | `billing.balance_label` | balance pill and Buy credits (P03, P04, P10) | "Available :available, on hold :on_hold" |
 | `billing.balance_exact` | balance pill tooltip (exact amounts, D-042) | "Exact: available :available, on hold :on_hold" |
-| `billing.show_on_hold` | balance pill action: opens the In progress filter (2-02) | "Show the takes on hold" |
 | `landing.meta_title` | P01 landing | "Describe it. Take it. Remix it." |
 | `landing.nav.label` | P01 landing | "Sections" |
 | `landing.nav.how_it_works` | P01 landing | "How it works" |

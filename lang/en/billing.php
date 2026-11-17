@@ -34,6 +34,5 @@ return [
     'on_hold' => 'on hold',
     'balance_label' => 'Available :available, on hold :on_hold',
     'balance_exact' => 'Exact: available :available, on hold :on_hold',
-    'show_on_hold' => 'Show the takes on hold',
 
 ];

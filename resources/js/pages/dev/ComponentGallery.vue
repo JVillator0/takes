@@ -156,7 +156,6 @@ const caption = 'text-xs font-medium text-muted-foreground';
         show-buy-credits
         :breadcrumbs="[{ title: 'Component gallery', href: gallery() }]"
         @buy-credits="log('buyCredits')"
-        @show-on-hold="log('showOnHold')"
     >
         <div class="flex flex-col gap-12 px-4 py-8">
             <div class="flex flex-col gap-3">
@@ -195,10 +194,7 @@ const caption = 'text-xs font-medium text-muted-foreground';
                     (P10).
                 </p>
                 <div class="flex flex-wrap items-center gap-3">
-                    <BalancePill
-                        :balance="balance"
-                        @show-on-hold="log('showOnHold')"
-                    />
+                    <BalancePill :balance="balance" />
                     <BalancePill :balance="lowBalance" />
                 </div>
                 <ServiceNotConfiguredBanner />
@@ -368,7 +364,6 @@ const caption = 'text-xs font-medium text-muted-foreground';
                             show-buy-credits
                             @submit="log('submit')"
                             @buy-credits="log('buyCredits')"
-                            @show-on-hold="log('showOnHold')"
                         />
                     </div>
                     <div class="flex flex-col gap-2 rounded-xl border p-4">

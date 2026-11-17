@@ -41,8 +41,6 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
     buyCredits: [];
-    /** The pill was clicked: the workspace opens its In progress filter (2-02). */
-    showOnHold: [];
 }>();
 
 defineSlots<{
@@ -118,7 +116,6 @@ const { t } = useCopy();
                         <BalancePill
                             v-if="shellBalance"
                             :balance="shellBalance"
-                            @show-on-hold="emit('showOnHold')"
                         />
                     </slot>
                     <Button
