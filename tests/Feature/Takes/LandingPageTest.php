@@ -55,3 +55,11 @@ it('advertises the configured welcome credit', function (): void {
     $this->get(route('home'))
         ->assertInertia(fn (Assert $page) => $page->where('welcomeCredit', '$2.50'));
 });
+
+it('hashes the active locale and falls back to the fallback locale files', function (): void {
+    $english = HandleInertiaRequests::copyVersion();
+
+    app()->setLocale('xx');
+
+    expect(HandleInertiaRequests::copyVersion())->toBe($english);
+});

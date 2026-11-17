@@ -10,6 +10,7 @@ use App\Models\Project;
 use App\Models\Purchase;
 use App\Services\Pixelforge\PixelforgeClient;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
@@ -97,16 +98,35 @@ final class HandleInertiaRequests extends Middleware
     }
 
     /**
-     * Content hash of the shared lang files; it changes whenever a string does.
+     * Content hash of the shared lang files in the active locale; it changes
+     * whenever a string does.
+     *
+     * share() runs on every request, so the hash is cached per deploy: the
+     * cache key carries the files' modification times (a stat, no read), and
+     * the files are read and hashed only when one of them changes.
      */
     public static function copyVersion(): string
     {
-        $contents = array_map(
-            fn (string $group): string => File::get(lang_path("en/{$group}.php")),
-            self::COPY_GROUPS,
-        );
+        $paths = array_map(self::copyPath(...), self::COPY_GROUPS);
+        $mtimes = array_map(fn (string $path): int => File::lastModified($path), $paths);
 
-        return hash('xxh128', implode("\0", $contents));
+        return Cache::rememberForever(
+            'inertia-copy-version:'.app()->getLocale().':'.implode('-', $mtimes),
+            fn (): string => hash('xxh128', implode("\0", array_map(File::get(...), $paths))),
+        );
+    }
+
+    /**
+     * The group's file in the active locale, or the fallback locale when the
+     * active one has no such file (the same lookup trans() falls back to).
+     */
+    private static function copyPath(string $group): string
+    {
+        $path = lang_path(app()->getLocale()."/{$group}.php");
+
+        return File::exists($path)
+            ? $path
+            : lang_path(config()->string('app.fallback_locale')."/{$group}.php");
     }
 
     private function customer(Request $request): ?Customer
@@ -117,10 +137,11 @@ final class HandleInertiaRequests extends Middleware
     }
 
     /**
-     * Money as server-formatted strings (4 decimals, the balance pill); the
-     * frontend never does money math. `available = balance − held` (D-024).
+     * Money as server-formatted strings: 4 decimals for the balance pill and
+     * the exact value for its tooltip (D-042); the frontend never does money
+     * math. `available = balance − held` (D-024).
      *
-     * @return array{id: int, name: string, email: string, available: string, on_hold: string}|null
+     * @return array{id: int, name: string, email: string, available: string, available_exact: string, on_hold: string, on_hold_exact: string}|null
      */
     private function customerProps(?Customer $customer): ?array
     {
@@ -133,7 +154,9 @@ final class HandleInertiaRequests extends Middleware
             'name' => $customer->name,
             'email' => $customer->email,
             'available' => $customer->available()->format(),
+            'available_exact' => $customer->available()->formatExact(),
             'on_hold' => $customer->held()->format(),
+            'on_hold_exact' => $customer->held()->formatExact(),
         ];
     }
 
