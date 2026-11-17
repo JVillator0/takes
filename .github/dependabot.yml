@@ -12,6 +12,10 @@ updates:
     commit-message:
       prefix: "chore"
       include: "scope"
+    # Release freeze (D-031): majors are reviewed by hand after v1.0.0
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       composer:
         update-types:
@@ -27,6 +31,13 @@ updates:
     commit-message:
       prefix: "chore"
       include: "scope"
+    # Release freeze (D-031): majors are reviewed by hand after v1.0.0
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # @types/node stays on the Node 24 runtime line
+      - dependency-name: "@types/node"
+        versions: [">=25"]
     groups:
       npm:
         update-types:
@@ -41,6 +52,10 @@ updates:
       default-days: 5
     commit-message:
       prefix: "ci"
+    # Release freeze (D-031): majors are reviewed by hand after v1.0.0
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       github-actions:
         patterns:
