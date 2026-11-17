@@ -1,5 +1,6 @@
 import type { Directive } from 'vue';
 import type { Auth } from '@/types/auth';
+import type { Copy } from '@/types/copy';
 
 // Extend ImportMeta interface for Vite...
 declare module 'vite/client' {
@@ -21,6 +22,7 @@ declare module '@inertiajs/core' {
             auth: Auth;
             pixelforge: { configured: boolean };
             sidebarOpen: boolean;
+            copy: Copy;
             [key: string]: unknown;
         };
     }

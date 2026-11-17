@@ -10,11 +10,19 @@ use App\Models\Project;
 use App\Models\Purchase;
 use App\Services\Pixelforge\PixelforgeClient;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Gate;
+use Inertia\Inertia;
 use Inertia\Middleware;
 
 final class HandleInertiaRequests extends Middleware
 {
+    /**
+     * Lang groups shared with the client as UI copy (D-057). They hold no
+     * secrets and no provider names (D-023).
+     */
+    private const COPY_GROUPS = ['takes', 'billing', 'landing'];
+
     /**
      * The root template that's loaded on the first page visit.
      *
@@ -63,7 +71,58 @@ final class HandleInertiaRequests extends Middleware
                 'configured' => app(PixelforgeClient::class)->isConfigured(),
             ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
+            'copy' => Inertia::once(fn (): array => self::copy())->as('copy:'.self::copyVersion()),
         ];
+    }
+
+    /**
+     * Customer-facing UI copy read on the client by `useCopy().t()` (D-057).
+     *
+     * An Inertia once prop: sent on the first page load and kept by the client
+     * across visits. Its once key carries copyVersion(), so a deploy that
+     * changes only copy re-sends it to tabs that are already open; the asset
+     * version does not cover lang files.
+     *
+     * @return array<string, mixed>
+     */
+    private static function copy(): array
+    {
+        $copy = [];
+
+        foreach (self::COPY_GROUPS as $group) {
+            $copy[$group] = trans($group);
+        }
+
+        return $copy;
+    }
+
+    /**
+     * Version of the shared copy in the active locale: the locale plus the
+     * modification time of each lang file. A deploy that changes a string
+     * writes a new file, so the version changes and open tabs get the new
+     * copy. It costs three stat calls per request: no read, no hash, no cache.
+     */
+    public static function copyVersion(): string
+    {
+        $mtimes = array_map(
+            fn (string $group): int => File::lastModified(self::copyPath($group)),
+            self::COPY_GROUPS,
+        );
+
+        return app()->getLocale().'-'.implode('-', $mtimes);
+    }
+
+    /**
+     * The group's file in the active locale, or the fallback locale when the
+     * active one has no such file (the same lookup trans() falls back to).
+     */
+    private static function copyPath(string $group): string
+    {
+        $path = lang_path(app()->getLocale()."/{$group}.php");
+
+        return File::exists($path)
+            ? $path
+            : lang_path(config()->string('app.fallback_locale')."/{$group}.php");
     }
 
     private function customer(Request $request): ?Customer
@@ -74,10 +133,11 @@ final class HandleInertiaRequests extends Middleware
     }
 
     /**
-     * Money as server-formatted strings (4 decimals, the balance pill); the
-     * frontend never does money math. `available = balance − held` (D-024).
+     * Money as server-formatted strings: 4 decimals for the balance pill and
+     * the exact value for its tooltip (D-042); the frontend never does money
+     * math. `available = balance − held` (D-024).
      *
-     * @return array{id: int, name: string, email: string, available: string, on_hold: string}|null
+     * @return array{id: int, name: string, email: string, available: string, available_exact: string, on_hold: string, on_hold_exact: string}|null
      */
     private function customerProps(?Customer $customer): ?array
     {
@@ -90,7 +150,9 @@ final class HandleInertiaRequests extends Middleware
             'name' => $customer->name,
             'email' => $customer->email,
             'available' => $customer->available()->format(),
+            'available_exact' => $customer->available()->formatExact(),
             'on_hold' => $customer->held()->format(),
+            'on_hold_exact' => $customer->held()->formatExact(),
         ];
     }
 
