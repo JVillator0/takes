@@ -256,7 +256,12 @@ const segmentClass =
 </script>
 
 <template>
-    <form class="flex flex-col gap-4" novalidate @submit.prevent="submit">
+    <!--
+        The form never submits by itself: Enter in a reference URL must not
+        start a paid take. Only the Generate click and Cmd/Ctrl+Enter in the
+        prompt (2-02) call submit(), which keeps the price gate (F-15).
+    -->
+    <form class="flex flex-col gap-4" novalidate @submit.prevent>
         <div class="flex items-center justify-between gap-2">
             <h2 class="text-base font-semibold">
                 {{ t('takes.composer.title') }}
@@ -509,9 +514,10 @@ const segmentClass =
         <div class="flex flex-col gap-2">
             <div class="flex flex-wrap gap-2">
                 <Button
-                    type="submit"
+                    type="button"
                     size="lg"
                     :aria-disabled="!canSubmit"
+                    @click="submit"
                     :aria-describedby="submitDescribedBy"
                     :class="[
                         'min-w-0 flex-1 tabular-nums',
