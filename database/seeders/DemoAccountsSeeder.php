@@ -27,7 +27,7 @@ use Illuminate\Support\Str;
  * dataset); in production it gets a $10.00 paid purchase instead, and no
  * takes or usage records are ever seeded there. The showcase customer gets
  * no credit: an operator tops it up and its history comes from real calls.
- * The showcase is read-only (role `restricted`, D-072); spec 9's smoke test
+ * The showcase is read-only (role `showcase`, D-072); spec 9's smoke test
  * unlocks it with `takes:showcase --unlock` and locks it again.
  */
 final class DemoAccountsSeeder extends Seeder
@@ -41,6 +41,9 @@ final class DemoAccountsSeeder extends Seeder
         foreach (DemoAccount::cases() as $account) {
             DB::transaction(function () use ($account): void {
                 $customer = $this->findOrCreateCustomer($account);
+
+                // Lock first, then check: two overlapping runs cannot both credit.
+                $customer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
 
                 if ($account->startingCreditNanos() > 0 && ! $customer->ledgerEntries()->exists()) {
                     $this->credit($customer, $account->startingCreditNanos());
@@ -79,7 +82,8 @@ final class DemoAccountsSeeder extends Seeder
     }
 
     /**
-     * Writes the ledger entry and the cached balance together (D-024).
+     * Writes the ledger entry and the cached balance together (D-024). The
+     * caller holds the customer row lock.
      *
      * TODO(3-03): switch to RecordLedgerEntryAction (and PurchaseCreditsAction
      * for the production purchase) once spec 3-03's ledger actions are merged,
@@ -87,8 +91,6 @@ final class DemoAccountsSeeder extends Seeder
      */
     private function credit(Customer $customer, int $amountNanos): void
     {
-        $customer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
-
         $entry = new LedgerEntry;
 
         if (app()->isProduction()) {
