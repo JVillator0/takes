@@ -4,7 +4,8 @@ import type { LiveConnectionState } from '@/types/live';
 
 /**
  * P04 header: "Live" while the socket is connected; the 2-01 Reconnecting
- * line while the page polls instead (D-028, W-20). Nothing when idle.
+ * line while the page polls instead (D-028, W-20). Nothing while idle or
+ * still connecting.
  * Colour is never the only signal: the state is always in words.
  */
 defineProps<{ state: LiveConnectionState }>();
@@ -14,7 +15,7 @@ const { t } = useCopy();
 
 <template>
     <span
-        v-if="state !== 'idle'"
+        v-if="state === 'live' || state === 'polling'"
         role="status"
         :data-state="state"
         class="inline-flex min-w-0 items-center gap-1.5 text-xs font-medium"
