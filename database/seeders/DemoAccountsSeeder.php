@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
+use App\Actions\Billing\IssueInvoiceAction;
 use App\Actions\Billing\RecordLedgerEntryAction;
 use App\Enums\Auth\DemoAccount;
 use App\Enums\Billing\LedgerEntryType;
@@ -26,7 +27,9 @@ use Illuminate\Support\Str;
  * Dataset rules: money always goes through ledger entries. Locally, in CI and
  * for screenshots the Demo customer gets a $10.00 `promo_grant` (demo
  * dataset); in production it gets a $10.00 paid purchase instead, and no
- * takes or usage records are ever seeded there. The showcase customer gets
+ * takes or usage records are ever seeded there; that purchase is invoiced
+ * like any other (spec 6), and every run issues the invoice of any paid
+ * purchase that still has none. The showcase customer gets
  * no credit: an operator tops it up and its history comes from real calls.
  * The showcase is read-only (role `showcase`, D-072); spec 9's smoke test
  * unlocks it with `takes:showcase --unlock` and locks it again.
@@ -51,6 +54,28 @@ final class DemoAccountsSeeder extends Seeder
                 }
             });
         }
+
+        $this->issueMissingInvoices();
+    }
+
+    /**
+     * Backfill (spec 6: one invoice per purchase). A paid purchase made
+     * before invoices existed (the production Demo purchase, or one bought
+     * before spec 6 shipped) gets its invoice on the next run; a purchase
+     * that has one is skipped, so re-running issues nothing new. Oldest
+     * payment first; each in its own transaction, locking its customer
+     * before the counter (spec 6 lock order).
+     */
+    private function issueMissingInvoices(): void
+    {
+        $issueInvoice = app(IssueInvoiceAction::class);
+
+        Purchase::query()
+            ->where('status', PurchaseStatus::Paid->value)
+            ->whereDoesntHave('invoice')
+            ->orderBy('paid_at')
+            ->orderBy('id')
+            ->each(fn (Purchase $purchase) => DB::transaction(fn () => $issueInvoice->execute($purchase)));
     }
 
     /**
@@ -119,5 +144,9 @@ final class DemoAccountsSeeder extends Seeder
             amount: $amount,
             purchase: $purchase,
         );
+
+        // Same transaction and customer lock as the purchase: one invoice per
+        // purchase (spec 6), like PurchaseCreditsAction.
+        app(IssueInvoiceAction::class)->execute($purchase);
     }
 }
