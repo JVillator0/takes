@@ -14,7 +14,7 @@ use App\Exceptions\Billing\TransactionRequiredException;
 use App\Models\Customer;
 use App\Models\UsageRecord;
 use App\Support\Money\Nanodollars;
-use App\Support\Money\ProviderCost;
+use App\Support\Money\TokenCost;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
 
@@ -25,7 +25,10 @@ use Illuminate\Support\Facades\Log;
  */
 final readonly class SettleUsageAction
 {
-    public function __construct(private RecordLedgerEntryAction $recordLedgerEntry) {}
+    public function __construct(
+        private RecordLedgerEntryAction $recordLedgerEntry,
+        private TokenCost $tokenCost,
+    ) {}
 
     /**
      * @param  RatesSnapshotDTO  $rates  the rates the provider actually applied (D-055)
@@ -51,16 +54,14 @@ final readonly class SettleUsageAction
             return $usage;
         }
 
-        $providerCost = ProviderCost::calculate($units, $rates);
-        $cost = $providerCost->cost;
+        $context = ['usage_record_id' => $usage->id, 'customer_id' => $customer->id];
+
+        // cost = ceil(Σ units × rate / 1M); TokenCost logs, with this context,
+        // when the ceil rounds. Zero-count kinds need no rate.
+        $cost = $this->tokenCost->compute($units->tokens, $rates->toArray(), $context);
         $charge = $cost->withMarkup($usage->markup_bps);
         $maxCharge = Nanodollars::fromInt($usage->max_charge_nanos);
         $flags = $usage->flags;
-        $context = ['usage_record_id' => $usage->id, 'customer_id' => $customer->id];
-
-        if ($providerCost->roundedUp) {
-            Log::warning('billing.cost_rounded_up', [...$context, 'cost_nanos' => $cost->toInt()]);
-        }
 
         // We always settle with units × rates; a disagreeing provider figure
         // is flagged for reconciliation, never used (spec 3-03 §2).

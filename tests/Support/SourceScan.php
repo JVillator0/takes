@@ -238,6 +238,105 @@ final class SourceScan
     }
 
     /**
+     * Writes to the given columns: `->col = …` / `->col += …`, an array key
+     * `'col' =>` (update, forceFill, create), and `increment('col')` /
+     * `decrement('col')`. Files under `$except` (relative prefixes) are skipped.
+     *
+     * @param  list<string>  $paths
+     * @param  list<string>  $columns
+     * @param  list<string>  $except
+     * @return list<string>
+     */
+    public static function columnWrites(array $paths, array $columns, array $except = []): array
+    {
+        $assignments = ['=', '+=', '-=', '*=', '/=', '??='];
+        $violations = [];
+
+        foreach (self::phpFiles($paths) as $file) {
+            $relative = self::relative($file);
+
+            foreach ($except as $prefix) {
+                if (str_starts_with($relative, $prefix)) {
+                    continue 2;
+                }
+            }
+
+            $tokens = self::significantTokens($file);
+
+            foreach ($tokens as $index => [$id, $text, $line]) {
+                $next = $tokens[$index + 1][1] ?? '';
+
+                if ($id === T_STRING && in_array($text, $columns, true) && self::isMemberAccess($tokens, $index) && in_array($next, $assignments, true)) {
+                    $violations[] = "{$relative}:{$line} ->{$text} {$next}";
+
+                    continue;
+                }
+
+                if ($id !== T_CONSTANT_ENCAPSED_STRING) {
+                    continue;
+                }
+
+                $literal = trim($text, '\'"');
+                $column = str_contains($literal, '.') ? substr($literal, (int) strrpos($literal, '.') + 1) : $literal;
+
+                if (! in_array($column, $columns, true)) {
+                    continue;
+                }
+
+                $callee = strtolower($tokens[$index - 2][1] ?? '');
+
+                if ($next === '=>' || (($tokens[$index - 1][1] ?? '') === '(' && in_array($callee, ['increment', 'decrement', 'incrementquietly', 'decrementquietly'], true))) {
+                    $violations[] = "{$relative}:{$line} writes {$literal}";
+                }
+            }
+        }
+
+        return $violations;
+    }
+
+    /**
+     * Statements that both name the usage record (`UsageRecord`, or the
+     * `usage_records` table) and take a row lock on it.
+     *
+     * @param  list<string>  $paths
+     * @return list<string>
+     */
+    public static function usageRecordLocks(array $paths): array
+    {
+        $violations = [];
+
+        foreach (self::phpFiles($paths) as $file) {
+            $statement = [];
+
+            foreach (self::significantTokens($file) as $token) {
+                if ($token[1] !== ';') {
+                    $statement[] = $token;
+
+                    continue;
+                }
+
+                $namesUsage = false;
+                $locks = false;
+
+                foreach ($statement as [$id, $text]) {
+                    $namesUsage = $namesUsage
+                        || (in_array($id, [T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED], true) && str_ends_with($text, 'UsageRecord'))
+                        || ($id === T_CONSTANT_ENCAPSED_STRING && trim($text, '\'"') === 'usage_records');
+                    $locks = $locks || ($id === T_STRING && in_array($text, ['lockForUpdate', 'sharedLock'], true));
+                }
+
+                if ($namesUsage && $locks) {
+                    $violations[] = self::relative($file).':'.$statement[0][2].' locks a usage record';
+                }
+
+                $statement = [];
+            }
+        }
+
+        return $violations;
+    }
+
+    /**
      * Delay arguments of the QUEUE_DELAY_CALLS methods (called with `->`,
      * `?->` or `::`) and `->delay = ...` assignments that are above
      * `$maxSeconds` or cannot be verified statically.
