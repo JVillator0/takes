@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ImageOff } from '@lucide/vue';
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useCopy } from '@/composables/useCopy';
 import { cn } from '@/lib/utils';
 import type { TakePhase } from '@/types';
@@ -24,6 +24,19 @@ const props = withDefaults(defineProps<Props>(), {
 
 const { t } = useCopy();
 
+/**
+ * Image URLs are short-lived (spec 4: temporary URLs, provider links expire
+ * in 24 h). A URL that fails to load shows the "image unavailable" state
+ * instead of a broken image (F-22); a new URL gets a fresh try.
+ */
+const failed = ref(false);
+watch(
+    () => props.src,
+    () => {
+        failed.value = false;
+    },
+);
+
 const running = computed(() =>
     ['submitting', 'waiting_for_capacity', 'queued', 'processing'].includes(
         props.phase,
@@ -35,7 +48,7 @@ const emptyLabel = computed(() => {
         return t('takes.card.no_image');
     }
 
-    if (props.phase === 'done') {
+    if (props.phase === 'done' || failed.value) {
         return t('takes.image_unavailable');
     }
 
@@ -55,11 +68,12 @@ const emptyLabel = computed(() => {
         "
     >
         <img
-            v-if="src"
+            v-if="src && !failed"
             :src="src"
             :alt="alt"
             loading="lazy"
             decoding="async"
+            @error="failed = true"
             :class="[
                 'size-full motion-safe:animate-in motion-safe:fade-in',
                 fit === 'cover' ? 'object-cover' : 'object-contain',
