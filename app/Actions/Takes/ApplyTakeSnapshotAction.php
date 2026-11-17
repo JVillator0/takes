@@ -94,11 +94,17 @@ final readonly class ApplyTakeSnapshotAction
 
             $firstAccepted = $take->pixelforge_id === null;
 
-            // Facts every valid snapshot may fill, whatever the outcome (spec 5 step 2).
-            $take->forceFill([
-                'pixelforge_id' => $snapshot->id,
-                'started_at' => $take->started_at ?? $snapshot->startedAt,
-            ]);
+            // Missing facts (spec 5 step 2). A terminal take keeps the
+            // generation id it had when it finished: mayHideAGeneration()
+            // reads it as "Pixelforge had accepted it when we failed it", so
+            // only the orphan, the one outcome that adopts the late
+            // generation, may add it. Otherwise a replay could reclassify.
+            if (! $from->isTerminal() || $outcome === TransitionOutcome::OrphanSuccess) {
+                $take->forceFill([
+                    'pixelforge_id' => $snapshot->id,
+                    'started_at' => $take->started_at ?? $snapshot->startedAt,
+                ]);
+            }
 
             // Only a snapshot that advances or confirms the state proves the
             // take is alive; a stale or contradicting one must not hide a stuck
@@ -170,9 +176,12 @@ final readonly class ApplyTakeSnapshotAction
 
     /**
      * submit_timeout: the ambiguous submit window expired (D-025, D-049).
-     * internal on a take Pixelforge had accepted (it has a pixelforge_id):
-     * we failed it free, e.g. on a revoked key (D-062), while it kept
-     * running (D-077). Every other local code means nothing was created.
+     * internal on a take Pixelforge had accepted: we failed it free, e.g. on
+     * a revoked key (D-062), while it kept running (D-077). "Accepted" is the
+     * pixelforge_id the take had when it failed, a fact frozen at failure
+     * time: a failed take adopts a generation id only as an orphan, so every
+     * replay of the same late success classifies the same way. Every other
+     * local code means nothing was created.
      */
     private function mayHideAGeneration(Take $take): bool
     {
@@ -237,9 +246,10 @@ final readonly class ApplyTakeSnapshotAction
     }
 
     /**
-     * Pixelforge ran a generation we had already failed, free, after the
-     * ambiguous submit window (D-025). The customer keeps "failed, not
-     * charged": the usage stays voided and the cost is absorbed. Both rows
+     * Pixelforge ran a generation we had already failed, free: after the
+     * ambiguous submit window (D-025), or after an internal failure of a take
+     * it had accepted (D-077). The customer keeps "failed, not charged": the
+     * usage stays voided and the cost is absorbed. Both rows
      * carry a durable flag for Needs attention and reconciliation (D-054, D-058).
      */
     private function recordOrphan(Take $take): void
