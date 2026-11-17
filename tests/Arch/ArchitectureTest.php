@@ -121,3 +121,25 @@ arch('Illuminate\Support\Env is only used from config/')
 test('money code never uses floats', function (): void {
     expect(SourceScan::floatViolations(MONEY_PATHS))->toBe([]);
 });
+
+// M-11: a take's status changes only in ApplyTakeSnapshotAction and
+// FailTakeAction (spec 3-02). A tripwire for the obvious shapes, a TakeStatus
+// case written as a value (`'status' => TakeStatus::…`, `->status = TakeStatus::…`);
+// review catches the rest.
+test('only the transition actions write a take status', function (): void {
+    $allowed = [
+        SourceScan::root().'/app/Actions/Takes/ApplyTakeSnapshotAction.php',
+        SourceScan::root().'/app/Actions/Takes/FailTakeAction.php',
+    ];
+    $writes = [];
+
+    foreach (SourceScan::phpFiles(['app']) as $file) {
+        $source = (string) file_get_contents($file);
+
+        if (! in_array($file, $allowed, true) && preg_match('/(\'status\'\s*=>|->status\s*=(?!=))\s*\\\\?(App\\\\Enums\\\\Takes\\\\)?TakeStatus::(?!class\b)/', $source) === 1) {
+            $writes[] = $file;
+        }
+    }
+
+    expect($writes)->toBe([]);
+});
