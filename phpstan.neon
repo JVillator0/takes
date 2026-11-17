@@ -11,6 +11,7 @@ parameters:
         - config/
         - database/
         - routes/
+        - tests/Support/
 
     treatPhpDocTypesAsCertain: false
     reportUnmatchedIgnoredErrors: true
