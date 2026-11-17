@@ -108,6 +108,7 @@ if [[ ! -f .env ]]; then
 fi
 
 # Keys added to .env.example since this .env was created are appended with their defaults.
+ensure_trailing_newline .env
 while IFS= read -r line; do
     key=${line%%=*}
     if ! grep -q "^$key=" .env; then

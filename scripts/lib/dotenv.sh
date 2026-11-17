@@ -27,3 +27,10 @@ set_env_key() {
     mv "$DOTENV_TMP" "$file"
     DOTENV_TMP=""
 }
+
+# Make sure the file ends with a newline, so a later `>>` append starts on its own line.
+ensure_trailing_newline() {
+    if [[ -s $1 && -n $(tail -c 1 "$1") ]]; then
+        printf '\n' >>"$1"
+    fi
+}
