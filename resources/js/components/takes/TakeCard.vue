@@ -3,6 +3,12 @@ import { computed, useId } from 'vue';
 import TakeImage from '@/components/takes/TakeImage.vue';
 import TakeStatusBadge from '@/components/takes/TakeStatusBadge.vue';
 import { Button } from '@/components/ui/button';
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { useCopy } from '@/composables/useCopy';
 import { cn } from '@/lib/utils';
 import type { TakeCardData } from '@/types';
@@ -56,7 +62,7 @@ const moneyClass = computed(() => {
     >
         <TakeImage
             :src="take.imageUrl"
-            :alt="take.prompt"
+            alt=""
             :phase="take.phase"
             class="aspect-[4/3] border-b"
         />
@@ -97,10 +103,35 @@ const moneyClass = computed(() => {
                 {{ t('takes.card.remix_of', { id: take.parentId }) }}
             </p>
 
-            <p
-                :class="cn('text-sm tabular-nums', moneyClass)"
-                :title="take.moneyExact ?? undefined"
-            >
+            <!--
+                Sits above the stretched open button (relative z-10), so the
+                exact amount is reachable by hover and by keyboard (D-042).
+            -->
+            <TooltipProvider v-if="take.moneyExact" :delay-duration="150">
+                <Tooltip>
+                    <TooltipTrigger as-child>
+                        <button
+                            type="button"
+                            :class="
+                                cn(
+                                    'relative z-10 w-fit cursor-help rounded-sm text-left text-sm tabular-nums underline decoration-muted-foreground/60 decoration-dotted underline-offset-4 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+                                    moneyClass,
+                                )
+                            "
+                        >
+                            {{ take.moneyLine }}
+                        </button>
+                    </TooltipTrigger>
+                    <TooltipContent class="tabular-nums">
+                        {{
+                            t('takes.card.exact_amount', {
+                                amount: take.moneyExact,
+                            })
+                        }}
+                    </TooltipContent>
+                </Tooltip>
+            </TooltipProvider>
+            <p v-else :class="cn('text-sm tabular-nums', moneyClass)">
                 {{ take.moneyLine }}
             </p>
 

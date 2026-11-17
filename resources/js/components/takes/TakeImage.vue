@@ -7,7 +7,7 @@ import type { TakePhase } from '@/types';
 
 type Props = {
     src: string | null;
-    /** The prompt doubles as alt text: it is the best description we have. */
+    /** Alt text: the prompt, or "" when a named control beside it already reads the prompt (cards). */
     alt: string;
     phase: TakePhase;
     /** Short state word for running takes, e.g. the explanation. */
