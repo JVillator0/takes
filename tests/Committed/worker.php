@@ -34,7 +34,10 @@ $app->make(Kernel::class)->bootstrap();
 [, $operation, $id, $startAt, $holdMs] = $argv;
 $maxCost = (int) ($argv[5] ?? 0);
 
-time_sleep_until((float) $startAt);
+// A slow boot may pass the start line; time_sleep_until() warns on a past time.
+if ((float) $startAt > microtime(true)) {
+    time_sleep_until((float) $startAt);
+}
 
 try {
     DB::transaction(function () use ($operation, $id, $holdMs, $maxCost): void {
