@@ -49,8 +49,8 @@ final readonly class PurchaseCreditsAction
                 ->where('idempotency_key', $idempotencyKey)
                 ->first();
 
-            // Whole dollars × 10^9, integer math only (D-002).
-            $amount = Nanodollars::fromInt($packageUsd * Nanodollars::PER_DOLLAR);
+            // The same conversion the billing page prices the pack with.
+            $amount = Nanodollars::fromWholeDollars($packageUsd);
 
             if ($existing !== null) {
                 // A replay is the same request: a key reused for another pack
