@@ -22,6 +22,7 @@ use App\Models\Take;
 use App\Models\UsageRecord;
 use App\Models\WebhookDelivery;
 use App\Models\WebhookEvent;
+use App\Support\Money\Nanodollars;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\MassAssignmentException;
 use Illuminate\Support\Facades\DB;
@@ -111,6 +112,24 @@ it('stores morph aliases, not class names, on usage records', function (): void 
         ->and($aiUsage->provider)->toBe(Provider::Anthropic)
         ->and($usage->status)->toBe(UsageStatus::Open)
         ->and($usage->flags)->toBe([]);
+});
+
+it('snapshots rates as integer nanodollars per 1M tokens (spec 3-03 §2)', function (): void {
+    $pixelforge = UsageRecord::factory()->create()->refresh()->rates;
+    $anthropic = UsageRecord::factory()->forSuggestion()->create()->refresh()->rates;
+    // jsonb does not keep key order.
+    ksort($pixelforge);
+    ksort($anthropic);
+
+    expect($pixelforge)->toBe([
+        'input_image' => 10_000_000_000,
+        'input_text' => 5_000_000_000,
+        'output' => 40_000_000_000,
+        'reasoning' => 12_500_000_000,
+    ])->and($anthropic)->toBe([
+        'input_text' => 100_000_000,
+        'output' => 500_000_000,
+    ])->and($pixelforge['reasoning'])->toBe(Nanodollars::perMillionFromDecimalString('12.50')->toInt());
 });
 
 it('computes available as balance minus held, possibly negative', function (): void {

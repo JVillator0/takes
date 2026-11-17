@@ -39,11 +39,12 @@ final class UsageRecordFactory extends Factory
             'max_cost_nanos' => 373_875_000,
             'min_charge_nanos' => 125_000_000,
             'max_charge_nanos' => 467_343_750,
+            // Nanodollars per 1M tokens by kind (spec 3-03 §2, demo dataset).
             'rates' => [
-                'input_text' => '5.00',
-                'input_image' => '10.00',
-                'output' => '40.00',
-                'reasoning' => '40.00',
+                'input_text' => 5_000_000_000,
+                'input_image' => 10_000_000_000,
+                'output' => 40_000_000_000,
+                'reasoning' => 12_500_000_000,
             ],
             'flags' => [],
             'markup_bps' => Nanodollars::DEFAULT_MARKUP_BPS,
@@ -82,7 +83,8 @@ final class UsageRecordFactory extends Factory
             'max_cost_nanos' => 400_000,
             'min_charge_nanos' => 62_500,
             'max_charge_nanos' => 500_000,
-            'rates' => ['input_text' => '0.10', 'output' => '0.50'],
+            // Haiku 5.5: $0.10 / $0.50 per 1M tokens, in nanodollars.
+            'rates' => ['input_text' => 100_000_000, 'output' => 500_000_000],
         ]);
     }
 }

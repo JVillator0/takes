@@ -32,7 +32,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
  * @property int $min_charge_nanos
  * @property int $max_charge_nanos
  * @property array<string, int>|null $units
- * @property array<string, mixed> $rates
+ * @property array<string, int> $rates Nanodollars per 1M tokens by kind (spec 3-03 §2)
  * @property int|null $input_text_tokens
  * @property int|null $input_image_tokens
  * @property int|null $output_tokens
