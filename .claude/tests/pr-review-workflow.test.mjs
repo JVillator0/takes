@@ -331,8 +331,13 @@ test('rounds: limit, judgeOnly after NITS, full run after NOT MERGEABLE', async 
   assert.ok(escalated.labels.includes('pr-judge'))
   const beyond = await run({ args: { ...ARGS, round: 5, escalation: 'D-075' }, ctx: context(['a.php']), judge: judgeResult() })
   assert.equal(beyond.result.verdict, null)
-  const bogus = await run({ args: { ...ARGS, round: 4, escalation: 'yes please' }, ctx: context(['a.php']), judge: judgeResult() })
+  const bogus = await run({ args: { ...ARGS, round: 4, escalation: 'D-001' }, ctx: context(['a.php']), judge: judgeResult() })
   assert.equal(bogus.result.verdict, null)
+  const early = await run({ args: { ...ARGS, round: 1, escalation: 'D-075' }, ctx: context(['a.php']), judge: judgeResult() })
+  const earlyPrompt = early.calls.find((c) => c.label === 'publish verdict')?.prompt ?? ''
+  assert.doesNotMatch(earlyPrompt, /D-075/)
+  const r4Prompt = escalated.calls.find((c) => c.label === 'publish verdict').prompt
+  assert.match(r4Prompt, /Round 4 of 4 \(D-075\)/)
   const nits = await run({
     args: { ...ARGS, judgeOnly: true },
     ctx: context(['routes/web.php'], { labels: ['verdict:nits'], previousJudgeRounds: 1 }),

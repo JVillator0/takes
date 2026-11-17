@@ -1,7 +1,7 @@
 export const meta = {
   name: 'pr-review',
   description: 'Review a PR with up to three specialist reviewers and a judge; label the verdict and auto-merge when MERGEABLE (spec 1-03)',
-  whenToUse: 'Run on an open PR whose CI has finished. args: { pr, repo, cwd, round?, judgeOnly? }',
+  whenToUse: 'Run on an open PR whose CI has finished. args: { pr, repo, cwd, round?, judgeOnly?, escalation? ("D-075", round 4 only) }',
   phases: [
     { title: 'Context', detail: 'PR metadata, head SHA, CI, linked issue, files classified into reviewer scopes' },
     { title: 'Review', detail: 'one GitHub review per reviewer with matching files (max 3 in parallel)' },
@@ -393,7 +393,7 @@ function gateMark(g) {
   return { pass: '✓', fail: '✗', pending: '⏳', na: 'n/a' }[g.status]
 }
 
-function renderScorecard({ verdict, score, judge, numbered, round, sha, reviewerLine, reasons }) {
+function renderScorecard({ verdict, score, judge, numbered, round, sha, reviewerLine, reasons, roundLimit = MAX_ROUNDS, escalation = null }) {
   const cell = (s) => String(s || '').replace(/\|/g, '\\|').replace(/\n/g, ' ')
   const rows = DIMENSIONS.map((d) => {
     const s = judge.scores.find((x) => x.dimension === d)
@@ -487,11 +487,12 @@ if (ctx.state !== 'OPEN') {
 const round = Number.isInteger(input.round) ? input.round : ctx.previousJudgeRounds + 1
 // D-075: after round MAX_ROUNDS the lead may authorise exactly one extra round by passing
 // args.escalation (the decision id, e.g. "D-075"); anything beyond that is refused.
-const escalation = typeof input.escalation === 'string' && /^D-\d{3}$/.test(input.escalation) ? input.escalation : null
+const ESCALATION_DECISION = 'D-075'
+const escalation = input.escalation === ESCALATION_DECISION && round === MAX_ROUNDS + 1 ? ESCALATION_DECISION : null
 const roundLimit = escalation ? MAX_ROUNDS + 1 : MAX_ROUNDS
 if (round < 1 || round > roundLimit) {
   log(`Round ${round} exceeds the ${roundLimit}-round limit: escalate instead of re-running.`)
-  return { verdict: null, score: null, merged: false, findings: [], round, reason: 'round limit reached; escalate to Javier' }
+  return { verdict: null, score: null, merged: false, findings: [], round, reason: 'round limit reached; the lead decides (D-075: one extra round with escalation "D-075")' }
 }
 
 if (!isSha(ctx.headSha) || !isSha(ctx.baseSha)) {
@@ -617,7 +618,8 @@ const judgeFacts = {
   repo: REPO,
   url: ctx.url,
   round,
-  maxRounds: MAX_ROUNDS,
+  maxRounds: roundLimit,
+  escalation,
   judgeOnly,
   reviewedHeadSha: SHA,
   baseRef: ctx.baseRef,
@@ -692,7 +694,7 @@ if (CI === 'none') judge.gates.ci = { status: 'fail', note: 'no CI checks report
 const { verdict, computed, score, reasons } = computeVerdict(judge, { moneyOrWebhook })
 if (verdict !== judge.verdict) log(`Verdict adjusted by the rules: judge said ${judge.verdict}, rules give ${computed}.`)
 const numbered = numberFindings(judge.findings)
-const scorecard = renderScorecard({ verdict, score, judge, numbered, round, sha: SHA, reviewerLine, reasons })
+const scorecard = renderScorecard({ verdict, score, judge, numbered, round, sha: SHA, reviewerLine, reasons, roundLimit, escalation })
 const label = VERDICT_LABELS[verdict]
 const otherLabels = Object.values(VERDICT_LABELS).filter((l) => l !== label)
 const lastRound = round >= roundLimit

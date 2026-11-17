@@ -34,7 +34,8 @@ Call the **Workflow** tool with:
 | `pr` | yes | PR number |
 | `repo` | no (default `JVillator0/takes`) | `owner/name` |
 | `cwd` | yes | `<repo>`: absolute path of a clean checkout kept at `origin/main` (the lead keeps one next to the worktrees, e.g. `../takes-review`, and runs `git pull --ff-only` there before a review). Agents read `.claude/agents/`, `.claude/rules/` and `.claude/specs/` from it. The Context step fetches the PR's head and base commits into it once; the other agents only run `git diff` and `git show` and never check out branches. |
-| `round` | no | 1–3. Default: number of earlier judge comments + 1. Above 3 the workflow stops and asks for escalation. |
+| `round` | no | 1–3 (4 only with `escalation`). Default: number of earlier judge comments + 1. Above the limit the workflow stops. |
+| `escalation` | no | `"D-075"` only, and only for round 4: the lead's one authorised extra round. |
 | `judgeOnly` | no | `true` to skip the reviewers on a re-check after **MERGEABLE AFTER NITS**. Ignored when the last verdict was NOT MERGEABLE (that needs a full run). Docs-only and generated-only PRs are always judge-only. |
 
 `<repo>` is always an absolute path. A harness PR that changes the script itself is reviewed by running the script from its own branch (it does not exist on `main` yet): point `scriptPath` at that worktree's copy, and `cwd` at the same worktree so the agents read the definitions under review.
@@ -61,7 +62,7 @@ It returns `{ verdict, score, merged, autoMergeEnabled, outcome, decision, comme
 - Push, wait for green CI, then re-run:
   - after **MERGEABLE AFTER NITS**: `judgeOnly: true` (round increments automatically);
   - after **NOT MERGEABLE**: full run.
-- **Max 3 rounds.** If round 3 is not MERGEABLE, the lead stops and escalates to Javier with the PR link and the last scorecard.
+- **Max 3 rounds.** If round 3 is not MERGEABLE, the lead decides (D-075): fix the important findings, comment the decision on the PR, run round 4 with `escalation: "D-075"`; minors left after it go to a follow-up issue.
 
 ## After the merge
 
