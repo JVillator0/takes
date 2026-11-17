@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\Auth\DemoAccount;
 use App\Support\Money\Nanodollars;
 use Carbon\CarbonImmutable;
 use Database\Factories\CustomerFactory;
@@ -70,6 +71,15 @@ final class Customer extends Authenticatable
     public function held(): Nanodollars
     {
         return Nanodollars::fromInt($this->held_nanos);
+    }
+
+    /**
+     * One of the seeded, publicly shared demo logins (P02 panel, README).
+     * Its name, email and password are locked (D-072).
+     */
+    public function isSharedDemoAccount(): bool
+    {
+        return in_array($this->email, DemoAccount::emails(), true);
     }
 
     /** D-065: an ephemeral demo customer past `demo_expires_at` is logged out lazily. */

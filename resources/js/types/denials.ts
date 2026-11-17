@@ -6,4 +6,5 @@ export type DenialReason =
     | 'demo_quota_reached'
     | 'rate_limited'
     | 'ai_paused'
-    | 'ai_daily_limit';
+    | 'ai_daily_limit'
+    | 'demo_account_locked';

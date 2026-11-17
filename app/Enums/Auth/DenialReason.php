@@ -19,6 +19,9 @@ enum DenialReason: string
     case AiPaused = 'ai_paused';
     case AiDailyLimit = 'ai_daily_limit';
 
+    /** A shared, publicly known demo login cannot change its name, email or password (D-072). */
+    case DemoAccountLocked = 'demo_account_locked';
+
     /**
      * A policy denial carrying this code: `Gate::inspect()->code()` is the enum value.
      */

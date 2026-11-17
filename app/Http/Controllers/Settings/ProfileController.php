@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Settings;
 
+use App\Actions\Auth\UpdateCustomerProfileAction;
+use App\DTOs\Auth\UpdateCustomerProfileDTO;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Settings\ProfileUpdateRequest;
 use Illuminate\Http\RedirectResponse;
@@ -25,9 +27,9 @@ final class ProfileController extends Controller
         ]);
     }
 
-    public function update(ProfileUpdateRequest $request): RedirectResponse
+    public function update(ProfileUpdateRequest $request, UpdateCustomerProfileAction $updateProfile): RedirectResponse
     {
-        $request->customer()->forceFill($request->validated())->save();
+        $updateProfile->execute($request->customer(), UpdateCustomerProfileDTO::fromRequest($request));
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Profile updated.')]);
 

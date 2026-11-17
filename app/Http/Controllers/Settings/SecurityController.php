@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Settings;
 
+use App\Actions\Auth\UpdateCustomerPasswordAction;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Settings\PasswordUpdateRequest;
 use Illuminate\Http\RedirectResponse;
@@ -24,11 +25,9 @@ final class SecurityController extends Controller
         ]);
     }
 
-    public function update(PasswordUpdateRequest $request): RedirectResponse
+    public function update(PasswordUpdateRequest $request, UpdateCustomerPasswordAction $updatePassword): RedirectResponse
     {
-        $request->customer()->forceFill([
-            'password' => $request->string('password')->toString(),
-        ])->save();
+        $updatePassword->execute($request->customer(), $request->string('password')->toString());
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Password updated.')]);
 
