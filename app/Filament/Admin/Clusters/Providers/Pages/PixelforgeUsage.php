@@ -6,11 +6,12 @@ namespace App\Filament\Admin\Clusters\Providers\Pages;
 
 use App\DTOs\Billing\PixelforgeReconciliationDTO;
 use App\DTOs\Billing\ReconciliationGenerationDTO;
+use App\Enums\Billing\ReconciliationStatus;
 use App\Exceptions\Pixelforge\PixelforgeException;
 use App\Exceptions\Pixelforge\PixelforgeNotConfigured;
 use App\Filament\Admin\Clusters\Providers\ProvidersCluster;
-use App\Queries\Billing\FindPixelforgeTakesQuery;
 use App\Queries\Billing\GetPixelforgeReconciliationQuery;
+use App\Queries\Billing\ListPixelforgeDayDiscrepanciesQuery;
 use BackedEnum;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Carbon\CarbonImmutable;
@@ -18,19 +19,23 @@ use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
-use InvalidArgumentException;
 use Livewire\Attributes\Computed;
 
 /**
  * Providers › Pixelforge usage (A04, normative; D-034, D-058): the brief's "admin report matches GET /v1/usage".
- * Per UTC day, our settled usage against Pixelforge's, with "N / M days match", Pending ("N in flight") for today
- * and days with open takes, and **Find takes** on a mismatching day. Read-only, so the auditor sees it too.
+ * Per UTC day, our settled usage against Pixelforge's, with "N of M closed days match", Pending ("N in flight")
+ * for today and days with open takes, and **Find takes** on a mismatching day. Read-only, so the auditor sees it.
+ *
+ * The report reads the last valid range (`rangeFrom`/`rangeUntil`); a date input that would make the range
+ * invalid shows an error and changes nothing, so no intermediate range ever calls Pixelforge.
  */
 final class PixelforgeUsage extends Page
 {
     use HasPageShield;
 
     public const int DEFAULT_DAYS = 14;
+
+    private const string DATE_PATTERN = '/^\d{4}-\d{2}-\d{2}$/';
 
     protected static ?string $cluster = ProvidersCluster::class;
 
@@ -44,6 +49,10 @@ final class PixelforgeUsage extends Page
 
     public string $until = '';
 
+    public string $rangeFrom = '';
+
+    public string $rangeUntil = '';
+
     public bool $refresh = false;
 
     /** @var array{date: string, truncated: bool, groups: array<string, list<array{generation: string, take: string|null, theirs: string, ours: string}>>}|null */
@@ -52,8 +61,8 @@ final class PixelforgeUsage extends Page
     public function mount(): void
     {
         $today = CarbonImmutable::now('UTC')->startOfDay();
-        $this->from = $today->subDays(self::DEFAULT_DAYS - 1)->toDateString();
-        $this->until = $today->toDateString();
+        $this->from = $this->rangeFrom = $today->subDays(self::DEFAULT_DAYS - 1)->toDateString();
+        $this->until = $this->rangeUntil = $today->toDateString();
     }
 
     public function getTitle(): string
@@ -69,49 +78,126 @@ final class PixelforgeUsage extends Page
     #[Computed]
     public function report(): PixelforgeReconciliationDTO
     {
-        $query = app(GetPixelforgeReconciliationQuery::class);
         $refresh = $this->refresh;
         $this->refresh = false;
 
-        try {
-            return $query->execute(CarbonImmutable::parse($this->from, 'UTC'), CarbonImmutable::parse($this->until, 'UTC'), $refresh);
-        } catch (InvalidArgumentException) {
-            $this->mount();
-
-            return $query->execute(CarbonImmutable::parse($this->from, 'UTC'), CarbonImmutable::parse($this->until, 'UTC'), $refresh);
-        }
-    }
-
-    public function updated(string $property): void
-    {
-        if (in_array($property, ['from', 'until'], true)) {
-            $this->findResult = null;
-        }
+        return app(GetPixelforgeReconciliationQuery::class)->execute(
+            CarbonImmutable::parse($this->rangeFrom, 'UTC'),
+            CarbonImmutable::parse($this->rangeUntil, 'UTC'),
+            $refresh,
+        );
     }
 
     /**
-     * **Find takes** on one mismatching day: pages Pixelforge's generations (explicit click only).
+     * Applies From/Until only when both are real dates, ordered and at most 92 days apart (inclusive).
      */
-    public function findTakes(string $date): void
+    public function updated(string $property): void
     {
-        try {
-            $result = app(FindPixelforgeTakesQuery::class)->execute(CarbonImmutable::parse($date, 'UTC'));
-        } catch (PixelforgeException|PixelforgeNotConfigured) {
-            Notification::make()->danger()->title(__('console.pixelforge.unavailable_short'))->send();
+        if (! in_array($property, ['from', 'until'], true)) {
+            return;
+        }
+
+        $this->resetErrorBag(['from', 'until']);
+
+        if (! self::isDate($this->from) || ! self::isDate($this->until)) {
+            $this->addError($property, __('console.pixelforge.invalid_date'));
 
             return;
         }
 
-        $this->findResult = [
-            'date' => $result->date,
-            'truncated' => $result->truncated,
-            'groups' => [
-                'theirs_not_ours' => self::rows($result->theirsNotOurs),
-                'ours_not_settled' => self::rows($result->oursNotSettled),
-                'amount_differs' => self::rows($result->amountDiffers),
-                'orphan_success' => self::rows($result->orphanSuccess),
-            ],
+        $from = CarbonImmutable::parse($this->from, 'UTC');
+        $until = CarbonImmutable::parse($this->until, 'UTC');
+
+        if ($until->lessThan($from) || $from->diffInDays($until) >= GetPixelforgeReconciliationQuery::MAX_DAYS) {
+            $this->addError($property, __('console.pixelforge.invalid_range', ['days' => GetPixelforgeReconciliationQuery::MAX_DAYS]));
+
+            return;
+        }
+
+        $this->rangeFrom = $this->from;
+        $this->rangeUntil = $this->until;
+        $this->findResult = null;
+        unset($this->report);
+    }
+
+    /**
+     * **Find takes** (A04, D-034): only for a Mismatch day of the current report, read on an explicit click.
+     */
+    public function findTakesAction(): Action
+    {
+        return Action::make('findTakes')
+            ->label(__('console.pixelforge.find_takes'))
+            ->size('xs')
+            ->color('gray')
+            ->authorize(fn (): bool => self::canAccess())
+            ->action(function (array $arguments): void {
+                $date = $arguments['date'] ?? null;
+
+                if (! is_string($date) || ! $this->isMismatchDay($date)) {
+                    Notification::make()->danger()->title(__('console.pixelforge.not_a_mismatch'))->send();
+
+                    return;
+                }
+
+                try {
+                    $result = app(ListPixelforgeDayDiscrepanciesQuery::class)->execute(CarbonImmutable::parse($date, 'UTC'));
+                } catch (PixelforgeException|PixelforgeNotConfigured) {
+                    Notification::make()->danger()->title(__('console.pixelforge.unavailable_short'))->send();
+
+                    return;
+                }
+
+                $this->findResult = [
+                    'date' => $result->date,
+                    'truncated' => $result->truncated,
+                    'groups' => [
+                        'theirs_not_ours' => self::rows($result->theirsNotOurs),
+                        'ours_not_settled' => self::rows($result->oursNotSettled),
+                        'amount_differs' => self::rows($result->amountDiffers),
+                        'orphan_success' => self::rows($result->orphanSuccess),
+                    ],
+                ];
+            });
+    }
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            Action::make('refresh')
+                ->label(__('console.pixelforge.refresh'))
+                ->icon(Heroicon::OutlinedArrowPath)
+                ->action(function (): void {
+                    $this->refresh = true;
+                    $this->findResult = null;
+                    unset($this->report);
+                }),
         ];
+    }
+
+    private function isMismatchDay(string $date): bool
+    {
+        if (! self::isDate($date) || $date < $this->rangeFrom || $date > $this->rangeUntil) {
+            return false;
+        }
+
+        foreach ($this->report()->days as $day) {
+            if ($day->date === $date) {
+                return $day->status === ReconciliationStatus::Mismatch;
+            }
+        }
+
+        return false;
+    }
+
+    private static function isDate(string $value): bool
+    {
+        if (preg_match(self::DATE_PATTERN, $value) !== 1) {
+            return false;
+        }
+
+        [$year, $month, $day] = array_map(intval(...), explode('-', $value));
+
+        return checkdate($month, $day, $year);
     }
 
     /**
@@ -126,18 +212,5 @@ final class PixelforgeUsage extends Page
             'theirs' => $row->theirCost?->toDecimalString() ?? '-',
             'ours' => $row->ourCost?->toDecimalString() ?? '-',
         ], $generations);
-    }
-
-    protected function getHeaderActions(): array
-    {
-        return [
-            Action::make('refresh')
-                ->label(__('console.pixelforge.refresh'))
-                ->icon(Heroicon::OutlinedArrowPath)
-                ->action(function (): void {
-                    $this->refresh = true;
-                    unset($this->report);
-                }),
-        ];
     }
 }

@@ -24,13 +24,16 @@ use InvalidArgumentException;
  * Providers › Pixelforge usage (A04, D-034): per UTC billing day, our settled Pixelforge usage (generations, the
  * four token sums, cost) against `GET /v1/usage`, cached 5 minutes per range. A day is Pending while takes created
  * that day are still in flight, and today always is ("N in flight"), never Mismatch. When Pixelforge cannot be
- * reached the last good answer for the range is shown, marked unavailable.
+ * reached each day falls back to its last good figures, marked unavailable.
  */
 final readonly class GetPixelforgeReconciliationQuery
 {
     public const int MAX_DAYS = 92;
 
     public const int CACHE_SECONDS = 300;
+
+    /** How long a day's last good figures back the page when Pixelforge cannot be reached. */
+    public const int LAST_GOOD_SECONDS = 30 * 24 * 3600;
 
     public function __construct(private PixelforgeClient $client) {}
 
@@ -50,14 +53,14 @@ final readonly class GetPixelforgeReconciliationQuery
 
         $days = [];
         $oursTotal = UsageTotalsDTO::zero();
-        $theirsTotal = $theirs === null ? null : UsageTotalsDTO::zero();
+        $theirsTotal = null;
         $matched = 0;
         $judged = 0;
 
         for ($day = $until; $day->greaterThanOrEqualTo($from); $day = $day->subDay()) {
             $date = $day->toDateString();
             $ourDay = $ours[$date] ?? UsageTotalsDTO::zero();
-            $theirDay = $theirs === null ? null : ($theirs[$date] ?? UsageTotalsDTO::zero());
+            $theirDay = $theirs[$date] ?? null;
             $flying = $inFlight[$date] ?? 0;
 
             $status = match (true) {
@@ -73,7 +76,7 @@ final readonly class GetPixelforgeReconciliationQuery
             }
 
             $oursTotal = $oursTotal->plus($ourDay);
-            $theirsTotal = $theirDay === null || $theirsTotal === null ? $theirsTotal : $theirsTotal->plus($theirDay);
+            $theirsTotal = $theirDay === null ? $theirsTotal : ($theirsTotal ?? UsageTotalsDTO::zero())->plus($theirDay);
             $days[] = new ReconciliationDayDTO($date, $ourDay, $theirDay, $flying, $status);
         }
 
@@ -131,64 +134,97 @@ final readonly class GetPixelforgeReconciliationQuery
     }
 
     /**
-     * Pixelforge's figures for the range: cached 5 minutes; on failure the last good answer, marked unavailable.
+     * Pixelforge's figures per UTC day: each day is cached 5 minutes under its own key (so the dashboard row and the
+     * Reports badge can read a day's last check), plus a 30-day "last good" copy used when Pixelforge cannot be
+     * reached. A day with neither is Unavailable.
      *
-     * @return array{0: array<string, UsageTotalsDTO>|null, 1: CarbonImmutable|null, 2: bool}
+     * @return array{0: array<string, UsageTotalsDTO>, 1: CarbonImmutable|null, 2: bool}
      */
     private function theirs(CarbonImmutable $from, CarbonImmutable $until, bool $refresh): array
     {
-        $key = 'admin:pixelforge-usage:'.$from->toDateString().':'.$until->toDateString();
+        $dates = [];
+
+        for ($day = $from; $day->lessThanOrEqualTo($until); $day = $day->addDay()) {
+            $dates[] = $day->toDateString();
+        }
 
         if ($refresh) {
-            Cache::forget($key);
+            foreach ($dates as $date) {
+                Cache::forget(self::dayKey($date));
+            }
         }
 
-        $cached = Cache::get($key);
+        $fresh = array_filter(array_combine($dates, array_map(fn (string $date): mixed => Cache::get(self::dayKey($date)), $dates)), is_array(...));
 
-        if (! is_array($cached)) {
-            try {
-                $report = $this->client->getUsage($from, $until);
-            } catch (PixelforgeException|PixelforgeNotConfigured) {
-                $last = Cache::get($key.':last');
-
-                return is_array($last) ? [...$this->decode($last), true] : [null, null, true];
-            }
-
-            $cached = ['fetched_at' => CarbonImmutable::now()->toIso8601String(), 'days' => []];
-
-            foreach ($report->days as $day) {
-                $cached['days'][$day->date->toDateString()] = (new UsageTotalsDTO(
-                    $day->generations,
-                    $day->inputTextTokens,
-                    $day->inputImageTokens,
-                    $day->outputTokens,
-                    $day->reasoningTokens,
-                    $day->cost,
-                ))->toArray();
-            }
-
-            Cache::put($key, $cached, self::CACHE_SECONDS);
-            Cache::forever($key.':last', $cached);
+        if (count($fresh) === count($dates)) {
+            return [...$this->decode($fresh), false];
         }
 
-        return [...$this->decode($cached), false];
+        try {
+            $report = $this->client->getUsage($from, $until);
+        } catch (PixelforgeException|PixelforgeNotConfigured) {
+            $last = array_filter(array_combine($dates, array_map(fn (string $date): mixed => Cache::get(self::lastKey($date)), $dates)), is_array(...));
+
+            return [...$this->decode($last), true];
+        }
+
+        $fetchedAt = CarbonImmutable::now()->toIso8601String();
+        $fetched = [];
+
+        foreach ($dates as $date) {
+            $fetched[$date] = ['fetched_at' => $fetchedAt, 'totals' => UsageTotalsDTO::zero()->toArray()];
+        }
+
+        foreach ($report->days as $day) {
+            $fetched[$day->date->toDateString()] = ['fetched_at' => $fetchedAt, 'totals' => (new UsageTotalsDTO(
+                $day->generations,
+                $day->inputTextTokens,
+                $day->inputImageTokens,
+                $day->outputTokens,
+                $day->reasoningTokens,
+                $day->cost,
+            ))->toArray()];
+        }
+
+        foreach ($fetched as $date => $entry) {
+            Cache::put(self::dayKey($date), $entry, self::CACHE_SECONDS);
+            Cache::put(self::lastKey($date), $entry, self::LAST_GOOD_SECONDS);
+        }
+
+        return [...$this->decode($fetched), false];
+    }
+
+    public static function dayKey(string $date): string
+    {
+        return 'admin:pixelforge-usage:day:'.$date;
+    }
+
+    private static function lastKey(string $date): string
+    {
+        return 'admin:pixelforge-usage:last:'.$date;
     }
 
     /**
-     * @param  array<mixed>  $cached
+     * @param  array<mixed>  $entries  date => {fetched_at, totals}
      * @return array{0: array<string, UsageTotalsDTO>, 1: CarbonImmutable|null}
      */
-    private function decode(array $cached): array
+    private function decode(array $entries): array
     {
         $days = [];
+        $oldest = null;
 
-        foreach (is_array($cached['days'] ?? null) ? $cached['days'] : [] as $date => $totals) {
+        foreach ($entries as $date => $entry) {
+            if (! is_array($entry) || ! is_array($entry['totals'] ?? null) || ! is_string($entry['fetched_at'] ?? null)) {
+                continue;
+            }
+
             /** @var array{generations: int, input_text_tokens: int, input_image_tokens: int, output_tokens: int, reasoning_tokens: int, cost_nanos: int} $totals */
+            $totals = $entry['totals'];
             $days[(string) $date] = UsageTotalsDTO::fromArray($totals);
+            $fetchedAt = CarbonImmutable::parse($entry['fetched_at']);
+            $oldest = $oldest === null || $fetchedAt->lessThan($oldest) ? $fetchedAt : $oldest;
         }
 
-        $fetchedAt = is_string($cached['fetched_at'] ?? null) ? CarbonImmutable::parse($cached['fetched_at']) : null;
-
-        return [$days, $fetchedAt];
+        return [$days, $oldest];
     }
 }

@@ -3,7 +3,8 @@
     use App\Enums\Billing\ReconciliationStatus;
 
     $report = $this->report;
-    $fields = ['input_text_tokens' => 'text', 'input_image_tokens' => 'image', 'output_tokens' => 'output', 'reasoning_tokens' => 'reasoning'];
+    $fields = __('console.pixelforge.token_kinds');
+    $today = now('UTC')->toDateString();
 @endphp
 
 <x-filament-panels::page>
@@ -13,18 +14,20 @@
             <x-filament::input.wrapper>
                 <x-filament::input type="date" wire:model.live="from" />
             </x-filament::input.wrapper>
+            @error('from') <span class="text-xs text-danger-600 dark:text-danger-400">{{ $message }}</span> @enderror
         </label>
         <label class="flex flex-col gap-1 text-sm">
             <span class="font-medium text-gray-700 dark:text-gray-200">{{ __('console.pixelforge.until') }}</span>
             <x-filament::input.wrapper>
                 <x-filament::input type="date" wire:model.live="until" />
             </x-filament::input.wrapper>
+            @error('until') <span class="text-xs text-danger-600 dark:text-danger-400">{{ $message }}</span> @enderror
         </label>
     </div>
 
     @if ($report->unavailable)
         <div class="rounded-lg bg-warning-50 p-3 text-sm text-warning-800 dark:bg-warning-500/10 dark:text-warning-300" data-testid="pixelforge-unavailable">
-            {{ $report->fetchedAt ? __('console.pixelforge.unavailable', ['time' => $report->fetchedAt->utc()->format('Y-m-d H:i')]) : __('console.pixelforge.unavailable_never') }}
+            {{ $report->fetchedAt ? __('console.pixelforge.unavailable', ['time' => $report->fetchedAt->utc()->format('H:i')]) : __('console.pixelforge.unavailable_never') }}
         </div>
     @elseif ($report->fetchedAt)
         <p class="text-xs text-gray-500 dark:text-gray-400">{{ __('console.pixelforge.fetched', ['time' => $report->fetchedAt->utc()->format('Y-m-d H:i')]) }}</p>
@@ -37,7 +40,9 @@
                     <tr class="border-b border-gray-200 text-xs uppercase text-gray-500 dark:border-white/10 dark:text-gray-400">
                         <th class="px-2 py-2 text-start">{{ __('console.pixelforge.day') }}</th>
                         <th class="px-2 py-2 text-end">{{ __('console.pixelforge.generations') }}</th>
-                        <th class="px-2 py-2 text-end">{{ __('console.pixelforge.cost') }}</th>
+                        <th class="px-2 py-2 text-end">{{ __('console.pixelforge.our_cost_column') }}</th>
+                        <th class="px-2 py-2 text-end">{{ __('console.pixelforge.their_cost_column') }}</th>
+                        <th class="px-2 py-2 text-end">{{ __('console.pixelforge.difference') }}</th>
                         <th class="px-2 py-2 text-start">{{ __('console.pixelforge.tokens') }}</th>
                         <th class="px-2 py-2 text-start">{{ __('console.pixelforge.status_column') }}</th>
                         <th class="px-2 py-2"></th>
@@ -47,9 +52,12 @@
                     @foreach ($report->days as $day)
                         @php($differences = $day->theirs ? array_intersect_key($day->ours->differences($day->theirs), $fields) : [])
                         <tr class="border-b border-gray-100 dark:border-white/5" wire:key="day-{{ $day->date }}">
-                            <td class="px-2 py-2">{{ $day->date }}</td>
+                            <td class="px-2 py-2">{{ $day->date === $today ? __('console.pixelforge.today', ['date' => $day->date]) : $day->date }}</td>
                             <td class="px-2 py-2 text-end tabular-nums">{{ $day->ours->generations }} / {{ $day->theirs?->generations ?? '-' }}</td>
-                            <td class="px-2 py-2 text-end font-mono tabular-nums">{{ $day->ours->cost->toDecimalString() }} / {{ $day->theirs?->cost->toDecimalString() ?? '-' }}</td>
+                            <td class="px-2 py-2 text-end font-mono tabular-nums">{{ $day->ours->cost->toDecimalString() }}</td>
+                            <td class="px-2 py-2 text-end font-mono tabular-nums">{{ $day->theirs?->cost->toDecimalString() ?? '-' }}</td>
+                            @php($costDifference = $day->theirs ? $day->ours->cost->minus($day->theirs->cost) : null)
+                            <td @class(['px-2 py-2 text-end font-mono tabular-nums', 'text-danger-600 dark:text-danger-400' => $costDifference !== null && ! $costDifference->isZero()])>{{ $costDifference?->toDecimalString() ?? '-' }}</td>
                             <td class="px-2 py-2 font-mono text-xs">
                                 @foreach ($differences as $field => $difference)
                                     <span>{{ $fields[$field] }} {{ $difference > 0 ? '+' : '' }}{{ number_format($difference) }}</span>
@@ -62,9 +70,7 @@
                             </td>
                             <td class="px-2 py-2 text-end">
                                 @if ($day->status === ReconciliationStatus::Mismatch)
-                                    <x-filament::button size="xs" color="gray" wire:click="findTakes('{{ $day->date }}')">
-                                        {{ __('console.pixelforge.find_takes') }}
-                                    </x-filament::button>
+                                    {{ ($this->findTakesAction)(['date' => $day->date]) }}
                                 @endif
                             </td>
                         </tr>
@@ -74,12 +80,16 @@
                     <tr class="border-t-2 border-gray-300 font-semibold dark:border-white/20" data-testid="pixelforge-usage-total">
                         <td class="px-2 py-2">{{ __('console.pixelforge.total') }}</td>
                         <td class="px-2 py-2 text-end tabular-nums">{{ $report->oursTotal->generations }} / {{ $report->theirsTotal?->generations ?? '-' }}</td>
-                        <td class="px-2 py-2 text-end font-mono tabular-nums">{{ $report->oursTotal->cost->toDecimalString() }} / {{ $report->theirsTotal?->cost->toDecimalString() ?? '-' }}</td>
+                        <td class="px-2 py-2 text-end font-mono tabular-nums">{{ $report->oursTotal->cost->toDecimalString() }}</td>
+                        <td class="px-2 py-2 text-end font-mono tabular-nums">{{ $report->theirsTotal?->cost->toDecimalString() ?? '-' }}</td>
+                        <td class="px-2 py-2 text-end font-mono tabular-nums">{{ $report->theirsTotal ? $report->oursTotal->cost->minus($report->theirsTotal->cost)->toDecimalString() : '-' }}</td>
                         <td class="px-2 py-2" colspan="3">{{ __('console.pixelforge.summary', ['matched' => $report->matchedDays, 'judged' => $report->judgedDays]) }}</td>
                     </tr>
                 </tfoot>
             </table>
         </div>
+
+        <p class="mt-4 text-xs text-gray-500 dark:text-gray-400">{{ __('console.pixelforge.footnote') }}</p>
     </x-filament::section>
 
     @if ($findResult)

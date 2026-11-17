@@ -8,8 +8,8 @@ use App\Filament\Admin\Clusters\Providers\Pages\PixelforgeUsage;
 use App\Models\Take;
 use App\Models\UsageRecord;
 use App\Models\User;
-use App\Queries\Billing\FindPixelforgeTakesQuery;
 use App\Queries\Billing\GetPixelforgeReconciliationQuery;
+use App\Queries\Billing\ListPixelforgeDayDiscrepanciesQuery;
 use Carbon\CarbonImmutable;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
@@ -117,19 +117,53 @@ it('caches the usage call for five minutes, refetches on refresh and falls back 
         ->and($fallback->fetchedAt?->toDateTimeString())->toBe('2026-11-17 12:00:00');
 });
 
+it('marks days Unavailable when Pixelforge is down and nothing was fetched before', function (): void {
+    Http::fake(['pixelforge.test/v1/usage*' => Http::response(['error' => ['type' => 'api_error', 'code' => 'internal_error', 'message' => 'down']], 503)]);
+
+    $report = app(GetPixelforgeReconciliationQuery::class)->execute(CarbonImmutable::parse('2026-11-15'), CarbonImmutable::parse('2026-11-16'));
+
+    expect($report->unavailable)->toBeTrue()
+        ->and(array_map(fn ($day): ReconciliationStatus => $day->status, $report->days))->toBe([ReconciliationStatus::Unavailable, ReconciliationStatus::Unavailable])
+        ->and($report->theirsTotal)->toBeNull()
+        ->and($report->fetchedAt)->toBeNull();
+});
+
+it('keeps a past day with a take still in flight Pending (2-03), and refuses a range over 92 days', function (): void {
+    Take::factory()->processing()->create(['created_at' => '2026-11-15 09:00:00']);
+    Http::fake(['pixelforge.test/v1/usage*' => Http::response(usagePayload('2026-11-15', '2026-11-16', [
+        '2026-11-15' => [1, 12, 765, 6450, 3184, '0.305510000'],
+    ]))]);
+    $query = app(GetPixelforgeReconciliationQuery::class);
+
+    expect($query->execute(CarbonImmutable::parse('2026-11-15'), CarbonImmutable::parse('2026-11-16'))->days[1]->status)->toBe(ReconciliationStatus::Pending)
+        ->and(fn () => $query->execute(CarbonImmutable::parse('2026-08-01'), CarbonImmutable::parse('2026-11-16')))->toThrow(InvalidArgumentException::class);
+});
+
+it('caches each day under its own key for the dashboard and Reports', function (): void {
+    Http::fake(['pixelforge.test/v1/usage*' => Http::response(usagePayload('2026-11-15', '2026-11-16', [
+        '2026-11-15' => [1, 12, 765, 6450, 3184, '0.305510000'],
+    ]))]);
+
+    app(GetPixelforgeReconciliationQuery::class)->execute(CarbonImmutable::parse('2026-11-15'), CarbonImmutable::parse('2026-11-16'));
+    app(GetPixelforgeReconciliationQuery::class)->execute(CarbonImmutable::parse('2026-11-16'), CarbonImmutable::parse('2026-11-16'));
+
+    expect(Cache::get(GetPixelforgeReconciliationQuery::dayKey('2026-11-15'))['totals']['cost_nanos'] ?? null)->toBe(FIXTURE_COST_NANOS);
+    Http::assertSentCount(1);
+});
+
 it('finds the four groups of a mismatching day across provider pages', function (): void {
     settledFixtureTake('2026-11-15', 'gen_ok');
     settledFixtureTake('2026-11-15', 'gen_differs', costNanos: 300_000_000);
     $unsettled = Take::factory()->processing()->create(['pixelforge_id' => 'gen_unsettled']);
     UsageRecord::factory()->create(['customer_id' => $unsettled->customer_id, 'billable_id' => $unsettled->id]);
     $orphan = Take::factory()->failed()->create(['pixelforge_id' => 'gen_orphan']);
-    $done = fn (string $id, string $completedAt = '2026-11-15T10:00:00Z'): array => PixelforgeFixture::generation('succeeded', ['id' => $id, 'completed_at' => $completedAt]);
+    $done = fn (string $id, string $completedAt = '2026-11-15T10:00:00Z'): array => PixelforgeFixture::generation('succeeded', ['id' => $id, 'created_at' => $completedAt, 'completed_at' => $completedAt]);
 
     Http::fakeSequence('pixelforge.test/v1/generations*')
         ->push(['object' => 'list', 'data' => [$done('gen_ok'), $done('gen_unknown'), $done('gen_other_day', '2026-11-14T23:59:59Z')], 'has_more' => true, 'next_cursor' => 'cur_2'])
         ->push(['object' => 'list', 'data' => [$done('gen_differs'), $done('gen_unsettled'), $done('gen_orphan')], 'has_more' => false, 'next_cursor' => null]);
 
-    $result = app(FindPixelforgeTakesQuery::class)->execute(CarbonImmutable::parse('2026-11-15'));
+    $result = app(ListPixelforgeDayDiscrepanciesQuery::class)->execute(CarbonImmutable::parse('2026-11-15'));
     $ids = fn (array $rows): array => array_map(fn ($row): string => $row->generationId, $rows);
 
     expect($ids($result->theirsNotOurs))->toBe(['gen_unknown'])
@@ -141,6 +175,63 @@ it('finds the four groups of a mismatching day across provider pages', function 
         ->and($result->truncated)->toBeFalse();
 
     Http::assertSent(fn (Request $request): bool => str_contains($request->url(), 'cursor=cur_2') && str_contains($request->url(), 'status=succeeded'));
+});
+
+it('puts a settled take with equal cost but different tokens, or another billing day, in Amount differs', function (): void {
+    $tokens = settledFixtureTake('2026-11-15', 'gen_tokens');
+    $tokens->usageRecord()->update(['output_tokens' => 6449, 'reasoning_tokens' => 3185]);
+    settledFixtureTake('2026-11-14', 'gen_day');
+    Http::fake(['pixelforge.test/v1/generations*' => Http::response(['object' => 'list', 'data' => [
+        PixelforgeFixture::generation('succeeded', ['id' => 'gen_tokens', 'completed_at' => '2026-11-15T10:00:00Z']),
+        PixelforgeFixture::generation('succeeded', ['id' => 'gen_day', 'completed_at' => '2026-11-15T00:00:01Z']),
+    ], 'has_more' => false, 'next_cursor' => null])]);
+
+    $result = app(ListPixelforgeDayDiscrepanciesQuery::class)->execute(CarbonImmutable::parse('2026-11-15'));
+
+    expect(array_map(fn ($row): string => $row->generationId, $result->amountDiffers))->toBe(['gen_tokens', 'gen_day']);
+});
+
+it('matches by app_take_id only for a take without another generation', function (): void {
+    $linked = settledFixtureTake('2026-11-15', 'gen_first');
+    $orphan = Take::factory()->failed()->create(['pixelforge_id' => null]);
+    $generation = fn (string $id, string $takeId): array => PixelforgeFixture::generation('succeeded', [
+        'id' => $id, 'completed_at' => '2026-11-15T10:00:00Z', 'metadata' => ['app_take_id' => $takeId],
+    ]);
+    Http::fake(['pixelforge.test/v1/generations*' => Http::response(['object' => 'list', 'data' => [
+        $generation('gen_first', $linked->id),
+        $generation('gen_second', $linked->id),
+        $generation('gen_orphan_meta', $orphan->id),
+    ], 'has_more' => false, 'next_cursor' => null])]);
+
+    $result = app(ListPixelforgeDayDiscrepanciesQuery::class)->execute(CarbonImmutable::parse('2026-11-15'));
+
+    expect(array_map(fn ($row): string => $row->generationId, $result->theirsNotOurs))->toBe(['gen_second'])
+        ->and(array_map(fn ($row): ?string => $row->takeId, $result->orphanSuccess))->toBe([$orphan->id])
+        ->and($result->amountDiffers)->toBe([]);
+});
+
+it('stops paging once a whole page is older than the day, and flags truncation at the page cap', function (): void {
+    $page = fn (string $createdAt, string $cursor): array => ['object' => 'list', 'data' => [
+        PixelforgeFixture::generation('succeeded', ['id' => 'gen_'.$cursor, 'created_at' => $createdAt, 'completed_at' => $createdAt]),
+    ], 'has_more' => true, 'next_cursor' => $cursor];
+    Http::fakeSequence('pixelforge.test/v1/generations*')
+        ->push($page('2026-11-15T10:00:00Z', 'c2'))
+        ->push($page('2026-11-12T10:00:00Z', 'c3'))
+        ->push($page('2026-11-11T10:00:00Z', 'c4'));
+
+    $result = app(ListPixelforgeDayDiscrepanciesQuery::class)->execute(CarbonImmutable::parse('2026-11-15'));
+
+    expect($result->truncated)->toBeFalse()->and($result->theirsNotOurs)->toHaveCount(1);
+    Http::assertSentCount(2);
+});
+
+it('flags truncation after the page cap', function (): void {
+    Http::fake(['pixelforge.test/v1/generations*' => Http::response(['object' => 'list', 'data' => [
+        PixelforgeFixture::generation('succeeded', ['id' => 'gen_x', 'created_at' => '2026-11-15T10:00:00Z', 'completed_at' => '2026-11-15T10:00:00Z']),
+    ], 'has_more' => true, 'next_cursor' => 'again'])]);
+
+    expect(app(ListPixelforgeDayDiscrepanciesQuery::class)->execute(CarbonImmutable::parse('2026-11-15'))->truncated)->toBeTrue();
+    Http::assertSentCount(ListPixelforgeDayDiscrepanciesQuery::MAX_PAGES);
 });
 
 it('renders for the auditor with 9-decimal costs, the summary and Find takes on a mismatch', function (): void {
@@ -158,12 +249,53 @@ it('renders for the auditor with 9-decimal costs, the summary and Find takes on 
 
     Livewire::test(PixelforgeUsage::class)
         ->assertOk()
-        ->assertSee('0.305510000 / 0.611020000')
-        ->assertSee('12 / 13 days match')
+        ->assertSee('0.611020000')
+        ->assertSee('-0.305510000')
+        ->assertSee('12 of 13 closed days match')
         ->assertSee('Mismatch')
-        ->call('findTakes', '2026-11-15')
+        ->assertSee('Billing day = the UTC day the generation completed')
+        ->callAction('findTakes', arguments: ['date' => '2026-11-15'])
         ->assertSee('Theirs, not ours (1)')
-        ->assertSee('gen_b');
+        ->assertSee('gen_b')
+        ->callAction('refresh')
+        ->assertSet('findResult', null);
+});
+
+it('runs Find takes only for a Mismatch day of the current range, and reports a provider error', function (): void {
+    settledFixtureTake('2026-11-15', 'gen_a');
+    Http::fake([
+        'pixelforge.test/v1/usage*' => Http::response(usagePayload('2026-11-04', '2026-11-17', [
+            '2026-11-15' => [2, 24, 1530, 12900, 6368, '0.611020000'],
+        ])),
+        'pixelforge.test/v1/generations*' => Http::response(['error' => ['type' => 'api_error', 'code' => 'internal_error', 'message' => 'down']], 503),
+    ]);
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
+
+    Livewire::test(PixelforgeUsage::class)
+        ->callAction('findTakes', arguments: ['date' => '2026-11-16'])
+        ->assertNotified('Find takes runs only for a Mismatch day of the current range.')
+        ->callAction('findTakes', arguments: ['date' => 'not-a-date'])
+        ->assertNotified('Find takes runs only for a Mismatch day of the current range.')
+        ->callAction('findTakes', arguments: ['date' => '2026-11-15'])
+        ->assertNotified('Could not reach Pixelforge.')
+        ->assertSet('findResult', null);
+
+    Http::assertSentCount(2);
+});
+
+it('keeps the last valid range and shows an error for an invalid one', function (): void {
+    Http::fake(['pixelforge.test/v1/usage*' => Http::response(usagePayload('2026-11-04', '2026-11-17', []))]);
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
+
+    Livewire::test(PixelforgeUsage::class)
+        ->set('from', '2026-01-01')
+        ->assertHasErrors(['from'])
+        ->assertSet('rangeFrom', '2026-11-04')
+        ->set('from', '2026-13-40')
+        ->assertHasErrors(['from'])
+        ->set('from', '2026-11-10')
+        ->assertHasNoErrors()
+        ->assertSet('rangeFrom', '2026-11-10');
 });
 
 it('is hidden from an admin without the page permission', function (): void {

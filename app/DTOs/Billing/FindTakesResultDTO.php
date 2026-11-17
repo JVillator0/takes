@@ -9,6 +9,8 @@ namespace App\DTOs\Billing;
  * takes we have not settled, settled takes whose cost or billing day differs, and orphan successes (the take was
  * failed free; Pixelforge's cost is absorbed, never a plain mismatch). `truncated` is true when the provider list
  * was longer than the pages read.
+ *
+ * Output-only (built by a Query from typed values, never from an array): no `fromArray` (architecture.md).
  */
 final readonly class FindTakesResultDTO
 {
