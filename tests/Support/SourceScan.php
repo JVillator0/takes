@@ -371,8 +371,9 @@ final class SourceScan
      * that references App\Models\Take, a status written with any other value
      * (`'status' => $snapshot->status`), unless it is another model's status
      * enum (UsageStatus, SuggestionStatus, PurchaseStatus) or the read of a
-     * status as an array element (`'status' => $take->status->value,`, how an
-     * API resource serializes it; nothing is saved). Models get the
+     * status (`'status' => $take->status->value`, how an API resource
+     * serializes it) in a statement that saves nothing: no fill, forceFill,
+     * update, create, insert, upsert or save. Models get the
      * case/string check only, after their declared `$attributes` defaults
      * (`'status' => 'pending'`) are set aside: a default is not a write.
      *
@@ -387,7 +388,9 @@ final class SourceScan
         // Possessive: the value lookahead below must not backtrack into the spaces.
         $write = '(?:[\'"]status[\'"]\s*=>|->status\s*=(?!=))\s*+';
         $takeValue = '/'.$write.'(?:\\\\?(?:App\\\\Enums\\\\Takes\\\\)?TakeStatus::(?!class\b)|[\'"](?:'.$statuses.')[\'"])/';
-        $anyValue = '/'.$write.'(?!(?:\\\\?App\\\\Enums\\\\\w+\\\\)?(?:Usage|Suggestion|Purchase)Status::|\$\w+->status->value\s*,)/';
+        $anyValue = '/'.$write.'(?!(?:\\\\?App\\\\Enums\\\\\w+\\\\)?(?:Usage|Suggestion|Purchase)Status::)/';
+        $serializedRead = '/\G\$\w+->status->value\b/';
+        $saves = '/(?:->|::)(?:forceFill|fill|update|updateOrCreate|firstOrCreate|create|insert|upsert|save)\s*\(/';
         $violations = [];
 
         foreach (self::phpFiles($paths) as $file) {
@@ -416,6 +419,16 @@ final class SourceScan
             preg_match_all($pattern, $source, $matches, PREG_OFFSET_CAPTURE);
 
             foreach ($matches[0] as [$text, $offset]) {
+                if (! $isModel && preg_match($serializedRead, $source, $read, 0, $offset + strlen($text)) === 1) {
+                    $start = strrpos(substr($source, 0, $offset), ';');
+                    $end = strpos($source, ';', $offset);
+                    $statement = substr($source, $start === false ? 0 : $start + 1, ($end === false ? strlen($source) : $end) - ($start === false ? 0 : $start + 1));
+
+                    if (preg_match($saves, $statement) !== 1) {
+                        continue;
+                    }
+                }
+
                 $violations[] = $relative.':'.(substr_count($source, "\n", 0, $offset) + 1).' writes a take status: '.trim($text);
             }
         }
