@@ -99,6 +99,10 @@ return [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
+            // Eloquent writes timestamps without an offset; the session must
+            // read them as UTC (the app timezone), whatever the server default,
+            // or every timestamptz (completed_at, billing day) shifts.
+            'timezone' => 'UTC',
         ],
 
         'sqlsrv' => [

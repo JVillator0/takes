@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\DTOs\Billing;
 
 use App\Support\Money\Nanodollars;
+use InvalidArgumentException;
 
 /**
  * What a provider call may cost and charge (spec 3-03 §4). Every estimator
@@ -18,5 +19,30 @@ final readonly class EstimateDTO
         public Nanodollars $maxCost,
         public Nanodollars $minCharge,
         public Nanodollars $maxCharge,
-    ) {}
+    ) {
+        foreach ([$minCost, $maxCost, $minCharge, $maxCharge] as $amount) {
+            if ($amount->isNegative()) {
+                throw new InvalidArgumentException('Estimate amounts cannot be negative.');
+            }
+        }
+
+        if ($maxCost->lessThan($minCost) || $maxCharge->lessThan($minCharge)) {
+            throw new InvalidArgumentException('Estimate minimum cannot exceed its maximum.');
+        }
+    }
+
+    /**
+     * Charges are the costs with the README markup (spec 3-03 §3). There is
+     * one markup, Nanodollars::DEFAULT_MARKUP_BPS, the same one OpenUsageAction
+     * snapshots on the usage, so the hold and the charge always agree.
+     */
+    public static function fromCosts(Nanodollars $minCost, Nanodollars $maxCost): self
+    {
+        return new self(
+            $minCost,
+            $maxCost,
+            $minCost->withMarkup(Nanodollars::DEFAULT_MARKUP_BPS),
+            $maxCost->withMarkup(Nanodollars::DEFAULT_MARKUP_BPS),
+        );
+    }
 }
