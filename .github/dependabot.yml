@@ -10,7 +10,7 @@ updates:
     cooldown:
       default-days: 5
     commit-message:
-      prefix: "build"
+      prefix: "chore"
       include: "scope"
     groups:
       composer:
@@ -25,7 +25,7 @@ updates:
     cooldown:
       default-days: 5
     commit-message:
-      prefix: "build"
+      prefix: "chore"
       include: "scope"
     groups:
       npm:

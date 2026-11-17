@@ -15,7 +15,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Cancel superseded PR runs only; every push to main runs to completion.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   PHP_VERSION: '8.5'
@@ -199,11 +200,11 @@ jobs:
           npm run build
 
       # The database name comes from phpunit.xml (takes_testing); paratest
-      # suffixes it per process.
-      # Gate B (after M3, D-060) turns on coverage:
-      #   vendor/bin/pest --parallel --exclude-group=concurrency --coverage --min=85
+      # suffixes it per process. The concurrency group (spec 3-03) needs real
+      # transactions, so it never runs in parallel.
+      # Gate B (after M3, D-060) appends: --coverage --min=85
       - name: Pest (parallel, includes the arch suite)
-        run: vendor/bin/pest --parallel
+        run: vendor/bin/pest --parallel --exclude-group=concurrency
 
       # Spec 3-03: serial run of the concurrency group (DatabaseMigrations,
       # real transactions). Enable once the group exists.
