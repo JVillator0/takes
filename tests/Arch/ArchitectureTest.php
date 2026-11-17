@@ -179,7 +179,8 @@ arch('App\\Contracts holds only interfaces (seams)')
 test('only the transition actions write a take status', function (): void {
     expect(SourceScan::takeStatusWrites(
         ['app', 'routes', 'database/seeders'],
-        except: ['app/Actions/Takes/ApplyTakeSnapshotAction.php', 'app/Actions/Takes/FailTakeAction.php'],
+        // TakeResource only serializes a take (`'status' => $take->status->value`); it never saves one.
+        except: ['app/Actions/Takes/ApplyTakeSnapshotAction.php', 'app/Actions/Takes/FailTakeAction.php', 'app/Http/Resources/TakeResource.php'],
     ))->toBe([]);
 });
 

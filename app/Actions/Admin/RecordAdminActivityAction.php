@@ -11,8 +11,9 @@ use Illuminate\Database\Eloquent\Relations\Relation;
 /**
  * Writes one entry of the console's audit (spec 7, A07): which admin did what, on which table and record. A
  * subject is linked only when its model has a morph alias (the morph map is enforced, so an unmapped model such
- * as a Shield role is kept by table and id instead). Write actions (Adjust credits, Restrict, Reconcile now) call
- * this with their reason in the properties.
+ * as a Shield role is kept by table and id instead). Adjust credits and Restrict call this with their required
+ * reason in the properties; Reconcile now logs its outcome (status before/after, poll result) with no reason,
+ * as 2-03 specifies (it only applies Pixelforge's state through the normal path).
  */
 final readonly class RecordAdminActivityAction
 {
