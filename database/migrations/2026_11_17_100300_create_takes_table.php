@@ -11,6 +11,10 @@ use Illuminate\Support\Facades\Schema;
  * Takes: one generation request and its result (spec 3-02). Money for a take
  * lives in its usage record (spec 3-03), never here.
  *
+ * Takes (and suggestions) are never hard-deleted: usage_records reference them
+ * through a morph pair (billable_type, billable_id) that cannot carry an FK,
+ * so a delete would orphan money rows. No code path deletes them.
+ *
  * Enum-like columns are varchar + CHECK, never native Postgres enums; the PHP
  * backed enums in App\Enums\Takes are the source of each list.
  */
@@ -22,7 +26,8 @@ return new class extends Migration
             // Also sent to Pixelforge as metadata.app_take_id.
             $table->ulid('id')->primary();
             $table->foreignId('customer_id')->constrained()->restrictOnDelete();
-            $table->foreignUlid('project_id')->constrained()->restrictOnDelete();
+            // Same-customer FK below.
+            $table->ulid('project_id');
             // Remix / AI lineage (self-referencing FK added below, after the primary key exists).
             $table->ulid('parent_take_id')->nullable()->index();
             $table->foreignUlid('suggestion_id')->nullable()->constrained()->restrictOnDelete();
@@ -54,6 +59,7 @@ return new class extends Migration
             $table->timestampTz('completed_at')->nullable();
             $table->timestampsTz();
 
+            $table->foreign(['project_id', 'customer_id'])->references(['id', 'customer_id'])->on('projects')->restrictOnDelete();
             $table->unique(['customer_id', 'idempotency_key']);
             $table->rawIndex('customer_id, created_at DESC', 'takes_customer_id_created_at_index');
             $table->rawIndex('project_id, created_at DESC', 'takes_project_id_created_at_index');

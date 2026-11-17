@@ -18,6 +18,9 @@ return new class extends Migration
             $table->timestampsTz();
 
             $table->rawIndex('customer_id, updated_at DESC', 'projects_customer_id_updated_at_index');
+            // Target of the composite (project_id, customer_id) FKs: a take or
+            // suggestion can only live in a project of its own customer.
+            $table->unique(['id', 'customer_id']);
         });
     }
 

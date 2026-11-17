@@ -23,7 +23,8 @@ use Illuminate\Database\Eloquent\Relations\MorphOne;
 /**
  * One generation request and its result (spec 3-02). Status changes only
  * through ApplyTakeSnapshotAction and FailTakeAction; money lives in the
- * usage record, never here.
+ * usage record, never here. Never hard-deleted: the usage record points here
+ * through a morph pair with no FK, so a delete would orphan money rows.
  *
  * @property string $id
  * @property int $customer_id

@@ -21,14 +21,20 @@ return new class extends Migration
             $table->string('type');
             // Signed: credits are positive, charges negative.
             $table->bigInteger('amount_nanos');
-            $table->foreignUlid('usage_record_id')->nullable()->constrained()->restrictOnDelete();
-            $table->foreignUlid('purchase_id')->nullable()->constrained()->restrictOnDelete();
+            $table->ulid('usage_record_id')->nullable();
+            $table->ulid('purchase_id')->nullable();
             // The admin who made an adjustment.
             $table->foreignId('admin_id')->nullable()->constrained('users')->restrictOnDelete();
             $table->string('reason')->nullable();
             $table->timestampTz('created_at')->useCurrent();
 
             $table->index(['customer_id', 'created_at']);
+
+            // Composite FKs: an entry can only reference its own customer's usage
+            // or purchase, so one row can never move two balances. NULL ids skip
+            // the check (MATCH SIMPLE).
+            $table->foreign(['usage_record_id', 'customer_id'])->references(['id', 'customer_id'])->on('usage_records')->restrictOnDelete();
+            $table->foreign(['purchase_id', 'customer_id'])->references(['id', 'customer_id'])->on('purchases')->restrictOnDelete();
         });
 
         $checks = [

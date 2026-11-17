@@ -25,6 +25,8 @@ return new class extends Migration
             $table->uuid('idempotency_key');
             $table->timestampsTz();
 
+            // Target of ledger_entries' same-customer (purchase_id, customer_id) FK.
+            $table->unique(['id', 'customer_id']);
             // A replayed purchase request creates nothing.
             $table->unique(['customer_id', 'idempotency_key']);
         });

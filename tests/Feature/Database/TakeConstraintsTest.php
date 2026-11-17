@@ -115,6 +115,24 @@ it('rejects a second take for the same AI suggestion', function (): void {
     DB::table('takes')->insert(takeRow($this->project));
 });
 
+it('rejects a take or suggestion in another customer\'s project', function (): void {
+    $otherProject = Project::factory()->create();
+
+    Constraint::assertRejects(
+        fn () => DB::table('takes')->insert(takeRow($this->project, ['project_id' => $otherProject->id])),
+        Constraint::FOREIGN_KEY_VIOLATION,
+        'takes_project_id_customer_id_foreign',
+    );
+
+    $suggestion = Suggestion::factory()->create();
+
+    Constraint::assertRejects(
+        fn () => DB::table('suggestions')->where('id', $suggestion->id)->update(['project_id' => $otherProject->id]),
+        Constraint::FOREIGN_KEY_VIOLATION,
+        'suggestions_project_id_customer_id_foreign',
+    );
+});
+
 it('rejects a duplicate Pixelforge generation id', function (): void {
     DB::table('takes')->insert(takeRow($this->project, ['pixelforge_id' => 'gen_abc']));
 

@@ -20,7 +20,8 @@ return new class extends Migration
         Schema::create('suggestions', function (Blueprint $table): void {
             $table->ulid('id')->primary();
             $table->foreignId('customer_id')->constrained()->restrictOnDelete();
-            $table->foreignUlid('project_id')->constrained()->restrictOnDelete();
+            // Same-customer FK below.
+            $table->ulid('project_id');
             // The take the instruction applies to (FK added with `takes`).
             $table->ulid('base_take_id')->index();
             $table->text('instruction');
@@ -37,6 +38,7 @@ return new class extends Migration
             $table->timestampTz('expires_at');
             $table->timestampsTz();
 
+            $table->foreign(['project_id', 'customer_id'])->references(['id', 'customer_id'])->on('projects')->restrictOnDelete();
             $table->unique(['customer_id', 'request_key']);
             $table->index(['customer_id', 'created_at']);
         });

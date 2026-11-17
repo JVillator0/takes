@@ -205,6 +205,28 @@ it('rejects invalid purchases and replayed purchase keys', function (): void {
     );
 });
 
+it('rejects ledger entries that point at another customer\'s usage or purchase', function (): void {
+    $other = Customer::factory()->create();
+    $otherUsage = UsageRecord::factory()->settled()->create(['customer_id' => $other->id]);
+    $otherPurchase = Purchase::factory()->create(['customer_id' => $other->id]);
+
+    Constraint::assertRejects(
+        fn () => DB::table('ledger_entries')->insert(ledgerRow($this->customer, ['type' => 'charge', 'amount_nanos' => -375, 'usage_record_id' => $otherUsage->id])),
+        Constraint::FOREIGN_KEY_VIOLATION,
+        'ledger_entries_usage_record_id_customer_id_foreign',
+    );
+
+    Constraint::assertRejects(
+        fn () => DB::table('ledger_entries')->insert(ledgerRow($this->customer, ['type' => 'purchase', 'amount_nanos' => 5_000_000_000, 'purchase_id' => $otherPurchase->id])),
+        Constraint::FOREIGN_KEY_VIOLATION,
+        'ledger_entries_purchase_id_customer_id_foreign',
+    );
+
+    // The owner's own entries are accepted.
+    DB::table('ledger_entries')->insert(ledgerRow($other, ['type' => 'charge', 'amount_nanos' => -375, 'usage_record_id' => $otherUsage->id]));
+    DB::table('ledger_entries')->insert(ledgerRow($other, ['type' => 'purchase', 'amount_nanos' => 5_000_000_000, 'purchase_id' => $otherPurchase->id]));
+});
+
 it('blocks deleting a customer who has takes or ledger entries', function (): void {
     $withTakes = Take::factory()->create()->customer;
     $withLedger = LedgerEntry::factory()->welcome()->create()->customer;
@@ -215,7 +237,12 @@ it('blocks deleting a customer who has takes or ledger entries', function (): vo
     expect(Customer::query()->whereKey([$withTakes->id, $withLedger->id])->count())->toBe(2);
 });
 
-it('blocks deleting a take that money or webhook rows point to', function (): void {
+/**
+ * Only webhook deliveries hold an FK to a take. The usage record points at it
+ * through a morph pair with no FK, which is why takes are never hard-deleted
+ * (documented on the takes migration and the Take model).
+ */
+it('blocks deleting a take that webhook deliveries point to', function (): void {
     $take = Take::factory()->succeeded()->create();
     DB::table('webhook_deliveries')->insert([
         'event_id' => 'evt_1',

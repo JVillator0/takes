@@ -50,6 +50,8 @@ return new class extends Migration
             $table->timestampsTz();
 
             $table->unique(['billable_type', 'billable_id']);
+            // Target of ledger_entries' same-customer (usage_record_id, customer_id) FK.
+            $table->unique(['id', 'customer_id']);
             $table->index(['provider', 'billing_date']);
             $table->index(['customer_id', 'billing_date']);
         });

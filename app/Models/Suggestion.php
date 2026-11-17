@@ -16,7 +16,8 @@ use Illuminate\Database\Eloquent\Relations\MorphOne;
 
 /**
  * One "Describe a change" AI call proposing a parameter diff (spec 8). Billed
- * through the same usage records and ledger as takes (D-009).
+ * through the same usage records and ledger as takes (D-009). Never
+ * hard-deleted, for the same reason as Take (morph usage record, no FK).
  *
  * @property string $id
  * @property int $customer_id
