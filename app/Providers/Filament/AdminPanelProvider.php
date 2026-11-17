@@ -6,6 +6,7 @@ namespace App\Providers\Filament;
 
 use App\Enums\Auth\AdminRole;
 use App\Filament\Admin\Audit\AdminAuditResource;
+use App\Filament\Admin\Auth\SetUpRequiredMultiFactorAuthentication;
 use App\Filament\Admin\Clusters\Billing\BillingCluster;
 use App\Filament\Admin\Clusters\Providers\ProvidersCluster;
 use App\Filament\Admin\Clusters\Studio\StudioCluster;
@@ -76,6 +77,7 @@ final class AdminPanelProvider extends PanelProvider
             // again per request, with the admin, and lets the auditor through.
             ->multiFactorAuthentication(
                 [AppAuthentication::make()->recoverable()],
+                setUpRequiredAction: SetUpRequiredMultiFactorAuthentication::class,
                 isRequired: fn (): bool => self::requiresMultiFactorAuthentication(Filament::auth()->user()),
             )
             ->multiFactorAuthenticationRequiredMiddlewareName(EnsureAdminMultiFactorAuthentication::class)
@@ -111,6 +113,8 @@ final class AdminPanelProvider extends PanelProvider
                 FilamentEChartsPlugin::make(),
                 ActivitylogPlugin::make()
                     ->resource(AdminAuditResource::class)
+                    ->datetimeFormat('Y-m-d H:i:s \U\T\C')
+                    ->isResourceActionHidden(true)
                     ->label(fn (): string => __('console.audit.entry'))
                     ->pluralLabel(fn (): string => __('console.audit.title')),
                 EnvironmentIndicatorPlugin::make()

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Enums\Auth\AdminRole;
+use App\Filament\Admin\Auth\SetUpRequiredMultiFactorAuthentication;
 use App\Models\User;
 use Database\Seeders\AdminRolesSeeder;
 use Filament\Auth\MultiFactor\App\AppAuthentication;
@@ -123,4 +124,20 @@ it('shows the auditor credentials on the sign-in page only while the demo panel 
     config(['admin.auditor.password' => null]);
 
     $this->get('/admin/login')->assertOk()->assertDontSee('auditor@example.com');
+});
+
+it('refuses the MFA set-up page to the auditor, so the shared login cannot be locked', function (): void {
+    $auditor = User::factory()->admin(AdminRole::Auditor)->create();
+    $this->actingAs($auditor);
+
+    $this->get('/admin/multi-factor-authentication/set-up')->assertRedirect('/admin');
+    Livewire::test(SetUpRequiredMultiFactorAuthentication::class)->assertRedirect('/admin')->assertDontSee('authenticator');
+
+    expect($auditor->refresh()->app_authentication_secret)->toBeNull();
+});
+
+it('still shows the MFA set-up page to an operator without an app', function (): void {
+    $this->actingAs(User::factory()->admin(AdminRole::Operator)->create())
+        ->get('/admin/multi-factor-authentication/set-up')
+        ->assertOk();
 });
