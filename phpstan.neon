@@ -5,6 +5,9 @@ includes:
 parameters:
     level: 8
 
+    # Result cache per checkout, so the five pool worktrees do not invalidate each other's cache.
+    tmpDir: storage/framework/cache/phpstan
+
     paths:
         - app/
         - bootstrap/app.php
