@@ -40,6 +40,8 @@ return new class extends Migration
 
             $table->foreign(['project_id', 'customer_id'])->references(['id', 'customer_id'])->on('projects')->restrictOnDelete();
             $table->unique(['customer_id', 'request_key']);
+            // Target of takes' same-customer (suggestion_id, customer_id) FK.
+            $table->unique(['id', 'customer_id']);
             $table->index(['customer_id', 'created_at']);
         });
 

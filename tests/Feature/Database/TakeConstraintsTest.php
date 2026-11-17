@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Models\Customer;
 use App\Models\Project;
 use App\Models\Suggestion;
+use App\Models\Take;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\Support\Constraint;
@@ -130,6 +131,39 @@ it('rejects a take or suggestion in another customer\'s project', function (): v
         fn () => DB::table('suggestions')->where('id', $suggestion->id)->update(['project_id' => $otherProject->id]),
         Constraint::FOREIGN_KEY_VIOLATION,
         'suggestions_project_id_customer_id_foreign',
+    );
+});
+
+it('rejects lineage and suggestion links to another customer\'s rows', function (): void {
+    $otherTake = Take::factory()->create();
+    $otherSuggestion = Suggestion::factory()->create();
+    $suggestion = Suggestion::factory()->create([
+        'customer_id' => $this->project->customer_id,
+        'project_id' => $this->project->id,
+    ]);
+
+    Constraint::assertRejects(
+        fn () => DB::table('takes')->insert(takeRow($this->project, ['parent_take_id' => $otherTake->id, 'source' => 'remix'])),
+        Constraint::FOREIGN_KEY_VIOLATION,
+        'takes_parent_take_id_customer_id_foreign',
+    );
+
+    Constraint::assertRejects(
+        fn () => DB::table('takes')->insert(takeRow($this->project, ['suggestion_id' => $otherSuggestion->id, 'source' => 'ai_change'])),
+        Constraint::FOREIGN_KEY_VIOLATION,
+        'takes_suggestion_id_customer_id_foreign',
+    );
+
+    Constraint::assertRejects(
+        fn () => DB::table('suggestions')->where('id', $suggestion->id)->update(['base_take_id' => $otherTake->id]),
+        Constraint::FOREIGN_KEY_VIOLATION,
+        'suggestions_base_take_id_customer_id_foreign',
+    );
+
+    Constraint::assertRejects(
+        fn () => DB::table('suggestions')->where('id', $suggestion->id)->update(['resulting_take_id' => $otherTake->id]),
+        Constraint::FOREIGN_KEY_VIOLATION,
+        'suggestions_resulting_take_id_customer_id_foreign',
     );
 });
 

@@ -28,9 +28,10 @@ return new class extends Migration
             $table->foreignId('customer_id')->constrained()->restrictOnDelete();
             // Same-customer FK below.
             $table->ulid('project_id');
-            // Remix / AI lineage (self-referencing FK added below, after the primary key exists).
+            // Remix / AI lineage (same-customer self-referencing FK added below, after the keys exist).
             $table->ulid('parent_take_id')->nullable()->index();
-            $table->foreignUlid('suggestion_id')->nullable()->constrained()->restrictOnDelete();
+            // Same-customer FK below.
+            $table->ulid('suggestion_id')->nullable();
             $table->string('source');
             // D-033: minted by the composer, reused as Pixelforge's Idempotency-Key.
             $table->uuid('idempotency_key');
@@ -60,7 +61,10 @@ return new class extends Migration
             $table->timestampsTz();
 
             $table->foreign(['project_id', 'customer_id'])->references(['id', 'customer_id'])->on('projects')->restrictOnDelete();
+            $table->foreign(['suggestion_id', 'customer_id'])->references(['id', 'customer_id'])->on('suggestions')->restrictOnDelete();
             $table->unique(['customer_id', 'idempotency_key']);
+            // Target of the same-customer (…_take_id, customer_id) FKs.
+            $table->unique(['id', 'customer_id']);
             $table->rawIndex('customer_id, created_at DESC', 'takes_customer_id_created_at_index');
             $table->rawIndex('project_id, created_at DESC', 'takes_project_id_created_at_index');
             // The sweeper (D-036, D-053).
@@ -94,22 +98,24 @@ return new class extends Migration
         // One take per AI proposal.
         DB::statement('CREATE UNIQUE INDEX takes_suggestion_id_unique ON takes (suggestion_id) WHERE suggestion_id IS NOT NULL');
 
+        // Every take ↔ take and take ↔ suggestion link stays within one customer
+        // (composite FKs; a NULL id skips the check, MATCH SIMPLE).
         Schema::table('takes', function (Blueprint $table): void {
-            $table->foreign('parent_take_id')->references('id')->on('takes')->restrictOnDelete();
+            $table->foreign(['parent_take_id', 'customer_id'])->references(['id', 'customer_id'])->on('takes')->restrictOnDelete();
         });
 
         // Close the suggestions ↔ takes cycle now that `takes` exists.
         Schema::table('suggestions', function (Blueprint $table): void {
-            $table->foreign('base_take_id')->references('id')->on('takes')->restrictOnDelete();
-            $table->foreign('resulting_take_id')->references('id')->on('takes')->restrictOnDelete();
+            $table->foreign(['base_take_id', 'customer_id'])->references(['id', 'customer_id'])->on('takes')->restrictOnDelete();
+            $table->foreign(['resulting_take_id', 'customer_id'])->references(['id', 'customer_id'])->on('takes')->restrictOnDelete();
         });
     }
 
     public function down(): void
     {
         Schema::table('suggestions', function (Blueprint $table): void {
-            $table->dropForeign(['base_take_id']);
-            $table->dropForeign(['resulting_take_id']);
+            $table->dropForeign(['base_take_id', 'customer_id']);
+            $table->dropForeign(['resulting_take_id', 'customer_id']);
         });
 
         Schema::dropIfExists('takes');
