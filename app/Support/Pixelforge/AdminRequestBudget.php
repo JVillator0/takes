@@ -9,7 +9,8 @@ use Illuminate\Support\Facades\RateLimiter;
 /**
  * The admin console's share of the Pixelforge account budget (60 requests/min, shared with every customer's
  * takes): one fixed window of PER_MINUTE requests for all admins together, spent per actual HTTP request. Usage
- * reports spend 1; Find takes reserves its page cap up front and refunds the pages it did not read.
+ * reports spend 1; Find takes spends 1 per page, reserved just before each page. Nothing is ever refunded, so the
+ * window's counter never goes below zero.
  */
 final class AdminRequestBudget
 {
@@ -29,13 +30,6 @@ final class AdminRequestBudget
         RateLimiter::decrement(self::KEY, 60, $requests);
 
         return false;
-    }
-
-    public static function refund(int $requests): void
-    {
-        if ($requests > 0) {
-            RateLimiter::decrement(self::KEY, 60, $requests);
-        }
     }
 
     public static function remaining(): int

@@ -379,17 +379,43 @@ it('caches Find takes per day as plain data in a serializing store', function ()
     Http::assertSentCount(1);
 });
 
-it('spends one admin budget per Pixelforge request: Find takes reserves its page cap and refunds the rest', function (): void {
-    Http::fake(['pixelforge.test/v1/generations*' => Http::response(['object' => 'list', 'data' => [], 'has_more' => false, 'next_cursor' => null])]);
+it('spends one admin budget request per Find takes page, refusing only when the first page does not fit', function (): void {
+    $page = fn (string $cursor): array => ['object' => 'list', 'data' => [
+        PixelforgeFixture::generation('succeeded', ['id' => 'gen_'.$cursor, 'created_at' => '2026-11-15T10:00:00Z', 'completed_at' => '2026-11-15T10:00:00Z']),
+    ], 'has_more' => true, 'next_cursor' => $cursor];
+    Http::fake(['pixelforge.test/v1/generations*' => Http::response($page('next'))]);
 
-    app(ListPixelforgeDayDiscrepanciesQuery::class)->execute(CarbonImmutable::parse('2026-11-15'));
-    expect(RateLimiter::attempts(AdminRequestBudget::KEY))->toBe(1);
+    RateLimiter::increment(AdminRequestBudget::KEY, 60, AdminRequestBudget::PER_MINUTE - 3);
+    $result = app(ListPixelforgeDayDiscrepanciesQuery::class)->execute(CarbonImmutable::parse('2026-11-15'));
 
-    RateLimiter::increment(AdminRequestBudget::KEY, 60, AdminRequestBudget::PER_MINUTE - ListPixelforgeDayDiscrepanciesQuery::MAX_PAGES);
+    expect($result->truncated)->toBeTrue()
+        ->and(RateLimiter::attempts(AdminRequestBudget::KEY))->toBe(AdminRequestBudget::PER_MINUTE);
+    Http::assertSentCount(3);
 
     expect(fn () => app(ListPixelforgeDayDiscrepanciesQuery::class)->execute(CarbonImmutable::parse('2026-11-14')))
         ->toThrow(AdminRequestBudgetExhaustedException::class);
-    Http::assertSentCount(1);
+    Http::assertSentCount(3);
+});
+
+it('never drives the budget counter negative when a scan crosses the window', function (): void {
+    $sent = 0;
+    Http::fake(['pixelforge.test/v1/generations*' => function () use (&$sent) {
+        $sent++;
+
+        if ($sent === 2) {
+            $this->travel(61)->seconds(); // the window that charged pages 1-2 expires mid-scan
+        }
+
+        return Http::response(['object' => 'list', 'data' => [
+            PixelforgeFixture::generation('succeeded', ['id' => 'gen_'.$sent, 'created_at' => '2026-11-15T10:00:00Z', 'completed_at' => '2026-11-15T10:00:00Z']),
+        ], 'has_more' => $sent < 4, 'next_cursor' => $sent < 4 ? 'c'.$sent : null]);
+    }]);
+
+    app(ListPixelforgeDayDiscrepanciesQuery::class)->execute(CarbonImmutable::parse('2026-11-15'));
+
+    // Pages 3 and 4 were charged to the new window; nothing was refunded into it.
+    expect(RateLimiter::attempts(AdminRequestBudget::KEY))->toBe(2)
+        ->and(AdminRequestBudget::remaining())->toBe(AdminRequestBudget::PER_MINUTE - 2);
 });
 
 it('serves the last good figures when the budget is spent, and does not retry a failed fetch for a minute', function (): void {

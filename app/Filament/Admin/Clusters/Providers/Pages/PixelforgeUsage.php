@@ -30,7 +30,8 @@ use Livewire\Attributes\Locked;
  * for today and days with open takes, and **Find takes** on a mismatching day. Read-only, so the auditor sees it.
  *
  * The report reads the last valid range (`rangeFrom`/`rangeUntil`); a date input that would make the range
- * invalid shows an error and changes nothing, so no intermediate range ever calls Pixelforge.
+ * invalid shows an error and changes nothing. A valid intermediate range (while typing) may fetch uncached days,
+ * and every such call is charged to the admin request budget (AdminRequestBudget).
  *
  * @property-read PixelforgeReconciliationDTO $report  the #[Computed] report, memoized per request
  */
