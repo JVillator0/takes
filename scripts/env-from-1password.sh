@@ -5,9 +5,11 @@
 #   scripts/env-from-1password.sh <local|production> [--env-file <path>]
 #
 # Target: .env for local, .env.production for production (both git-ignored),
-# or --env-file. It is created from .env.example when missing. Only the keys in
-# SECRET_KEYS are written; existing lines are replaced in place, every other
-# line is left untouched, and a key with no available value keeps its line.
+# or --env-file. A missing local target is created from .env.example; a missing
+# production target is created holding only the secret keys, never seeded with
+# local defaults (APP_ENV=local, APP_DEBUG=true). Only the keys in SECRET_KEYS
+# are written; existing lines are replaced in place, every other line is left
+# untouched, and a key with no available value keeps its line.
 #
 # Source of the values, in this order:
 #   1. TAKES_KEYSTORE_DIR set: read <dir>/<env>.env (production also accepts
@@ -130,8 +132,13 @@ else
 fi
 
 if [[ ! -f $target ]]; then
-    cp "$ROOT/.env.example" "$target"
-    info "created $(basename "$target") from .env.example"
+    if [[ $env_name == production ]]; then
+        : >"$target"
+        warn "created $(basename "$target") with the secret keys only; it is not a complete production environment"
+    else
+        cp "$ROOT/.env.example" "$target"
+        info "created $(basename "$target") from .env.example"
+    fi
 fi
 chmod 600 "$target"
 
