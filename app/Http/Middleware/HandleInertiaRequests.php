@@ -5,12 +5,10 @@ declare(strict_types=1);
 namespace App\Http\Middleware;
 
 use App\DTOs\Auth\AbilityDTO;
-use App\Enums\Auth\CustomerPermission;
-use App\Enums\Auth\DenialReason;
 use App\Models\Customer;
 use App\Models\Project;
+use App\Models\Purchase;
 use App\Services\Pixelforge\PixelforgeClient;
-use Illuminate\Auth\Access\Response;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Middleware;
@@ -101,7 +99,7 @@ final class HandleInertiaRequests extends Middleware
      * that depend on an estimate (`createTake`, `suggest`) are per-page props
      * built the same way by the page that has the estimate (specs 4 and 8).
      *
-     * @return array{createProject: array{allowed: bool, reason: string|null, message: string|null}, purchaseCredits: array{allowed: bool, reason: string|null, message: string|null}}|null
+     * @return array{createProject: array{allowed: bool, reason: string|null, message: string|null}, purchaseCredits: array{allowed: bool, reason: string|null, message: string|null}, updateAccount: array{allowed: bool, reason: string|null, message: string|null}}|null
      */
     private function abilities(?Customer $customer): ?array
     {
@@ -113,11 +111,8 @@ final class HandleInertiaRequests extends Middleware
 
         return [
             'createProject' => AbilityDTO::fromResponse($gate->inspect('create', Project::class))->toArray(),
-            'purchaseCredits' => AbilityDTO::fromResponse(
-                $customer->checkPermissionTo(CustomerPermission::CreditsPurchase->value)
-                    ? Response::allow()
-                    : DenialReason::AccountRestricted->deny(),
-            )->toArray(),
+            'purchaseCredits' => AbilityDTO::fromResponse($gate->inspect('create', Purchase::class))->toArray(),
+            'updateAccount' => AbilityDTO::fromResponse($gate->inspect('updateAccount', $customer))->toArray(),
         ];
     }
 }

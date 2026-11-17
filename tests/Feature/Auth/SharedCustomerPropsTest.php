@@ -2,7 +2,9 @@
 
 declare(strict_types=1);
 
+use App\Enums\Auth\DemoAccount;
 use App\Models\Customer;
+use Database\Seeders\DemoAccountsSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Inertia\Testing\AssertableInertia as Assert;
 use Spatie\Permission\Models\Role;
@@ -34,7 +36,21 @@ it('shares allowed abilities under auth.can', function (): void {
         ->assertInertia(fn (Assert $page) => $page
             ->missing('can')
             ->where('auth.can.createProject', ['allowed' => true, 'reason' => null, 'message' => null])
-            ->where('auth.can.purchaseCredits', ['allowed' => true, 'reason' => null, 'message' => null]));
+            ->where('auth.can.purchaseCredits', ['allowed' => true, 'reason' => null, 'message' => null])
+            ->where('auth.can.updateAccount', ['allowed' => true, 'reason' => null, 'message' => null]));
+});
+
+it('shares the read-only showcase as unable to buy credits, create projects or change its account (D-072)', function (): void {
+    $this->seed(DemoAccountsSeeder::class);
+    $showcase = Customer::query()->where('email', DemoAccount::Showcase->email())->sole();
+
+    $this->actingAs($showcase, 'customer')
+        ->get(route('dashboard'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('auth.can.purchaseCredits.allowed', false)
+            ->where('auth.can.purchaseCredits.reason', 'account_restricted')
+            ->where('auth.can.createProject.allowed', false)
+            ->where('auth.can.updateAccount.reason', 'demo_account_locked'));
 });
 
 it('shares a denied ability with its reason code and 2-01 copy', function (): void {
