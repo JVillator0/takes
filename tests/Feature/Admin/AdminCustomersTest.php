@@ -200,14 +200,15 @@ it('gates both tabs on the customer permission alone', function (): void {
 
     $this->actingAs($auditor);
     expect(TakesRelationManager::canViewForRecord($ana, ViewCustomer::class))->toBeTrue()
-        ->and(LedgerEntriesRelationManager::canViewForRecord($ana, ViewCustomer::class))->toBeTrue()
-        ->and($auditor->can('ViewAny:Take'))->toBeFalse();
+        ->and(LedgerEntriesRelationManager::canViewForRecord($ana, ViewCustomer::class))->toBeTrue();
 
     Role::findByName(AdminRole::Auditor->value, AdminRole::GUARD)->revokePermissionTo('ViewAny:Customer');
     app(PermissionRegistrar::class)->forgetCachedPermissions();
     $this->actingAs($withoutCustomers->refresh());
 
-    expect(TakesRelationManager::canViewForRecord($ana, ViewCustomer::class))->toBeFalse()
+    // Still allowed to list takes elsewhere, but not this customer's tabs: the gate is the customer permission.
+    expect($withoutCustomers->can('ViewAny:Take'))->toBeTrue()
+        ->and(TakesRelationManager::canViewForRecord($ana, ViewCustomer::class))->toBeFalse()
         ->and(LedgerEntriesRelationManager::canViewForRecord($ana, ViewCustomer::class))->toBeFalse();
 });
 
