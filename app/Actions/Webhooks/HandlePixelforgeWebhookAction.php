@@ -54,24 +54,25 @@ final readonly class HandlePixelforgeWebhookAction
         return DB::transaction(function () use ($event): WebhookOutcome {
             $receivedAt = now();
 
-            $inserted = DB::table('webhook_events')->insertOrIgnoreReturning([
+            // ON CONFLICT DO NOTHING: a concurrent delivery of the same event
+            // waits for this one to commit, then sees it as a duplicate.
+            $isNew = DB::table('webhook_events')->insertOrIgnore([
                 'event_id' => $event->eventId,
                 'type' => $event->type,
                 'generation_id' => $event->generationId,
                 'payload' => json_encode($event->payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
                 'received_at' => $receivedAt,
-            ], ['id'], 'event_id')->first();
+            ]) === 1;
+
+            $webhookEventId = DB::table('webhook_events')->where('event_id', $event->eventId)->value('id');
 
             $take = $event->eventType?->isGeneration() === true
                 ? $this->findTake->execute($event->generationId, $event->appTakeId)
                 : null;
 
-            $outcome = $inserted === null
-                ? WebhookOutcome::Duplicate
-                : $this->handle($event, $take);
-
-            $webhookEventId = $inserted?->id
-                ?? DB::table('webhook_events')->where('event_id', $event->eventId)->value('id');
+            $outcome = $isNew
+                ? $this->handle($event, $take)
+                : WebhookOutcome::Duplicate;
 
             (new WebhookDelivery)->forceFill([
                 'event_id' => $event->eventId,
@@ -123,9 +124,10 @@ final readonly class HandlePixelforgeWebhookAction
             return WebhookOutcome::InvalidSnapshot;
         }
 
-        if ($snapshot->status === TakeStatus::Succeeded && $snapshot->rates === null) {
-            // Settle only with the generation's own rates (D-055): fetch it
-            // after commit, outside this transaction, and apply that snapshot.
+        if ($snapshot->status === TakeStatus::Succeeded && $snapshot->rates === null && ! $take->status->isTerminal()) {
+            // This success would settle, and settlement uses only the
+            // generation's own rates (D-055, W-13): fetch the generation
+            // after commit, outside this transaction, and apply that instead.
             Log::warning('Pixelforge succeeded webhook without rates; fetching the generation.', [
                 'take_id' => $take->id,
                 'generation_id' => $snapshot->id,

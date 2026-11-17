@@ -45,9 +45,14 @@ final class ReconcileTakeJob implements ShouldBeUniqueUntilProcessing, ShouldQue
     /** Each poll is its own job; a crash is recovered by the next sweep. */
     public int $tries = 1;
 
+    /**
+     * @param  int  $attempt  index into DELAYS of this poll
+     * @param  bool  $continuesChain  false for a one-off fetch that never schedules another poll
+     */
     public function __construct(
         public readonly string $takeId,
         public readonly int $attempt = 0,
+        public readonly bool $continuesChain = true,
     ) {}
 
     /**
@@ -60,17 +65,19 @@ final class ReconcileTakeJob implements ShouldBeUniqueUntilProcessing, ShouldQue
     }
 
     /**
-     * Polls right away (after commit), e.g. when a succeeded webhook came
-     * without the rates needed to settle it.
+     * Polls once right away (after commit), e.g. when a succeeded webhook
+     * came without the rates needed to settle it. Unique on its own key, so
+     * a chain poll already waiting in the queue does not swallow it; it never
+     * schedules another poll, the chain carries on as before.
      */
     public static function fetchNow(string $takeId): void
     {
-        self::dispatch($takeId)->afterCommit();
+        self::dispatch($takeId, 0, false)->afterCommit();
     }
 
     public function uniqueId(): string
     {
-        return $this->takeId;
+        return $this->continuesChain ? $this->takeId : "{$this->takeId}:now";
     }
 
     public function handle(ReconcileTakeAction $reconcile, FlagTakeAttentionAction $flagAttention): void
@@ -83,7 +90,7 @@ final class ReconcileTakeJob implements ShouldBeUniqueUntilProcessing, ShouldQue
 
         $result = $reconcile->execute($take);
 
-        if (! $result->status->pollAgain()) {
+        if (! $this->continuesChain || ! $result->status->pollAgain()) {
             return;
         }
 

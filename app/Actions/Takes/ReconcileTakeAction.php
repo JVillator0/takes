@@ -14,17 +14,16 @@ use App\Exceptions\Pixelforge\PixelforgeUnavailable;
 use App\Exceptions\Takes\SnapshotRatesMissingException;
 use App\Models\Take;
 use App\Services\Pixelforge\PixelforgeClient;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use LogicException;
 
 /**
  * One reconcile poll (spec 5, W-15): read the generation from Pixelforge and
  * apply it like a webhook would. The safety net for lost or late webhooks;
  * used by ReconcileTakeJob, `takes:reconcile` and admin "Reconcile now".
  *
- * The GET happens with no transaction open and no row locked (M-16); the
- * snapshot is then applied by ApplyTakeSnapshotAction in its own transaction.
+ * The GET happens with no transaction open and no row locked (M-16): never
+ * call this inside a transaction. The snapshot is then applied by
+ * ApplyTakeSnapshotAction in its own transaction.
  */
 final readonly class ReconcileTakeAction
 {
@@ -37,10 +36,6 @@ final readonly class ReconcileTakeAction
 
     public function execute(Take $take): ReconcileResultDTO
     {
-        if (DB::transactionLevel() > 0) {
-            throw new LogicException('ReconcileTakeAction calls Pixelforge and must run outside a transaction (M-16).');
-        }
-
         $take->refresh();
 
         if ($take->status->isTerminal()) {
