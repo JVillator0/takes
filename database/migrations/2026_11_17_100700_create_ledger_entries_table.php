@@ -1,0 +1,76 @@
+<?php
+
+declare(strict_types=1);
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * Append-only (a BEFORE UPDATE OR DELETE trigger refuses every change),
+ * real money only (spec 3-03 §5). D-024: holds are state on
+ * usage records, never ledger rows. `customers.balance_nanos` = Σ amount_nanos.
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('ledger_entries', function (Blueprint $table): void {
+            $table->id();
+            $table->foreignId('customer_id')->constrained()->restrictOnDelete();
+            $table->string('type');
+            // Signed: credits are positive, charges negative.
+            $table->bigInteger('amount_nanos');
+            $table->ulid('usage_record_id')->nullable();
+            $table->ulid('purchase_id')->nullable();
+            // The admin who made an adjustment.
+            $table->foreignId('admin_id')->nullable()->constrained('users')->restrictOnDelete();
+            $table->string('reason')->nullable();
+            $table->timestampTz('created_at')->useCurrent();
+
+            $table->index(['customer_id', 'created_at']);
+
+            // Composite FKs: an entry can only reference its own customer's usage
+            // or purchase, so one row can never move two balances. NULL ids skip
+            // the check (MATCH SIMPLE).
+            $table->foreign(['usage_record_id', 'customer_id'])->references(['id', 'customer_id'])->on('usage_records')->restrictOnDelete();
+            $table->foreign(['purchase_id', 'customer_id'])->references(['id', 'customer_id'])->on('purchases')->restrictOnDelete();
+        });
+
+        $checks = [
+            'ledger_entries_type_check' => "type IN ('purchase', 'promo_grant', 'charge', 'adjustment')",
+            // Credits add, charges subtract, an adjustment is never a no-op.
+            'ledger_entries_sign_check' => "(type IN ('purchase', 'promo_grant') AND amount_nanos > 0) OR (type = 'charge' AND amount_nanos < 0) OR (type = 'adjustment' AND amount_nanos <> 0)",
+            'ledger_entries_charge_has_usage_check' => "type <> 'charge' OR usage_record_id IS NOT NULL",
+            'ledger_entries_purchase_has_purchase_check' => "type <> 'purchase' OR purchase_id IS NOT NULL",
+        ];
+
+        foreach ($checks as $name => $expression) {
+            DB::statement("ALTER TABLE ledger_entries ADD CONSTRAINT {$name} CHECK ({$expression})");
+        }
+
+        // A usage is charged once; a purchase credits once; one welcome credit per customer (D-019).
+        DB::statement("CREATE UNIQUE INDEX ledger_entries_charge_usage_record_id_unique ON ledger_entries (usage_record_id) WHERE type = 'charge'");
+        DB::statement("CREATE UNIQUE INDEX ledger_entries_purchase_purchase_id_unique ON ledger_entries (purchase_id) WHERE type = 'purchase'");
+        DB::statement("CREATE UNIQUE INDEX ledger_entries_welcome_grant_unique ON ledger_entries (customer_id) WHERE type = 'promo_grant' AND reason = 'welcome'");
+
+        // Append-only for every writer, not only Eloquent instances: query-builder
+        // and raw updates/deletes are refused too. A correction is a new adjustment.
+        // OR REPLACE: migrate:fresh drops tables but not functions.
+        DB::statement(<<<'SQL'
+            CREATE OR REPLACE FUNCTION ledger_entries_append_only() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN
+                RAISE EXCEPTION 'ledger_entries is append-only: record an adjustment instead';
+            END;
+            $$
+            SQL);
+        DB::statement('CREATE TRIGGER ledger_entries_append_only BEFORE UPDATE OR DELETE ON ledger_entries FOR EACH ROW EXECUTE FUNCTION ledger_entries_append_only()');
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('ledger_entries');
+        DB::statement('DROP FUNCTION IF EXISTS ledger_entries_append_only()');
+    }
+};

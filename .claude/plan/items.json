@@ -1,0 +1,97 @@
+{
+    "_comment": "Human judgment the specs do not carry: a short issue title, type, area and size per Issues item (key = <spec>.<n>). Everything else comes from .claude/specs/. Optional 'worktree' overrides the 1-04 phase table. Read by scripts/plan-to-github.php.",
+    "0.1": { "title": "Create the repository with merge and branch settings", "type": "chore", "area": "infra", "size": "S" },
+    "0.2": { "title": "Commit the specs and the pristine scaffold", "type": "chore", "area": "infra", "size": "S" },
+    "0.3": { "title": "Postgres 17, .env.example and Sail compose (pgsql, reverb, queue)", "type": "chore", "area": "infra", "size": "M" },
+    "0.4": { "title": "1Password env script and README \"Run locally\"", "type": "chore", "area": "infra", "size": "S" },
+
+    "1-01.1": { "title": "Pint, strict types and Larastan level 8", "type": "chore", "area": "harness", "size": "S" },
+    "1-01.2": { "title": "Pest 5 arch suite and repository tests", "type": "test", "area": "harness", "size": "M" },
+    "1-01.3": { "title": "TS strict, ESLint rules and npm run types", "type": "chore", "area": "frontend", "size": "S" },
+    "1-01.4": { "title": "filacheck script", "type": "chore", "area": "harness", "size": "S" },
+    "1-01.5": { "title": "CI workflow, Dependabot, PR template, CODEOWNERS, branch protection", "type": "chore", "area": "infra", "size": "M" },
+    "1-01.6": { "title": "Nanodollars::format() rounding contract and boundary test", "type": "test", "area": "backend", "size": "S" },
+
+    "1-02.1": { "title": "CLAUDE.md, .ai/guidelines and .claude/rules", "type": "docs", "area": "harness", "size": "M" },
+    "1-02.2": { "title": "Boost and modern-web-guidance install", "type": "chore", "area": "harness", "size": "S" },
+    "1-02.3": { "title": "agent-worktrees and pr-review skills", "type": "chore", "area": "harness", "size": "M" },
+    "1-02.4": { "title": "Reviewer and judge agent definitions", "type": "chore", "area": "harness", "size": "M" },
+    "1-02.5": { "title": "Claude Code hooks", "type": "chore", "area": "harness", "size": "S" },
+
+    "1-03.1": { "title": "PR review workflow script", "type": "chore", "area": "harness", "size": "L" },
+    "1-03.2": { "title": "Judge prompt, rubric and reviewer output schema", "type": "chore", "area": "harness", "size": "M" },
+    "1-03.3": { "title": "Review labels (verdict, spec, type)", "type": "chore", "area": "harness", "size": "S" },
+    "1-03.4": { "title": "Review dry run on a throwaway PR and on PR #1", "type": "test", "area": "harness", "size": "S" },
+
+    "1-04.1": { "title": "Worktree pool doc and scripts/worktree-env.sh", "type": "chore", "area": "harness", "size": "M" },
+    "1-04.2": { "title": "Create the worktree pool", "type": "chore", "area": "infra", "size": "S" },
+    "1-04.3": { "title": "Verify Sail compose and README with the worktree env script", "type": "test", "area": "infra", "size": "S" },
+
+    "1-05.1": { "title": "plan-to-github.sh with dry run and Project fields", "type": "chore", "area": "harness", "size": "M" },
+    "1-05.2": { "title": "Create labels, milestones, issues, Project and views", "type": "chore", "area": "harness", "size": "S" },
+
+    "3-01.1": { "title": "Customer guard, brokers, Fortify and registration", "type": "feature", "area": "backend", "size": "L" },
+    "3-01.2": { "title": "Customer roles and permissions, DenialReason, config/takes.php", "type": "feature", "area": "backend", "size": "M" },
+    "3-01.3": { "title": "Policies with reason codes, shared can props, broadcast channel", "type": "feature", "area": "backend", "size": "M" },
+    "3-01.4": { "title": "Demo accounts: showcase customer, seeded logins, P02 panel", "type": "feature", "area": "backend", "size": "M" },
+
+    "3-02.1": { "title": "Migrations: customers, projects, suggestions, takes, webhook tables", "type": "feature", "area": "backend", "size": "L" },
+    "3-02.2": { "title": "Enums: take state machine, outcomes, labels and colors", "type": "feature", "area": "backend", "size": "M" },
+    "3-02.3": { "title": "ApplyTakeSnapshotAction and FailTakeAction with stubs", "type": "feature", "area": "backend", "size": "L", "worktree": "d" },
+    "3-02.4": { "title": "Models with casts and relations", "type": "feature", "area": "backend", "size": "S" },
+
+    "3-03.1": { "title": "Nanodollars value object", "type": "feature", "area": "backend", "size": "S" },
+    "3-03.2": { "title": "Money tables: usage_records, ledger_entries, purchases", "type": "feature", "area": "backend", "size": "M" },
+    "3-03.3": { "title": "Ledger and usage actions (record, open, settle, void)", "type": "feature", "area": "backend", "size": "L" },
+    "3-03.4": { "title": "TakeEstimator and config/ai-pricing.php", "type": "feature", "area": "backend", "size": "M" },
+    "3-03.5": { "title": "billing:verify command", "type": "feature", "area": "backend", "size": "M" },
+    "3-03.6": { "title": "PurchaseCreditsAction and POST /billing/purchases", "type": "feature", "area": "backend", "size": "M" },
+
+    "3-04.1": { "title": "Pixelforge client, DTOs, exceptions and fixture tests", "type": "feature", "area": "backend", "size": "L" },
+    "3-04.2": { "title": "Pixelforge config", "type": "feature", "area": "backend", "size": "S" },
+    "3-04.3": { "title": "Submit gate helper (global in-flight cap)", "type": "feature", "area": "backend", "size": "S" },
+    "3-04.4": { "title": "isConfigured() and the pixelforge.configured prop", "type": "feature", "area": "backend", "size": "S" },
+
+    "4.1": { "title": "Welcome credit, minimal Buy credits modal, Try a demo account", "type": "feature", "area": "backend", "size": "L" },
+    "4.2": { "title": "Projects CRUD and index page", "type": "feature", "area": "frontend", "size": "M" },
+    "4.3": { "title": "Estimate endpoint and EstimatePanel", "type": "feature", "area": "frontend", "size": "M" },
+    "4.4": { "title": "CreateTakeAction, idempotency, caps and composer", "type": "feature", "area": "backend", "size": "L" },
+    "4.5": { "title": "SubmitTakeJob outcome table and CancelTakeAction", "type": "feature", "area": "backend", "size": "L" },
+    "4.6": { "title": "Workspace grid, cards, filters, drawer and remix", "type": "feature", "area": "frontend", "size": "L" },
+    "4.7": { "title": "PersistTakeImageJob, temporary URLs and image route", "type": "feature", "area": "backend", "size": "M" },
+    "4.8": { "title": "Landing page and service-not-configured banner", "type": "feature", "area": "frontend", "size": "M" },
+
+    "5.1": { "title": "Webhook route, signature middleware and handler", "type": "feature", "area": "backend", "size": "M" },
+    "5.2": { "title": "ApplyTakeSnapshotAction outcome-matrix tests", "type": "test", "area": "backend", "size": "M" },
+    "5.3": { "title": "ReconcileTakeJob, sweeper and command", "type": "feature", "area": "backend", "size": "M" },
+    "5.4": { "title": "TakeUpdated broadcast, Echo client, polling fallback, toasts", "type": "feature", "area": "frontend", "size": "L" },
+
+    "6.1": { "title": "Purchase replay and double-click tests", "type": "test", "area": "backend", "size": "S" },
+    "6.2": { "title": "Billing page: cards and Activity", "type": "feature", "area": "frontend", "size": "M" },
+    "6.3": { "title": "Invoices per purchase, printable view and Invoices tab", "type": "feature", "area": "backend", "size": "L" },
+
+    "7.1": { "title": "Spike: MFA per role, Shield permissions, ECharts on Filament 5", "type": "chore", "area": "filament", "size": "S" },
+    "7.2": { "title": "Filament, Shield, MFA, admin roles, seeded auditor, activity log", "type": "feature", "area": "filament", "size": "L" },
+    "7.3": { "title": "Billing cluster: Reports page and Ledger entries", "type": "feature", "area": "filament", "size": "L" },
+    "7.4": { "title": "Providers: Pixelforge usage, Find takes, Webhook events", "type": "feature", "area": "filament", "size": "M" },
+    "7.5": { "title": "Studio cluster: Takes, take infolist and Projects", "type": "feature", "area": "filament", "size": "M" },
+    "7.6": { "title": "Dashboard widgets and Needs attention", "type": "feature", "area": "filament", "size": "M" },
+    "7.7": { "title": "Customers resource with adjust and restrict", "type": "feature", "area": "filament", "size": "M" },
+    "7.8": { "title": "Admins, Purchases and Invoices resources", "type": "feature", "area": "filament", "size": "M" },
+    "7.9": { "title": "Anthropic usage and Pricing pages", "type": "feature", "area": "filament", "size": "M" },
+
+    "8.1": { "title": "Spike: Anthropic SDK and the Describe-a-change agent", "type": "feature", "area": "backend", "size": "M" },
+    "8.2": { "title": "Suggestion actions, expiry and policy", "type": "feature", "area": "backend", "size": "L" },
+    "8.3": { "title": "Describe a change drawer UI (P07)", "type": "feature", "area": "frontend", "size": "L" },
+    "8.4": { "title": "AI guardrails: kill switch, budget, throttle", "type": "feature", "area": "backend", "size": "M" },
+    "8.5": { "title": "Admin AI suggestions resource and Edit in composer", "type": "feature", "area": "filament", "size": "S" },
+
+    "9.1": { "title": "Laravel Cloud app, environment, resources and spend alert", "type": "chore", "area": "infra", "size": "M" },
+    "9.2": { "title": "Production env vars, Pixelforge webhook and Anthropic key", "type": "chore", "area": "infra", "size": "S" },
+    "9.3": { "title": "Deploy, migrate and seed production", "type": "chore", "area": "infra", "size": "M" },
+    "9.4": { "title": "Smoke test, cold starts and final SQL check", "type": "test", "area": "infra", "size": "M" },
+
+    "10.1": { "title": "Submission README with the evidence table", "type": "docs", "area": "harness", "size": "M" },
+    "10.2": { "title": "Final billing:verify data review", "type": "test", "area": "backend", "size": "S" },
+    "10.3": { "title": "Release freeze and submission checklist", "type": "chore", "area": "infra", "size": "S" }
+}
