@@ -4,14 +4,12 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
-use App\Contracts\Billing\PixelforgeUsageSource;
 use App\Contracts\Takes\CreatesSuggestedTake;
 use App\Enums\Auth\DenialReason;
 use App\Models\Customer;
 use App\Models\Suggestion;
 use App\Models\Take;
 use App\Models\User;
-use App\Services\Billing\UnconfiguredPixelforgeUsageSource;
 use App\Services\Takes\UnavailableSuggestedTakeCreator;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -32,9 +30,6 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        // billing:verify --usage; spec 3-04 rebinds it to the Pixelforge client.
-        $this->app->bindIf(PixelforgeUsageSource::class, UnconfiguredPixelforgeUsageSource::class);
-
         // Applying an AI suggestion creates a take through spec 4's
         // CreateTakeAction; spec 4 rebinds this seam to it (spec 8 step 4).
         $this->app->bindIf(CreatesSuggestedTake::class, UnavailableSuggestedTakeCreator::class);

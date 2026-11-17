@@ -15,7 +15,7 @@ use Inertia\Response;
  * - the example ranges become TakeEstimator output (spec 4 issue #53);
  * - the demo button (POST /demo) is turned on by spec 4 issue #46.
  */
-class LandingController extends Controller
+final class LandingController extends Controller
 {
     public function __invoke(): Response
     {

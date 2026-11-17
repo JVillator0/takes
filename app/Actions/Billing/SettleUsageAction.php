@@ -54,12 +54,14 @@ final readonly class SettleUsageAction
             return $usage;
         }
 
-        // cost = ceil(Σ units × rate / 1M); TokenCost logs when the ceil rounds.
-        $cost = $this->tokenCost->compute($units->tokens, $rates->toArray());
+        $context = ['usage_record_id' => $usage->id, 'customer_id' => $customer->id];
+
+        // cost = ceil(Σ units × rate / 1M); TokenCost logs, with this context,
+        // when the ceil rounds. Zero-count kinds need no rate.
+        $cost = $this->tokenCost->compute($units->tokens, $rates->toArray(), $context);
         $charge = $cost->withMarkup($usage->markup_bps);
         $maxCharge = Nanodollars::fromInt($usage->max_charge_nanos);
         $flags = $usage->flags;
-        $context = ['usage_record_id' => $usage->id, 'customer_id' => $customer->id];
 
         // We always settle with units × rates; a disagreeing provider figure
         // is flagged for reconciliation, never used (spec 3-03 §2).

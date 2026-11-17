@@ -12,7 +12,8 @@ declare(strict_types=1);
  *   php tests/Committed/worker.php open <takeId> <startAt> <holdMs> <maxCostNanos>
  *   php tests/Committed/worker.php settle <usageId> <startAt> <holdMs>
  *
- * Prints one word: opened | insufficient | settled.
+ * Prints one word: opened | insufficient | settled. Exits 3 ("late" on
+ * stderr) when it booted after the start line, so no race happened.
  */
 
 use App\Actions\Billing\OpenUsageAction;
@@ -34,10 +35,14 @@ $app->make(Kernel::class)->bootstrap();
 [, $operation, $id, $startAt, $holdMs] = $argv;
 $maxCost = (int) ($argv[5] ?? 0);
 
-// A slow boot may pass the start line; time_sleep_until() warns on a past time.
-if ((float) $startAt > microtime(true)) {
-    time_sleep_until((float) $startAt);
+// A worker that boots after the start line would run alone, so the race
+// would not happen and the test could pass without the lock: report it.
+if (microtime(true) >= (float) $startAt) {
+    fwrite(STDERR, 'late');
+    exit(3);
 }
+
+time_sleep_until((float) $startAt);
 
 try {
     DB::transaction(function () use ($operation, $id, $holdMs, $maxCost): void {

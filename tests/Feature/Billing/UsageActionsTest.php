@@ -234,6 +234,33 @@ describe('settle', function (): void {
         Billing::assertCachedColumnsMatch($this->customer);
     });
 
+    it('settles when a kind with no rate is reported as 0 tokens', function (): void {
+        $suggestion = Suggestion::factory()->create(['customer_id' => $this->customer->id]);
+        $usage = DB::transaction(fn (): UsageRecord => app(OpenUsageAction::class)->execute(
+            $suggestion,
+            Provider::Anthropic,
+            Billing::estimate(400_000),
+            Billing::anthropicRates(),
+        ));
+
+        // Anthropic has no input_image or reasoning rate; a mapper may still report them as 0.
+        $settled = DB::transaction(fn (): UsageRecord => app(SettleUsageAction::class)->execute(
+            $usage,
+            new UsageUnitsDTO(['input_text' => 10, 'input_image' => 0, 'reasoning' => 0]),
+            Billing::anthropicRates(),
+            CarbonImmutable::parse('2026-11-17T12:00:00Z'),
+        ));
+
+        expect($settled->status)->toBe(UsageStatus::Settled)
+            ->and($settled->provider_cost_nanos)->toBe(1_000)
+            ->and($settled->charge_nanos)->toBe(1_250)
+            ->and($settled->input_image_tokens)->toBe(0)
+            ->and($settled->reasoning_tokens)->toBe(0)
+            ->and($this->customer->refresh()->held_nanos)->toBe(0);
+
+        $this->artisan('billing:verify')->assertSuccessful();
+    });
+
     it('settles a zero-token usage at zero with no ledger entry', function (): void {
         $usage = Billing::openForNewTake($this->customer);
 
@@ -287,7 +314,10 @@ describe('settle', function (): void {
         expect($settled->provider_cost_nanos)->toBe(1)
             ->and($settled->charge_nanos)->toBe(2);
 
-        Log::shouldHaveReceived('warning')->once()->with('Token cost is not a whole number of nanodollars; rounded up.', Mockery::type('array'));
+        Log::shouldHaveReceived('warning')->once()->with('Token cost is not a whole number of nanodollars; rounded up.', Mockery::on(
+            fn (array $context): bool => $context['usage_record_id'] === $usage->id
+                && $context['customer_id'] === $this->customer->id,
+        ));
     });
 
     it('settles with units × rates and flags a disagreeing provider cost', function (): void {

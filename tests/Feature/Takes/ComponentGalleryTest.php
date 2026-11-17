@@ -18,6 +18,7 @@ it('renders every take state in the gallery with copy from the lang files', func
             ->where('insufficientMessage', 'Your available credits are below the max price. Buy credits to continue.')
             ->where('describeChange.proposed.charge.disclosure', 'Suggestion cost $0.0003175. Charged even if you discard.')
             ->where('describeChange.failed.message', 'Suggestion failed. You were not charged.')
+            ->where('denialMessages.daily_take_cap', "You reached today's take limit. It resets at 00:00 UTC.")
         );
 });
 

@@ -64,14 +64,13 @@ it('loads the spec 3-01 defaults', function (): void {
             'daily_limit_per_customer' => 30,
             'throttle_per_minute' => 6,
         ],
+        'purchase_packs_usd' => [5, 10, 25],
         'demo' => [
             'enabled' => false,
             'throttle_per_ip_per_hour' => 5,
             'ttl_hours' => 24,
             'password' => 'password',
         ],
-        // Spec 3-03 §5 (D-051), added by the ledger PR (#94).
-        'purchase_packs_usd' => [5, 10, 25],
     ]);
 });
 
