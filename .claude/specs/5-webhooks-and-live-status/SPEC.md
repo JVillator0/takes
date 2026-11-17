@@ -27,8 +27,8 @@ Both tables and the outcome enums are migrated in 3-02 (Gate B); this spec adds 
 ## `ApplyTakeSnapshotAction` (built in 3-02; shared by submit, webhook, reconcile and admin "Reconcile now")
 This spec owns the matrix tests and the wiring; the action itself is built in 3-02.
 1. `lockForUpdate` the take.
-2. Fill missing facts (pixelforge_id, started_at, image fields) and set `takes.last_event_at = now()` on every snapshot that advances or confirms state (D-053 "stuck" is defined in spec 7). When `pixelforge_id` is set for the first time, dispatch a fresh `ReconcileTakeJob` chain (see Reconcile).
-3. Validate: a `succeeded` snapshot with null `usage` or missing `rates` ⇒ no state change, outcome `invalid_snapshot`, critical log, `takes.attention_reason = invalid_snapshot` (D-054; shown in Needs attention, spec 7).
+2. Fill missing facts (pixelforge_id, started_at, image fields) and set `takes.last_event_at = now()` on every snapshot that advances or confirms state, i.e. outcome `applied` or `ignored_same_state` (D-053 "stuck" is defined in spec 7; D-077). When `pixelforge_id` is set for the first time, dispatch a fresh `ReconcileTakeJob` chain (see Reconcile).
+3. Validate: a snapshot for another take (`metadata.app_take_id` or generation id mismatch, or nothing ties it to the take) or a `succeeded` snapshot with null `usage` ⇒ no state change, outcome `invalid_snapshot`, critical log, `takes.attention_reason = invalid_snapshot` (D-054; shown in Needs attention, spec 7). A `succeeded` snapshot that would settle but has no `rates` throws `SnapshotRatesMissingException` before any write (D-077): the handler lets it propagate (5xx, Pixelforge retries) and the reconcile job fetches the generation and applies that snapshot; never settle without the generation's own rates (D-055).
 4. Apply per the matrix. On `succeeded` ⇒ `SettleUsageAction(units from snapshot.usage, rates from snapshot.rates of the terminal snapshot only, never the cached /v1/pricing used for the estimate; completed_at)`. On `failed` ⇒ `VoidUsageAction` (releases the hold, D-024) + failure fields.
 5. After commit: dispatch `TakeUpdated`; on success dispatch `PersistTakeImageJob`.
 
@@ -40,8 +40,8 @@ This spec owns the matrix tests and the wiring; the action itself is built in 3-
 | `succeeded` | `processing`/`queued` | none | `ignored_stale` |
 | `succeeded` | `failed` | none, warning log, `attention_reason = internal_failure` | `ignored_conflict` |
 | `failed` (any cause) | `failed` | none | `ignored_same_state` |
-| `failed` locally with `failure_code = submit_timeout` (ambiguous window expired, D-025/D-049) | `succeeded` | usage stays voided, cost absorbed, `attention_reason = orphan_success` | `orphan_success` |
-| `failed` with any other code (`provider_busy`, `cancelled`, content/validation/internal, or provider `failed`) | `succeeded` | none, warning log, `attention_reason = internal_failure` (`provider_busy`/`cancelled` mean nothing was created, so this is unexpected) | `ignored_conflict` |
+| `failed` locally with `failure_code = submit_timeout` (ambiguous window expired, D-025/D-049), or `internal` on a take that has a `pixelforge_id` (accepted, then failed free, e.g. revoked key D-062; D-077) | `succeeded` | usage stays voided, cost absorbed, `attention_reason = orphan_success` | `orphan_success` |
+| `failed` with any other code (`provider_busy`, `cancelled`, content/validation, `internal` before Pixelforge accepted it, or provider `failed`) | `succeeded` | none, warning log, `attention_reason = internal_failure` (`provider_busy`/`cancelled` mean nothing was created, so this is unexpected) | `ignored_conflict` |
 
 The Pest outcome tests are driven from this table. `ignored_conflict` always writes a warning log and sets `takes.attention_reason` (the flag is a durable column, not a log line).
 
@@ -62,7 +62,7 @@ The Pest outcome tests are driven from this table. `ignored_conflict` always wri
 - Duplicate `evt_` ⇒ one `webhook_events` row, two `webhook_deliveries` rows (second `duplicate`), one settlement, 200 both times (also with `[duplicate]` fixtures).
 - Out of order: `succeeded` then `processing` ⇒ stays succeeded, charge unchanged. Full outcome matrix table-driven.
 - `succeeded` before the create response ⇒ found by metadata; later 202 is a no-op.
-- `succeeded` with null usage/missing rates ⇒ `invalid_snapshot`, no state change.
+- `succeeded` with null usage ⇒ `invalid_snapshot`, no state change. `succeeded` without rates ⇒ `SnapshotRatesMissingException`, nothing written; the refetched snapshot settles once (D-077).
 - `failed` ⇒ not charged, hold released. Late `succeeded` after a `submit_timeout` failure ⇒ `orphan_success`, usage stays voided; late `succeeded` after `provider_busy`/`cancelled` or `succeeded`-then-`failed` ⇒ `ignored_conflict` with `attention_reason` set.
 - `SettleUsageAction` forced to throw ⇒ 5xx, no `webhook_events` row; the retried delivery settles once.
 - Reconcile job restarts its chain when `pixelforge_id` is first set, re-dispatches `SubmitTakeJob` for a pending take without `pixelforge_id`, and sets `reconcile_exhausted` on 404/exhaustion; a 401 fails the take free.
