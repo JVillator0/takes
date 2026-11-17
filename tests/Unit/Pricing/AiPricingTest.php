@@ -3,9 +3,10 @@
 declare(strict_types=1);
 
 use App\Enums\Billing\Provider;
-use App\Support\Money\Nanodollars;
+use App\Support\Money\TokenCost;
 use App\Support\Pricing\AiPricing;
 use Illuminate\Config\Repository;
+use Psr\Log\NullLogger;
 
 beforeEach(function (): void {
     $this->pricing = new AiPricing(new Repository([
@@ -37,7 +38,7 @@ it('resolves Haiku 5.5 into integer nanodollars per 1M tokens', function (): voi
 
 it('reproduces the demo AI suggestion: 1,500 in / 200 out ⇒ cost 250,000, charge 312,500', function (): void {
     $rates = $this->pricing->rates(Provider::Anthropic, 'claude-haiku-5-5');
-    $cost = Nanodollars::fromInt(intdiv(1_500 * $rates['input_text'] + 200 * $rates['output'] + 999_999, 1_000_000));
+    $cost = (new TokenCost(new NullLogger))->compute(['input_text' => 1_500, 'output' => 200], $rates);
 
     expect($cost->toInt())->toBe(250_000)
         ->and($cost->withMarkup()->toInt())->toBe(312_500);

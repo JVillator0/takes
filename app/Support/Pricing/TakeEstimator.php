@@ -8,14 +8,14 @@ use App\DTOs\Billing\EstimateDTO;
 use App\Enums\Takes\TakeQuality;
 use App\Enums\Takes\TakeSize;
 use App\Support\Money\Nanodollars;
+use App\Support\Money\TokenCost;
 use InvalidArgumentException;
-use OverflowException;
 
 /**
  * The one implementation of the Pixelforge take estimate (spec 3-03 §4, spec 4
  * "Estimate"). The estimate endpoint (which only receives a character count)
  * and CreateTakeAction (which recomputes from the real prompt for the hold)
- * both call it. Pure and stateless: no I/O, integer arithmetic only.
+ * both call it. Stateless, integer arithmetic only.
  *
  * Per token kind, the minimum and maximum token counts are:
  * - input_text: est = ceil(chars / 4); min = floor(est × 85 / 100), max = ceil(est × 115 / 100)
@@ -23,17 +23,18 @@ use OverflowException;
  * - output: the size × quality table (exact)
  * - reasoning: the quality range
  *
- * cost = ceil(Σ tokens × rate / 1_000_000) with rates in nanodollars per 1M
- * tokens; charge = cost with the markup (spec 3-03 §3). The hold is maxCharge.
+ * cost = ceil(Σ tokens × rate / 1_000_000) through {@see TokenCost} (rates in
+ * nanodollars per 1M tokens); charge = cost with the markup (spec 3-03 §3).
+ * The hold is maxCharge.
  */
 final readonly class TakeEstimator
 {
     /** Pixelforge token kinds, the keys of a rates snapshot (spec 3-03 §2). */
     public const array RATE_KINDS = ['input_text', 'input_image', 'output', 'reasoning'];
 
-    private const int TOKENS_PER_RATE = 1_000_000;
-
     private const int BPS_DENOMINATOR = 10_000;
+
+    public function __construct(private TokenCost $tokenCost) {}
 
     /**
      * Estimates from the prompt itself. Characters are Unicode characters
@@ -80,14 +81,14 @@ final readonly class TakeEstimator
         $outputTokens = PixelforgeTokenTable::outputTokens($quality, $size);
         $reasoningTokens = PixelforgeTokenTable::reasoningTokens($quality);
 
-        $minCost = $this->cost([
+        $minCost = $this->tokenCost->compute([
             'input_text' => intdiv($estimatedTextTokens * (self::BPS_DENOMINATOR - PixelforgeTokenTable::TEXT_TOKEN_VARIANCE_BPS), self::BPS_DENOMINATOR),
             'input_image' => $imageTokens,
             'output' => $outputTokens,
             'reasoning' => $reasoningTokens['min'],
         ], $rates);
 
-        $maxCost = $this->cost([
+        $maxCost = $this->tokenCost->compute([
             'input_text' => intdiv($estimatedTextTokens * (self::BPS_DENOMINATOR + PixelforgeTokenTable::TEXT_TOKEN_VARIANCE_BPS) + self::BPS_DENOMINATOR - 1, self::BPS_DENOMINATOR),
             'input_image' => $imageTokens,
             'output' => $outputTokens,
@@ -100,30 +101,6 @@ final readonly class TakeEstimator
             $minCost->withMarkup($markupBps),
             $maxCost->withMarkup($markupBps),
         );
-    }
-
-    /**
-     * cost = ceil(Σ tokens × rate / 1_000_000). With current rates every term
-     * divides exactly; the ceil only guards future rates (spec 3-03 §2).
-     *
-     * @param  array<string, int>  $tokens
-     * @param  array<string, int>  $rates
-     */
-    private function cost(array $tokens, array $rates): Nanodollars
-    {
-        $total = 0;
-
-        foreach ($tokens as $kind => $count) {
-            $rate = $rates[$kind];
-
-            if ($count > 0 && $rate > intdiv(PHP_INT_MAX - self::TOKENS_PER_RATE - $total, $count)) {
-                throw new OverflowException('Estimated cost overflows.');
-            }
-
-            $total += $count * $rate;
-        }
-
-        return Nanodollars::fromInt(intdiv($total + self::TOKENS_PER_RATE - 1, self::TOKENS_PER_RATE));
     }
 
     /**

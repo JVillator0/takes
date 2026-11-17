@@ -6,8 +6,10 @@ use App\Enums\Takes\TakeQuality;
 use App\Enums\Takes\TakeSize;
 use App\Support\Money\Nanodollars;
 use App\Support\Money\RoundingMode;
+use App\Support\Money\TokenCost;
 use App\Support\Pricing\PixelforgeTokenTable;
 use App\Support\Pricing\TakeEstimator;
+use Tests\Support\RecordingLogger;
 
 /*
 | Oracles come from https://pixelforge.promptedit.dev/docs (retrieved
@@ -17,7 +19,8 @@ use App\Support\Pricing\TakeEstimator;
 */
 
 beforeEach(function (): void {
-    $this->estimator = new TakeEstimator;
+    $this->logger = new RecordingLogger;
+    $this->estimator = new TakeEstimator(new TokenCost($this->logger));
 
     // Docs rates ($5.00 / $10.00 / $40.00 / $12.50 per 1M) in nanodollars per 1M tokens.
     $this->rates = [
@@ -166,7 +169,9 @@ describe('invariants', function (): void {
         expect($estimate->minCost->toInt())->toBe(281)
             ->and($estimate->maxCost->toInt())->toBe(281)
             // 281 × 1.25 = 351.25 ⇒ 352: at most 1 nanodollar in the platform's favor.
-            ->and($estimate->maxCharge->toInt())->toBe(352);
+            ->and($estimate->maxCharge->toInt())->toBe(352)
+            // Spec 3-03 §2: the ceil logs a warning when it is used (once per bound).
+            ->and($this->logger->records)->toHaveCount(2);
     });
 
     it('rounds a single token at a one-nanodollar-per-1M rate up to one nanodollar', function (): void {
