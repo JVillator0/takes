@@ -1,7 +1,7 @@
 version: 2
 
 # Spec 1-01: weekly, grouped updates. Minor/patch bumps are grouped per
-# ecosystem; majors arrive as individual PRs so they get a real review.
+# ecosystem; majors are ignored until v1.0.0 is tagged (D-083).
 updates:
   - package-ecosystem: "composer"
     directory: "/"
@@ -12,6 +12,10 @@ updates:
     commit-message:
       prefix: "chore"
       include: "scope"
+    # Majors are ignored until v1.0.0 is tagged and reviewed by hand afterwards (D-083)
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       composer:
         update-types:
@@ -27,6 +31,10 @@ updates:
     commit-message:
       prefix: "chore"
       include: "scope"
+    # Majors are ignored until v1.0.0 is tagged and reviewed by hand afterwards (D-083)
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       npm:
         update-types:
@@ -41,6 +49,10 @@ updates:
       default-days: 5
     commit-message:
       prefix: "ci"
+    # Majors are ignored until v1.0.0 is tagged and reviewed by hand afterwards (D-083)
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       github-actions:
         patterns:
