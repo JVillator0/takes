@@ -18,14 +18,34 @@ use SplFileInfo;
  * strings and identifiers such as `$roundTrip` or `->round()`. Covered by
  * tests/Unit/SourceScanTest.php.
  *
- * Known blind spots (by design, keep the scanner explainable): functions
- * passed as string callables (`array_map('round', ...)`) and calls through
- * variables (`$fn = 'round'; $fn()`).
+ * Known blind spots (by design, keep the scanner explainable):
+ * - functions passed as string callables (`array_map('round', ...)`) and
+ *   calls through variables (`$fn = 'round'; $fn()`);
+ * - queue delays set through APIs not listed in QUEUE_DELAY_CALLS, through
+ *   variables holding a queue/job (`$q = Queue::connection(); $q->{$m}()`),
+ *   or computed at runtime in a way the token stream cannot see (a delay
+ *   returned from a helper the caller does not wrap in `min(..., 900)`).
+ *   Runtime limits for those belong in Queue::fake() tests (spec 4).
  */
 final class SourceScan
 {
     /** Float-producing helpers forbidden in money code (spec 1-01). */
     public const array FLOAT_FUNCTIONS = ['floatval', 'doubleval', 'round', 'number_format'];
+
+    /**
+     * Queue APIs that take a delay: method => [0-based argument index,
+     * seconds per unit].
+     *
+     * @var array<string, array{0: int, 1: int}>
+     */
+    public const array QUEUE_DELAY_CALLS = [
+        'delay' => [0, 1],          // PendingDispatch, Queueable, Mailable, Notification
+        'release' => [0, 1],        // InteractsWithQueue::release()
+        'releaseafter' => [0, 1],   // RateLimited / WithoutOverlapping middleware
+        'later' => [0, 1],          // Queue::later(), Mail::later(), Mailable::later()
+        'lateron' => [1, 1],        // Queue::laterOn(), Mail::laterOn()
+        'backoff' => [0, 60],       // ThrottlesExceptions::backoff() takes minutes
+    ];
 
     /**
      * Every `.php` file under the given paths. Relative paths resolve against
@@ -131,6 +151,62 @@ final class SourceScan
     }
 
     /**
+     * References to global (root-namespace) classes such as the facade
+     * aliases Laravel registers (`\\DB::table()`, `use DB;`). Pest's arch
+     * `toUse()` does not see root-namespace names, so these need a scan.
+     *
+     * @param  list<string>  $paths
+     * @param  list<string>  $classes  names without leading backslash
+     * @return list<string>
+     */
+    public static function globalClassReferences(array $paths, array $classes): array
+    {
+        $violations = [];
+
+        foreach (self::phpFiles($paths) as $file) {
+            $tokens = self::significantTokens($file);
+
+            foreach ($tokens as $index => [$id, $text, $line]) {
+                $imported = $id === T_USE
+                    && in_array($tokens[$index + 1][0] ?? null, [T_STRING, T_NAME_FULLY_QUALIFIED], true)
+                    && in_array(ltrim($tokens[$index + 1][1], '\\'), $classes, true);
+
+                if ($imported) {
+                    $violations[] = self::relative($file).":{$line} use ".ltrim($tokens[$index + 1][1], '\\');
+                } elseif ($id === T_NAME_FULLY_QUALIFIED
+                    && ($tokens[$index - 1][0] ?? null) !== T_USE
+                    && in_array(ltrim($text, '\\'), $classes, true)) {
+                    $violations[] = self::relative($file).":{$line} {$text}";
+                }
+            }
+        }
+
+        return $violations;
+    }
+
+    /**
+     * Reads of the given superglobals, e.g. `$_ENV` or `$_SERVER`.
+     *
+     * @param  list<string>  $paths
+     * @param  list<string>  $variables  names including the `$`
+     * @return list<string>
+     */
+    public static function variableReferences(array $paths, array $variables): array
+    {
+        $violations = [];
+
+        foreach (self::phpFiles($paths) as $file) {
+            foreach (self::significantTokens($file) as [$id, $text, $line]) {
+                if ($id === T_VARIABLE && in_array($text, $variables, true)) {
+                    $violations[] = self::relative($file).":{$line} {$text}";
+                }
+            }
+        }
+
+        return $violations;
+    }
+
+    /**
      * Literal first arguments of `env('KEY', ...)` calls.
      *
      * @param  list<string>  $paths
@@ -158,12 +234,16 @@ final class SourceScan
     }
 
     /**
-     * `->delay(...)` / `->release(...)` (also `?->` and `::`) whose argument is
-     * above `$maxSeconds` or cannot be verified statically. Accepted
-     * arguments: none, an integer literal, or a `self::`/`static::` integer
-     * constant of the enclosing class. Anything else (`now()->addMinutes(5)`,
-     * variables, expressions) is reported, because the queue cap cannot be
-     * proven for it.
+     * Delay arguments of the QUEUE_DELAY_CALLS methods (called with `->`,
+     * `?->` or `::`) and `->delay = ...` assignments that are above
+     * `$maxSeconds` or cannot be verified statically.
+     *
+     * Accepted values: no argument, an integer literal, a `self::`/`static::`
+     * integer constant of the enclosing class, or `min(...)` with at least one
+     * accepted value among its arguments (the result can't exceed it). That
+     * last form is the sanctioned way to cap a computed delay, e.g. spec 4's
+     * `$this->release(min($retryAfter + $jitter, 900))`. Anything else
+     * (`now()->addMinutes(5)`, variables, other expressions) is reported.
      *
      * @param  list<string>  $paths
      * @return list<string>
@@ -188,21 +268,32 @@ final class SourceScan
                     $class = ltrim($namespace.'\\'.$tokens[$index + 1][1], '\\');
                 }
 
-                if ($id !== T_STRING
-                    || ! in_array(strtolower($text), ['delay', 'release'], true)
-                    || ! self::isMemberAccess($tokens, $index)
-                    || ($tokens[$index + 1][1] ?? null) !== '(') {
+                if ($id !== T_STRING || ! self::isMemberAccess($tokens, $index)) {
                     continue;
                 }
 
-                $argument = self::callArgument($tokens, $index + 1);
-                $seconds = self::resolveSeconds($argument, $class);
-                $call = strtolower($text).'('.implode('', array_column($argument, 1)).')';
+                $method = strtolower($text);
+                $next = $tokens[$index + 1][1] ?? null;
+
+                if ($method === 'delay' && $next === '=') {
+                    $value = self::tokensUntil($tokens, $index + 2, ';');
+                    $call = 'delay = '.self::source($value);
+                    $unit = 1;
+                } elseif (isset(self::QUEUE_DELAY_CALLS[$method]) && $next === '(') {
+                    [$position, $unit] = self::QUEUE_DELAY_CALLS[$method];
+                    $arguments = self::callArguments($tokens, $index + 1);
+                    $value = $arguments[$position] ?? [];
+                    $call = $text.'('.implode(', ', array_map(self::source(...), $arguments)).')';
+                } else {
+                    continue;
+                }
+
+                $seconds = self::resolveSeconds($value, $class);
 
                 if ($seconds === null) {
-                    $violations[] = self::relative($file).":{$line} {$call}: not an integer literal or class constant";
-                } elseif ($seconds > $maxSeconds) {
-                    $violations[] = self::relative($file).":{$line} {$call}: {$seconds}s > {$maxSeconds}s";
+                    $violations[] = self::relative($file).":{$line} {$call}: not an integer literal, class constant or min(..., N)";
+                } elseif ($seconds * $unit > $maxSeconds) {
+                    $violations[] = self::relative($file).":{$line} {$call}: ".($seconds * $unit)."s > {$maxSeconds}s";
                 }
             }
         }
@@ -251,39 +342,109 @@ final class SourceScan
     }
 
     /**
-     * Tokens between the parenthesis at `$open` and its matching close.
+     * Top-level arguments of the call whose parenthesis is at `$open`.
      *
      * @param  list<array{0: int, 1: string, 2: int}>  $tokens
-     * @return list<array{0: int, 1: string, 2: int}>
+     * @return list<list<array{0: int, 1: string, 2: int}>>
      */
-    private static function callArgument(array $tokens, int $open): array
+    private static function callArguments(array $tokens, int $open): array
     {
         $depth = 0;
-        $argument = [];
+        $arguments = [];
+        $current = [];
 
         for ($i = $open, $count = count($tokens); $i < $count; $i++) {
             $text = $tokens[$i][1];
 
-            if ($text === '(') {
+            if (in_array($text, ['(', '[', '{'], true) || $tokens[$i][0] === T_CURLY_OPEN || $tokens[$i][0] === T_DOLLAR_OPEN_CURLY_BRACES) {
                 $depth++;
 
                 if ($depth === 1) {
                     continue;
                 }
-            }
-
-            if ($text === ')') {
+            } elseif (in_array($text, [')', ']', '}'], true)) {
                 $depth--;
 
                 if ($depth === 0) {
                     break;
                 }
+            } elseif ($text === ',' && $depth === 1) {
+                $arguments[] = $current;
+                $current = [];
+
+                continue;
             }
 
-            $argument[] = $tokens[$i];
+            $current[] = $tokens[$i];
         }
 
-        return $argument;
+        if ($current !== []) {
+            $arguments[] = $current;
+        }
+
+        return $arguments;
+    }
+
+    /**
+     * Tokens from `$start` up to (not including) the first top-level `$end`.
+     *
+     * @param  list<array{0: int, 1: string, 2: int}>  $tokens
+     * @return list<array{0: int, 1: string, 2: int}>
+     */
+    private static function tokensUntil(array $tokens, int $start, string $end): array
+    {
+        $depth = 0;
+        $result = [];
+
+        for ($i = $start, $count = count($tokens); $i < $count; $i++) {
+            $text = $tokens[$i][1];
+
+            if ($depth === 0 && $text === $end) {
+                break;
+            }
+
+            $depth += match ($text) {
+                '(', '[', '{' => 1,
+                ')', ']', '}' => -1,
+                default => 0,
+            };
+
+            $result[] = $tokens[$i];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Index of the parenthesis that closes the one at `$open`, or -1.
+     *
+     * @param  list<array{0: int, 1: string, 2: int}>  $tokens
+     */
+    private static function closingParenthesis(array $tokens, int $open): int
+    {
+        $depth = 0;
+
+        for ($i = $open, $count = count($tokens); $i < $count; $i++) {
+            $depth += match ($tokens[$i][1]) {
+                '(' => 1,
+                ')' => -1,
+                default => 0,
+            };
+
+            if ($depth === 0) {
+                return $i;
+            }
+        }
+
+        return -1;
+    }
+
+    /**
+     * @param  list<array{0: int, 1: string, 2: int}>  $tokens
+     */
+    private static function source(array $tokens): string
+    {
+        return implode('', array_column($tokens, 1));
     }
 
     /**
@@ -293,6 +454,18 @@ final class SourceScan
     {
         if ($argument === []) {
             return 0;
+        }
+
+        if (in_array($argument[0][0], [T_STRING, T_NAME_FULLY_QUALIFIED], true)
+            && strtolower(ltrim($argument[0][1], '\\')) === 'min'
+            && ($argument[1][1] ?? null) === '('
+            && self::closingParenthesis($argument, 1) === count($argument) - 1) {
+            $bounds = array_filter(array_map(
+                fn (array $candidate): ?int => self::resolveSeconds($candidate, $class),
+                self::callArguments($argument, 1),
+            ), is_int(...));
+
+            return $bounds === [] ? null : min($bounds);
         }
 
         if (count($argument) === 1 && $argument[0][0] === T_LNUMBER) {

@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Tests\Support;
 
+use Error;
 use Illuminate\Queue\Attributes\Backoff;
 use Illuminate\Queue\Attributes\DebounceFor;
 use Illuminate\Queue\Attributes\Delay;
+use LogicException;
 use ReflectionClass;
 
 /**
@@ -14,6 +16,11 @@ use ReflectionClass;
  * `$backoff`, the `$delay` default and the #[Delay], #[Backoff] and
  * #[DebounceFor] attributes. Laravel Cloud's managed queue rejects anything
  * above 900 s (spec 0, "Queue"). Covered by tests/Unit/QueueDelaysTest.php.
+ *
+ * Values assigned in the constructor (`$this->delay = ...`) are invisible
+ * here; SourceScan::queueDelayViolations() checks those assignments.
+ *
+ * @throws LogicException when backoff() cannot run on a constructor-less instance
  */
 final class QueueDelays
 {
@@ -28,7 +35,16 @@ final class QueueDelays
         $values = [];
 
         if (method_exists($instance, 'backoff')) {
-            $values[] = $instance->backoff();
+            try {
+                $values[] = $instance->backoff();
+            } catch (Error $error) {
+                // backoff() depends on constructor state the reflection-built
+                // instance does not have, so it cannot be checked statically.
+                throw new LogicException(
+                    "{$reflection->getName()}::backoff() is not statically verifiable without the constructor ({$error->getMessage()}). Return literal values or use #[Backoff].",
+                    previous: $error,
+                );
+            }
         } elseif ($reflection->hasProperty('backoff')) {
             $values[] = $reflection->getProperty('backoff')->getValue($instance);
         }

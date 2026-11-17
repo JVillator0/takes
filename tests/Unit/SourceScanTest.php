@@ -87,10 +87,47 @@ describe('functionCalls', function (): void {
             ->each->toMatch('/:\d (env\(\)|use function env)$/');
     });
 
+    it('finds getenv() and putenv() like env()', function (): void {
+        $file = ($this->fixture)("<?php\ngetenv('A');\n\\putenv('B=1');");
+
+        expect(SourceScan::functionCalls([$file], ['env', 'getenv', 'putenv']))->toHaveCount(2);
+    });
+
     it('ignores methods, statics, declarations and strings', function (): void {
         $file = ($this->fixture)("<?php\n\$app->env('A');\nApp::env('B');\nclass A { public function env(): void {} }\n\$s = 'env(\"C\")';");
 
         expect(SourceScan::functionCalls([$file], ['env']))->toBe([]);
+    });
+});
+
+describe('globalClassReferences', function (): void {
+    it('finds fully qualified references and global imports', function (): void {
+        $file = ($this->fixture)("<?php\nnamespace App\\Http\\Controllers;\nuse DB;\n\\DB::table('users');\nuse \\DB as Database;");
+
+        expect(SourceScan::globalClassReferences([$file], ['DB']))->toHaveCount(3)
+            ->sequence(
+                fn ($violation) => $violation->toEndWith(':3 use DB'),
+                fn ($violation) => $violation->toEndWith(':4 \\DB'),
+                fn ($violation) => $violation->toEndWith(':5 use DB'),
+            );
+    });
+
+    it('ignores namespaced classes and strings', function (): void {
+        $file = ($this->fixture)("<?php\nuse Illuminate\\Support\\Facades\\DB;\nDB::table('x');\n\\App\\DB::run();\n\$s = '\\DB';\n\\DBAL::x();");
+
+        expect(SourceScan::globalClassReferences([$file], ['DB']))->toBe([]);
+    });
+});
+
+describe('variableReferences', function (): void {
+    it('finds superglobal reads and ignores look-alikes', function (): void {
+        $file = ($this->fixture)("<?php\n\$a = \$_ENV['A'];\n\$b = \$_SERVER['B'];\n\$_ENVIRONMENT = 1;\n\$s = '\$_ENV';");
+
+        expect(SourceScan::variableReferences([$file], ['$_ENV', '$_SERVER']))->toHaveCount(2)
+            ->sequence(
+                fn ($violation) => $violation->toEndWith(':2 $_ENV'),
+                fn ($violation) => $violation->toEndWith(':3 $_SERVER'),
+            );
     });
 });
 
@@ -128,9 +165,31 @@ describe('queueDelayViolations', function (): void {
         'release over the cap' => ['$this->release(901)', 'release(901): 901s > 900s'],
         'delay with separators' => ['dispatch($job)->delay(1_800)', 'delay(1_800): 1800s > 900s'],
         'static delay' => ['Job::delay(3600)', 'delay(3600): 3600s > 900s'],
-        'carbon delay' => ['$job->delay(now()->addMinutes(30))', 'delay(now()->addMinutes(30)): not an integer literal or class constant'],
-        'variable' => ['$this->release($seconds)', 'release($seconds): not an integer literal or class constant'],
-        'expression' => ['$this->release(60 * 20)', 'release(60*20): not an integer literal or class constant'],
+        'carbon delay' => ['$job->delay(now()->addMinutes(30))', 'delay(now()->addMinutes(30)): not an integer literal, class constant or min(..., N)'],
+        'variable' => ['$this->release($seconds)', 'release($seconds): not an integer literal, class constant or min(..., N)'],
+        'expression' => ['$this->release(60 * 20)', 'release(60*20): not an integer literal, class constant or min(..., N)'],
+        'releaseAfter middleware' => ['(new RateLimited(\'x\'))->releaseAfter(1000)', 'releaseAfter(1000): 1000s > 900s'],
+        'Queue::later first argument' => ['Queue::later(901, $job)', 'later(901, $job): 901s > 900s'],
+        'Mail::later computed' => ['Mail::to($u)->later(now()->addHour(), $mail)', 'later(now()->addHour(), $mail): not an integer literal, class constant or min(..., N)'],
+        'laterOn second argument' => ['Queue::laterOn(\'default\', 1200, $job)', "laterOn('default', 1200, \$job): 1200s > 900s"],
+        'ThrottlesExceptions backoff in minutes' => ['(new ThrottlesExceptions(3))->backoff(20)', 'backoff(20): 1200s > 900s'],
+        'delay property assignment' => ['$this->delay = now()->addHour()', 'delay = now()->addHour(): not an integer literal, class constant or min(..., N)'],
+        'delay property assignment over the cap' => ['$this->delay = 3600', 'delay = 3600: 3600s > 900s'],
+        'min() without a verifiable bound' => ['$this->release(min($a, $b))', 'release(min($a,$b)): not an integer literal, class constant or min(..., N)'],
+        'min() with a bound over the cap' => ['$this->release(min($retryAfter, 3600))', 'release(min($retryAfter,3600)): 3600s > 900s'],
+        'min() inside a larger expression' => ['$this->release(min($retryAfter, 900) + $jitter)', 'release(min($retryAfter,900)+$jitter): not an integer literal, class constant or min(..., N)'],
+    ]);
+
+    it('accepts min() capped delays, the sanctioned form for computed delays (spec 4)', function (string $call): void {
+        expect(SourceScan::queueDelayViolations([($this->fixture)("<?php\n{$call};")], 900))->toBe([]);
+    })->with([
+        'release(min(expr, 900))' => ['$this->release(min($retryAfter + random_int(0, 5), 900))'],
+        'release(\min(900, expr))' => ['$this->release(\min(900, $seconds))'],
+        'delay(min(expr, literal))' => ['dispatch($job)->delay(min($wait, 60))'],
+        'later within the cap' => ['Queue::later(600, $job)'],
+        'laterOn within the cap' => ['Queue::laterOn(\'q\', 900, $job)'],
+        'backoff of 15 minutes' => ['(new ThrottlesExceptions(3))->backoff(15)'],
+        'delay assignment within the cap' => ['$this->delay = 300'],
     ]);
 
     it('accepts literals within the cap, no argument and capped class constants', function (): void {
@@ -179,7 +238,7 @@ describe('queueDelayViolations', function (): void {
     });
 
     it('ignores unrelated methods and plain function calls', function (): void {
-        $file = ($this->fixture)("<?php\n\$x->delayed(5000);\nrelease(5000);\n\$s = '->delay(5000)';");
+        $file = ($this->fixture)("<?php\n\$x->delayed(5000);\nrelease(5000);\n\$s = '->delay(5000)';\n\$delay = 5000;\nclass J { public function backoff(): array { return [1]; } }");
 
         expect(SourceScan::queueDelayViolations([$file], 900))->toBe([]);
     });

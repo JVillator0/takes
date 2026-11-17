@@ -15,13 +15,6 @@ use Tests\Support\SourceScan;
 /** Laravel Cloud's managed queue rejects delays above 15 minutes. */
 const MAX_QUEUE_DELAY_SECONDS = 900;
 
-/** Config files that hold money values: integer nanodollars only. */
-const MONEY_CONFIG_PATHS = [
-    'config/pixelforge.php',
-    'config/ai-pricing.php',
-    'config/takes.php',
-];
-
 test('.env.example documents every env() key read in config/', function (): void {
     $documented = [];
 
@@ -37,11 +30,17 @@ test('.env.example documents every env() key read in config/', function (): void
     expect($missing)->toBe([]);
 });
 
-test('money config files never use floats', function (): void {
-    expect(SourceScan::floatViolations(MONEY_CONFIG_PATHS))->toBe([]);
+// Spec 1-01 issue 2: the whole of config/ (covers pixelforge.php,
+// ai-pricing.php and takes.php once they exist; USD values arrive as strings
+// and are parsed with Nanodollars::fromDecimalString).
+test('config files never use floats', function (): void {
+    expect(SourceScan::floatViolations(['config']))->toBe([]);
 });
 
-test('no queued class backs off or is delayed longer than 15 minutes', function (): void {
+// Static gate: what the class declares and what call sites pass (see the
+// blind spots in SourceScan's docblock); runtime delays are Queue::fake()
+// tests in spec 4.
+test('statically checkable queue delays and backoffs stay within 15 minutes', function (): void {
     $violations = [];
 
     // Jobs, queued listeners, notifications and mailables: anything in app/
@@ -57,7 +56,13 @@ test('no queued class backs off or is delayed longer than 15 minutes', function 
             continue;
         }
 
-        $seconds = QueueDelays::declaredSeconds($class);
+        try {
+            $seconds = QueueDelays::declaredSeconds($class);
+        } catch (LogicException $exception) {
+            $violations[] = $exception->getMessage();
+
+            continue;
+        }
 
         if ($seconds !== [] && max($seconds) > MAX_QUEUE_DELAY_SECONDS) {
             $violations[] = "{$class}: ".max($seconds).'s';

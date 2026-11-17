@@ -60,6 +60,11 @@ it('reads a class name without calling its constructor', function (): void {
     expect(QueueDelays::declaredSeconds(QueueDelaysFixtureJob::class))->toBe([120, 7200]);
 });
 
+it('reports a backoff() that needs constructor state as not statically verifiable', function (): void {
+    expect(fn (): array => QueueDelays::declaredSeconds(QueueDelaysConstructorBackoffJob::class))
+        ->toThrow(LogicException::class, 'QueueDelaysConstructorBackoffJob::backoff() is not statically verifiable');
+});
+
 it('returns nothing for a job without delays', function (): void {
     $job = new class implements ShouldQueue
     {
@@ -77,4 +82,17 @@ final class QueueDelaysFixtureJob implements ShouldQueue
     public int $backoff = 120;
 
     public function __construct(public string $required) {}
+}
+
+final class QueueDelaysConstructorBackoffJob implements ShouldQueue
+{
+    use Queueable;
+
+    public function __construct(private readonly int $retryIn) {}
+
+    /** @return list<int> */
+    public function backoff(): array
+    {
+        return [$this->retryIn];
+    }
 }
