@@ -59,7 +59,8 @@ hint() {
 # laravel/pao rewrites PHPStan output as JSON when it detects an agent; PAO_DISABLE
 # keeps the raw "path:line:message" format parsed below.
 out="$(mktemp -t claude-stan.XXXXXX)"
-PAO_DISABLE=1 "${cmd[@]}" >"$out" 2>/dev/null &
+err="$(mktemp -t claude-stan-err.XXXXXX)"
+PAO_DISABLE=1 "${cmd[@]}" >"$out" 2>"$err" &
 pid=$!
 elapsed=0
 while kill -0 "$pid" 2>/dev/null && [ "$elapsed" -lt 60 ]; do
@@ -70,7 +71,7 @@ done
 if kill -0 "$pid" 2>/dev/null; then
     pkill -P "$pid" 2>/dev/null
     kill "$pid" 2>/dev/null
-    rm -f "$out"
+    rm -f "$out" "$err"
     hint "Larastan did not finish in 60 s; run composer stan before pushing."
     exit 0
 fi
@@ -79,9 +80,15 @@ wait "$pid"
 status=$?
 if [ "$status" -ne 0 ]; then
     # Raw format: one "path:line:message" per error.
-    count="$(grep -c ':[0-9]*:' "$out" 2>/dev/null)" || true
-    first="$(grep -m 3 ':[0-9]*:' "$out" 2>/dev/null | sed "s|$project_dir/||" | tr '\n' ' ')"
-    hint "Larastan reported ${count:-some} issue(s); run composer stan. ${first}"
+    count="$(grep -cE ':[0-9]+:' "$out" 2>/dev/null)" || true
+    if [ "${count:-0}" -gt 0 ]; then
+        first="$(grep -m 3 -E ':[0-9]+:' "$out" | sed "s|$project_dir/||" | tr '\n' ' ')"
+        hint "Larastan reported ${count} issue(s); run composer stan. ${first}"
+    else
+        # No error lines: PHPStan or composer itself failed (config, memory, missing script).
+        reason="$(cat "$err" "$out" 2>/dev/null | grep -vE '^[[:space:]]*$|^Note:' | head -n 3 | sed "s|$project_dir/||" | tr '\n' ' ' | tr -s ' ' | cut -c 1-300)"
+        hint "Larastan failed (exit ${status}); run composer stan. ${reason}"
+    fi
 fi
-rm -f "$out"
+rm -f "$out" "$err"
 exit 0
