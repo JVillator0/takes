@@ -19,16 +19,6 @@ final readonly class AbilityDTO
         public ?DenialReason $reason = null,
     ) {}
 
-    /**
-     * @param  array{allowed: bool, reason?: string|null}  $data
-     */
-    public static function fromArray(array $data): self
-    {
-        $reason = $data['reason'] ?? null;
-
-        return new self($data['allowed'], $reason === null ? null : DenialReason::from($reason));
-    }
-
     /** From `Gate::inspect(...)`; a denial without a known reason code carries none. */
     public static function fromResponse(Response $response): self
     {

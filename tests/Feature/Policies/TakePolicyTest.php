@@ -7,6 +7,7 @@ use App\Enums\Auth\DenialReason;
 use App\Models\Customer;
 use App\Models\Take;
 use App\Models\User;
+use App\Support\Money\Nanodollars;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Support\Facades\Gate;
@@ -19,12 +20,12 @@ beforeEach(function (): void {
 /** A take whose max charge (the hold) is `$maxChargeNanos`. */
 function takeEstimate(int $maxChargeNanos = 467_343_750): EstimateDTO
 {
-    return EstimateDTO::fromArray([
-        'min_cost_nanos' => 0,
-        'max_cost_nanos' => intdiv($maxChargeNanos * 4, 5),
-        'min_charge_nanos' => 0,
-        'max_charge_nanos' => $maxChargeNanos,
-    ]);
+    return new EstimateDTO(
+        minCost: Nanodollars::zero(),
+        maxCost: Nanodollars::fromInt(intdiv($maxChargeNanos * 4, 5)),
+        minCharge: Nanodollars::zero(),
+        maxCharge: Nanodollars::fromInt($maxChargeNanos),
+    );
 }
 
 function inspectCreateTake(Customer $customer, EstimateDTO $estimate): Response

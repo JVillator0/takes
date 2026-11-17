@@ -8,6 +8,7 @@ use App\Enums\Billing\Provider;
 use App\Models\Customer;
 use App\Models\Suggestion;
 use App\Models\UsageRecord;
+use App\Support\Money\Nanodollars;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Support\Facades\Gate;
@@ -28,12 +29,12 @@ function inspectSuggest(Customer $customer, ?EstimateDTO $estimate = null): Resp
 
 function aiEstimate(int $maxChargeNanos): EstimateDTO
 {
-    return EstimateDTO::fromArray([
-        'min_cost_nanos' => 0,
-        'max_cost_nanos' => 0,
-        'min_charge_nanos' => 0,
-        'max_charge_nanos' => $maxChargeNanos,
-    ]);
+    return new EstimateDTO(
+        minCost: Nanodollars::zero(),
+        maxCost: Nanodollars::fromInt(0),
+        minCharge: Nanodollars::zero(),
+        maxCharge: Nanodollars::fromInt($maxChargeNanos),
+    );
 }
 
 it('allows a customer with credit', function (): void {
@@ -64,6 +65,15 @@ it('denies with ai_paused when today\'s global AI budget is spent (settled cost 
 
     // An open call counts at its max cost (400_000 in the factory): 1_000_000 ≥ budget.
     UsageRecord::factory()->forSuggestion()->create();
+    expect(inspectSuggest($customer)->code())->toBe(DenialReason::AiPaused->value);
+});
+
+it('counts an open AI call opened before midnight: it is still held today', function (): void {
+    $customer = Customer::factory()->withRole()->withCachedBalance(1_000_000_000)->create();
+    config(['takes.ai.daily_budget_nanos' => 400_000]);
+
+    UsageRecord::factory()->forSuggestion()->create(['created_at' => now()->utc()->subDay()->endOfDay()]);
+
     expect(inspectSuggest($customer)->code())->toBe(DenialReason::AiPaused->value);
 });
 

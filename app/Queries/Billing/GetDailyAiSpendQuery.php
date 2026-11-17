@@ -12,9 +12,9 @@ use UnexpectedValueException;
 
 /**
  * Today's global Anthropic provider cost (spec 3-01, `ai_paused`): settled
- * usages billed today at their provider cost, plus open usages created today
- * at their `max_cost_nanos` (the worst case still in flight). Voided usages
- * cost nothing.
+ * usages billed today at their provider cost, plus every open usage at its
+ * `max_cost_nanos` (currently held, whenever it was opened: the worst case
+ * still in flight). Voided usages cost nothing.
  */
 final class GetDailyAiSpendQuery
 {
@@ -25,14 +25,12 @@ final class GetDailyAiSpendQuery
         $settled = UsageRecord::query()
             ->where('provider', Provider::Anthropic->value)
             ->where('status', UsageStatus::Settled->value)
-            ->whereDate('billing_date', $today->toDateString())
+            ->where('billing_date', $today->toDateString())
             ->sum('provider_cost_nanos');
 
         $open = UsageRecord::query()
             ->where('provider', Provider::Anthropic->value)
             ->where('status', UsageStatus::Open->value)
-            ->where('created_at', '>=', $today)
-            ->where('created_at', '<', $today->addDay())
             ->sum('max_cost_nanos');
 
         return Nanodollars::fromInt(self::integer($settled))->plus(Nanodollars::fromInt(self::integer($open)));

@@ -18,14 +18,6 @@ final readonly class DemoLoginDTO
     ) {}
 
     /**
-     * @param  array{key: string, label: string, email: string, password: string}  $data
-     */
-    public static function fromArray(array $data): self
-    {
-        return new self($data['key'], $data['label'], $data['email'], $data['password']);
-    }
-
-    /**
      * @return array{key: string, label: string, email: string, password: string}
      */
     public function toArray(): array

@@ -57,7 +57,4 @@ return [
         'password' => env('DEMO_ACCOUNTS_PASSWORD', 'password'),
     ],
 
-    // Credit packs in whole USD (spec 3-03 owns PurchaseCreditsAction; specs 4 and 6 only read it).
-    'purchase_packs_usd' => [5, 10, 25],
-
 ];
