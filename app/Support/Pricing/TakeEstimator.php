@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Support\Pricing;
 
 use App\DTOs\Billing\EstimateDTO;
+use App\DTOs\Pixelforge\TokenFactsDTO;
 use App\Enums\Takes\TakeQuality;
 use App\Enums\Takes\TakeSize;
 use App\Support\Money\Nanodollars;
@@ -17,7 +18,9 @@ use InvalidArgumentException;
  * and CreateTakeAction (which recomputes from the real prompt for the hold)
  * both call it. Stateless, integer arithmetic only.
  *
- * Per token kind, the minimum and maximum token counts are:
+ * Per token kind, the minimum and maximum token counts come from the token
+ * facts of GET /v1/pricing ({@see TokenFactsDTO}; the documented table when
+ * none are given). With the documented values:
  * - input_text: est = ceil(chars / 4); min = floor(est × 85 / 100), max = ceil(est × 115 / 100)
  * - input_image: references × 765 (exact)
  * - output: the size × quality table (exact)
@@ -41,6 +44,7 @@ final readonly class TakeEstimator
      * (mb_strlen), as Pixelforge counts them: not bytes, not UTF-16 units.
      *
      * @param  array<string, int>  $rates  nanodollars per 1M tokens by kind
+     * @param  TokenFactsDTO|null  $tokenFacts  from the same GET /v1/pricing as the rates; null = the documented table
      */
     public function estimate(
         string $prompt,
@@ -48,15 +52,17 @@ final readonly class TakeEstimator
         TakeQuality $quality,
         int $referenceImages,
         array $rates,
+        ?TokenFactsDTO $tokenFacts = null,
         int $markupBps = Nanodollars::DEFAULT_MARKUP_BPS,
     ): EstimateDTO {
-        return $this->estimateForCharacters(mb_strlen($prompt, 'UTF-8'), $size, $quality, $referenceImages, $rates, $markupBps);
+        return $this->estimateForCharacters(mb_strlen($prompt, 'UTF-8'), $size, $quality, $referenceImages, $rates, $tokenFacts, $markupBps);
     }
 
     /**
      * Estimates from a character count (the estimate endpoint never receives the prompt text).
      *
      * @param  array<string, int>  $rates  nanodollars per 1M tokens by kind
+     * @param  TokenFactsDTO|null  $tokenFacts  from the same GET /v1/pricing as the rates; null = the documented table
      */
     public function estimateForCharacters(
         int $characters,
@@ -64,6 +70,7 @@ final readonly class TakeEstimator
         TakeQuality $quality,
         int $referenceImages,
         array $rates,
+        ?TokenFactsDTO $tokenFacts = null,
         int $markupBps = Nanodollars::DEFAULT_MARKUP_BPS,
     ): EstimateDTO {
         if ($characters < 0 || $characters > PixelforgeTokenTable::MAX_PROMPT_CHARACTERS) {
@@ -75,21 +82,23 @@ final readonly class TakeEstimator
         }
 
         $this->assertRates($rates);
+        $tokenFacts ??= TokenFactsDTO::defaults();
 
-        $estimatedTextTokens = intdiv($characters + PixelforgeTokenTable::CHARACTERS_PER_TEXT_TOKEN - 1, PixelforgeTokenTable::CHARACTERS_PER_TEXT_TOKEN);
-        $imageTokens = $referenceImages * PixelforgeTokenTable::TOKENS_PER_REFERENCE_IMAGE;
-        $outputTokens = PixelforgeTokenTable::outputTokens($quality, $size);
-        $reasoningTokens = PixelforgeTokenTable::reasoningTokens($quality);
+        $charactersPerToken = $tokenFacts->charactersPerTextToken;
+        $estimatedTextTokens = intdiv($characters + $charactersPerToken - 1, $charactersPerToken);
+        $imageTokens = $referenceImages * $tokenFacts->tokensPerReferenceImage;
+        $outputTokens = $tokenFacts->outputTokensFor($quality, $size);
+        $reasoningTokens = $tokenFacts->reasoningTokensFor($quality);
 
         $minCost = $this->tokenCost->compute([
-            'input_text' => intdiv($estimatedTextTokens * (self::BPS_DENOMINATOR - PixelforgeTokenTable::TEXT_TOKEN_VARIANCE_BPS), self::BPS_DENOMINATOR),
+            'input_text' => intdiv($estimatedTextTokens * (self::BPS_DENOMINATOR - $tokenFacts->textTokenVarianceBps), self::BPS_DENOMINATOR),
             'input_image' => $imageTokens,
             'output' => $outputTokens,
             'reasoning' => $reasoningTokens['min'],
         ], $rates);
 
         $maxCost = $this->tokenCost->compute([
-            'input_text' => intdiv($estimatedTextTokens * (self::BPS_DENOMINATOR + PixelforgeTokenTable::TEXT_TOKEN_VARIANCE_BPS) + self::BPS_DENOMINATOR - 1, self::BPS_DENOMINATOR),
+            'input_text' => intdiv($estimatedTextTokens * (self::BPS_DENOMINATOR + $tokenFacts->textTokenVarianceBps) + self::BPS_DENOMINATOR - 1, self::BPS_DENOMINATOR),
             'input_image' => $imageTokens,
             'output' => $outputTokens,
             'reasoning' => $reasoningTokens['max'],

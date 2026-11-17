@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\DTOs\Pixelforge\TokenFactsDTO;
 use App\Enums\Takes\TakeQuality;
 use App\Enums\Takes\TakeSize;
 use App\Support\Money\Nanodollars;
@@ -125,6 +126,34 @@ describe('token tables', function (): void {
     ]);
 });
 
+describe('token facts from GET /v1/pricing', function (): void {
+    it('uses the documented table when no token facts are given', function (): void {
+        $fixture = json_decode((string) file_get_contents(dirname(__DIR__, 2).'/Fixtures/Pricing/pixelforge-docs-pricing.json'), true, flags: JSON_THROW_ON_ERROR);
+        $fromPricing = TokenFactsDTO::fromPricingArray($fixture['response']);
+
+        expect($this->estimator->estimateForCharacters(400, TakeSize::Landscape, TakeQuality::High, 2, $this->rates, $fromPricing))
+            ->toEqual($this->estimator->estimateForCharacters(400, TakeSize::Landscape, TakeQuality::High, 2, $this->rates));
+    });
+
+    it('estimates with the token facts it is given', function (): void {
+        // Every fact changed: 2 chars per token, 10% variance, 1,000 per reference,
+        // 5,000 output tokens for high 1536x1024, reasoning 2,000–9,000 for high.
+        $facts = new TokenFactsDTO(
+            charactersPerTextToken: 2,
+            textTokenVarianceBps: 1_000,
+            tokensPerReferenceImage: 1_000,
+            outputTokens: array_replace_recursive(PixelforgeTokenTable::OUTPUT_TOKENS, ['high' => ['1536x1024' => 5_000]]),
+            reasoningTokens: array_replace(PixelforgeTokenTable::REASONING_TOKENS, ['high' => ['min' => 2_000, 'max' => 9_000]]),
+        );
+
+        $estimate = $this->estimator->estimateForCharacters(400, TakeSize::Landscape, TakeQuality::High, 2, $this->rates, $facts);
+
+        // est 200 text tokens: min 180, max 220.
+        expect($estimate->minCost->toInt())->toBe(180 * 5_000 + 2_000 * 10_000 + 5_000 * 40_000 + 2_000 * 12_500)
+            ->and($estimate->maxCost->toInt())->toBe(220 * 5_000 + 2_000 * 10_000 + 5_000 * 40_000 + 9_000 * 12_500);
+    });
+});
+
 describe('invariants', function (): void {
     it('keeps min <= max and charges exactly cost × 1.25 for every kind and combination', function (): void {
         $kinds = ['input_text' => 5_000_000_000, 'input_image' => 10_000_000_000, 'output' => 40_000_000_000, 'reasoning' => 12_500_000_000];
@@ -183,7 +212,7 @@ describe('invariants', function (): void {
     });
 
     it('applies a different markup when given one', function (): void {
-        $estimate = $this->estimator->estimateForCharacters(400, TakeSize::Landscape, TakeQuality::High, 2, $this->rates, 0);
+        $estimate = $this->estimator->estimateForCharacters(400, TakeSize::Landscape, TakeQuality::High, 2, $this->rates, markupBps: 0);
 
         expect($estimate->maxCharge->toInt())->toBe(373_875_000);
     });
@@ -324,5 +353,7 @@ it('contains no float or built-in rounding helpers in the pricing code', functio
     'app/Support/Pricing/PixelforgeTokenTable.php',
     'app/Support/Pricing/AiPricing.php',
     'app/DTOs/Billing/EstimateDTO.php',
+    'app/Support/Money/TokenCost.php',
+    'app/DTOs/Pixelforge/TokenFactsDTO.php',
     'config/ai-pricing.php',
 ]);

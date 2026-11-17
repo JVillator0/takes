@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Support\Pricing;
 
+use App\DTOs\Pixelforge\TokenFactsDTO;
 use App\Enums\Takes\TakeQuality;
 use App\Enums\Takes\TakeSize;
 
@@ -13,6 +14,11 @@ use App\Enums\Takes\TakeSize;
  * §2). Copied verbatim from https://pixelforge.promptedit.dev/docs ("Pricing
  * and token usage", "How tokens are counted" and the GET /v1/pricing example),
  * retrieved 2026-11-17. A test checks them against a verbatim fixture.
+ *
+ * The estimator reads the live values from GET /v1/pricing through
+ * {@see TokenFactsDTO}; this table is its fallback
+ * ({@see TokenFactsDTO::defaults()}). The prompt and
+ * reference limits are API limits that /v1/pricing does not return.
  */
 final class PixelforgeTokenTable
 {
@@ -56,17 +62,4 @@ final class PixelforgeTokenTable
         'medium' => ['min' => 200, 'max' => 2000],
         'high' => ['min' => 1000, 'max' => 8000],
     ];
-
-    public static function outputTokens(TakeQuality $quality, TakeSize $size): int
-    {
-        return self::OUTPUT_TOKENS[$quality->value][$size->value];
-    }
-
-    /**
-     * @return array{min: int, max: int}
-     */
-    public static function reasoningTokens(TakeQuality $quality): array
-    {
-        return self::REASONING_TOKENS[$quality->value];
-    }
 }
