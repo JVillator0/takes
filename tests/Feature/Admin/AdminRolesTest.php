@@ -44,7 +44,8 @@ it('gives the auditor view permissions only', function (): void {
     $permissions = permissionsOf(AdminRole::Auditor);
 
     expect($permissions)->toContain('ViewAny:Role', 'View:Role', 'ViewAny:Activity', 'View:Activity')
-        ->and(array_filter($permissions, fn (string $permission): bool => ! str_starts_with($permission, 'View')))->toBe([]);
+        ->and(array_filter($permissions, fn (string $permission): bool => ! str_starts_with($permission, 'View')))->toBe([])
+        ->and(Permission::query()->whereIn('name', ['Create:Activity', 'Update:Activity', 'Delete:Activity'])->exists())->toBeFalse();
 });
 
 it('gives the operator the view permissions plus every custom write permission', function (): void {

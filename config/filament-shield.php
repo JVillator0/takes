@@ -145,7 +145,8 @@ return [
 
     'policies' => [
         'path' => app_path('Policies'),
-        'merge' => true,
+        // Off: a resource listed under resources.manage gets exactly those abilities (the console is read-mostly).
+        'merge' => false,
         'generate' => true,
         'methods' => [
             'viewAny', 'view', 'create', 'update', 'delete', 'deleteAny', 'restore',
