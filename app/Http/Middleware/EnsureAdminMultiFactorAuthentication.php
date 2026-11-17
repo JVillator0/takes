@@ -26,7 +26,8 @@ final readonly class EnsureAdminMultiFactorAuthentication
      */
     public function handle(Request $request, Closure $next): mixed
     {
-        if (Filament::getCurrentPanel()?->isMultiFactorAuthenticationRequired() !== true) {
+        // Fails closed: only an explicit "not required" (an MFA-exempt admin) skips the check.
+        if (Filament::getCurrentPanel()?->isMultiFactorAuthenticationRequired() === false) {
             return $next($request);
         }
 

@@ -19,7 +19,8 @@ use Filament\Support\Contracts\HasLabel;
  * `processing` or before the create response. Transitions happen only in
  * ApplyTakeSnapshotAction and FailTakeAction.
  *
- * label()/color() back Filament's HasLabel/HasColor in the admin console (spec 7).
+ * label()/color() are the admin wording and badge colour; getLabel() reads the
+ * console's lang file (Filament HasLabel/HasColor, spec 7).
  */
 enum TakeStatus: string implements HasColor, HasLabel
 {
@@ -89,10 +90,12 @@ enum TakeStatus: string implements HasColor, HasLabel
         };
     }
 
-    /** Admin console label (Filament HasLabel). */
+    /** Admin console label (Filament HasLabel), from lang/en/console.php. */
     public function getLabel(): string
     {
-        return $this->label();
+        $label = __('console.enums.take_status.'.$this->value);
+
+        return is_string($label) ? $label : $this->label();
     }
 
     /** Admin console badge color (Filament HasColor). */

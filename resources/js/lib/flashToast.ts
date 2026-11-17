@@ -12,7 +12,19 @@ export function initializeFlashToast(): void {
         const denial = flash?.denial as FlashDenial | undefined;
 
         if (data) {
-            toast[data.type](data.message);
+            const action = data.action;
+
+            toast[data.type](
+                data.message,
+                action
+                    ? {
+                          action: {
+                              label: action.label,
+                              onClick: () => router.visit(action.href),
+                          },
+                      }
+                    : undefined,
+            );
         }
 
         // A policy denial sent back by the server (spec 3-01), with 2-01 copy.
