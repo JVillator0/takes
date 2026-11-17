@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace App\Http\Requests\Billing;
 
 use App\Models\Customer;
+use App\Models\Purchase;
+use Illuminate\Auth\Access\Response;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 use LogicException;
 
@@ -17,13 +20,13 @@ use LogicException;
 final class StorePurchaseRequest extends FormRequest
 {
     /**
-     * Permission `credits.purchase` (spec 3-01). Resolved through the Gate, so
-     * spatie/laravel-permission answers it once 3-01 installs it; until then
-     * the ability is undefined and the request is denied (fails closed).
+     * PurchasePolicy::create (`credits.purchase`, spec 3-01): the same answer
+     * as the shared `auth.can.purchaseCredits`. A denial carries its
+     * DenialReason, so the page gets the 2-01 copy, not a bare 403.
      */
-    public function authorize(): bool
+    public function authorize(): Response
     {
-        return $this->customer()->can('credits.purchase');
+        return Gate::forUser($this->customer())->inspect('create', Purchase::class);
     }
 
     /**

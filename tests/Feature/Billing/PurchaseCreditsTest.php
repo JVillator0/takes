@@ -3,31 +3,28 @@
 declare(strict_types=1);
 
 use App\Actions\Billing\PurchaseCreditsAction;
+use App\Enums\Auth\CustomerRole;
 use App\Enums\Billing\LedgerEntryType;
 use App\Enums\Billing\PurchaseStatus;
 use App\Exceptions\Billing\IdempotencyKeyReusedException;
 use App\Models\Customer;
 use App\Models\LedgerEntry;
 use App\Models\Purchase;
+use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Database\UniqueConstraintViolationException;
-use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 use Tests\Support\Billing;
 
 /*
- * PurchaseCreditsAction and POST /billing/purchases (spec 3-03 issue 6).
- * Until spec 3-01 lands, these tests declare the `customer` guard and the
- * `credits.purchase` ability themselves.
+ * PurchaseCreditsAction and POST /billing/purchases (spec 3-03 issue 6, spec
+ * 6 issue 1). The route sits in the `customer` group and asks
+ * PurchasePolicy::create (`credits.purchase`, spec 3-01).
  */
 
 beforeEach(function (): void {
-    config([
-        'auth.guards.customer' => ['driver' => 'session', 'provider' => 'customers'],
-        'auth.providers.customers' => ['driver' => 'eloquent', 'model' => Customer::class],
-    ]);
-    Gate::define('credits.purchase', fn (Customer $customer): bool => true);
+    $this->seed(RolesAndPermissionsSeeder::class);
 
-    $this->customer = Customer::factory()->create();
+    $this->customer = Customer::factory()->withRole()->create();
 });
 
 describe('action', function (): void {
@@ -37,7 +34,7 @@ describe('action', function (): void {
         expect($purchase->status)->toBe(PurchaseStatus::Paid)
             ->and($purchase->paid_at)->not->toBeNull()
             ->and($purchase->amount_nanos)->toBe($usd * 1_000_000_000)
-            ->and($purchase->reference)->toStartWith('PUR-')
+            ->and($purchase->reference)->toMatch('/^SIM-[0-9A-HJKMNP-TV-Z]{26}$/')
             ->and($this->customer->refresh()->balance_nanos)->toBe($usd * 1_000_000_000);
 
         $entry = LedgerEntry::query()->where('purchase_id', $purchase->id)->sole();
@@ -143,11 +140,23 @@ describe('POST /billing/purchases', function (): void {
     ]);
 
     it('is forbidden without the credits.purchase permission', function (): void {
-        Gate::define('credits.purchase', fn (Customer $customer): bool => false);
+        $showcase = Customer::factory()->withRole(CustomerRole::Showcase)->create();
 
-        $this->actingAs($this->customer, 'customer')
+        $this->actingAs($showcase, 'customer')
             ->post(route('billing.purchases.store'), ['package' => 5, 'idempotency_key' => (string) Str::uuid()])
             ->assertForbidden();
+
+        expect(Purchase::query()->count())->toBe(0);
+    });
+
+    it('sends the denial reason back to an Inertia page instead of a bare 403', function (): void {
+        $showcase = Customer::factory()->withRole(CustomerRole::Showcase)->create();
+
+        $this->actingAs($showcase, 'customer')
+            ->from(route('billing.show'))
+            ->post(route('billing.purchases.store'), ['package' => 5, 'idempotency_key' => (string) Str::uuid()], ['X-Inertia' => 'true'])
+            ->assertRedirect(route('billing.show'))
+            ->assertSessionHasErrors('denial');
 
         expect(Purchase::query()->count())->toBe(0);
     });
