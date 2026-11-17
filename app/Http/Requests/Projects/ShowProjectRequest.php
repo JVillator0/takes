@@ -46,12 +46,4 @@ final class ShowProjectRequest extends CustomerFormRequest
     {
         return $this->enum('status', TakeFilter::class) ?? TakeFilter::All;
     }
-
-    public function project(): Project
-    {
-        $project = $this->route('project');
-        assert($project instanceof Project);
-
-        return $project;
-    }
 }
