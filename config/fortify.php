@@ -15,7 +15,7 @@ return [
     |
     */
 
-    'guard' => 'web',
+    'guard' => 'customer',
 
     /*
     |--------------------------------------------------------------------------
@@ -28,7 +28,7 @@ return [
     |
     */
 
-    'passwords' => 'users',
+    'passwords' => 'customers',
 
     /*
     |--------------------------------------------------------------------------
@@ -101,7 +101,7 @@ return [
     |
     */
 
-    'middleware' => ['web'],
+    'middleware' => ['web', 'customer.guard'],
 
     /*
     |--------------------------------------------------------------------------
@@ -161,17 +161,11 @@ return [
     */
 
     'features' => [
+        // Customers only (spec 3-01). No email verification (D-030). Two-factor
+        // and passkeys are off: both are tied to the `users` table (columns and
+        // the `passkeys.user_id` FK); admin MFA arrives with Filament (spec 7).
         Features::registration(),
         Features::resetPasswords(),
-        Features::emailVerification(),
-        Features::twoFactorAuthentication([
-            'confirm' => true,
-            'confirmPassword' => true,
-            // 'window' => 0
-        ]),
-        Features::passkeys([
-            'confirmPassword' => true,
-        ]),
     ],
 
 ];

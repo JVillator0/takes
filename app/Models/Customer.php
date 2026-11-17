@@ -12,13 +12,16 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Spatie\Permission\Traits\HasRoles;
 
 /**
  * A paying customer of the public app: own table and `customer` guard,
  * separate from admin users (D-012). Never hard-deleted.
  *
  * No $fillable: every write goes through an action with forceFill() (house rule).
- * The guard, roles (spatie HasRoles) and password broker arrive with spec 3-01.
+ * Authenticates on the `customer` guard with the `customers` password broker;
+ * roles and permissions live on that guard only (spec 3-01). No
+ * MustVerifyEmail: registration has no email verification (D-030).
  *
  * @property int $id
  * @property string $name
@@ -38,7 +41,10 @@ use Illuminate\Notifications\Notifiable;
 final class Customer extends Authenticatable
 {
     /** @use HasFactory<CustomerFactory> */
-    use HasFactory, Notifiable;
+    use HasFactory, HasRoles, Notifiable;
+
+    /** Spatie roles and permissions resolve on the customer guard, never `web`. */
+    protected string $guard_name = 'customer';
 
     /** @var array<string, mixed> */
     protected $attributes = [
@@ -64,6 +70,14 @@ final class Customer extends Authenticatable
     public function held(): Nanodollars
     {
         return Nanodollars::fromInt($this->held_nanos);
+    }
+
+    /** D-065: an ephemeral demo customer past `demo_expires_at` is logged out lazily. */
+    public function isExpiredDemo(): bool
+    {
+        return $this->is_demo
+            && $this->demo_expires_at !== null
+            && ! $this->demo_expires_at->isFuture();
     }
 
     /** @return HasMany<Project, $this> */

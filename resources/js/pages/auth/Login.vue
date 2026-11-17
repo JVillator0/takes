@@ -11,7 +11,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { register } from '@/routes';
 import { store } from '@/routes/login';
 import { request } from '@/routes/password';
-import PasskeyVerify from '@/components/PasskeyVerify.vue';
+import type { DemoLogin } from '@/types';
 
 defineOptions({
     layout: {
@@ -20,9 +20,17 @@ defineOptions({
     },
 });
 
+type DemoPanel = {
+    title: string;
+    description: string;
+    adminHint: string;
+    logins: DemoLogin[];
+};
+
 defineProps<{
     status?: string;
     canResetPassword: boolean;
+    demoPanel: DemoPanel | null;
 }>();
 </script>
 
@@ -35,8 +43,6 @@ defineProps<{
     >
         {{ status }}
     </div>
-
-    <PasskeyVerify />
 
     <Form
         v-bind="store.form()"
@@ -107,4 +113,53 @@ defineProps<{
             <TextLink :href="register()" :tabindex="5">Sign up</TextLink>
         </div>
     </Form>
+
+    <!-- P02 demo panel (spec 3-01): only when DEMO_LOGIN_ENABLED=true. -->
+    <section
+        v-if="demoPanel"
+        class="mt-8 rounded-lg border border-dashed p-4"
+        aria-labelledby="demo-panel-title"
+        data-test="demo-panel"
+    >
+        <h2
+            id="demo-panel-title"
+            class="text-xs font-semibold tracking-wide text-muted-foreground uppercase"
+        >
+            {{ demoPanel.title }}
+        </h2>
+        <p class="mt-2 text-sm text-muted-foreground">
+            {{ demoPanel.description }}
+        </p>
+
+        <!-- Spec 4 adds the "Try a demo account" button (POST /demo) here. -->
+
+        <ul class="mt-4 grid gap-2">
+            <li v-for="login in demoPanel.logins" :key="login.key">
+                <Form
+                    v-bind="store.form()"
+                    v-slot="{ processing }"
+                    :data-test="`demo-login-${login.key}`"
+                >
+                    <input type="hidden" name="email" :value="login.email" />
+                    <input
+                        type="hidden"
+                        name="password"
+                        :value="login.password"
+                    />
+                    <Button
+                        type="submit"
+                        variant="outline"
+                        class="w-full"
+                        :disabled="processing"
+                    >
+                        {{ login.label }}
+                    </Button>
+                </Form>
+            </li>
+        </ul>
+
+        <p class="mt-3 text-xs text-muted-foreground">
+            {{ demoPanel.adminHint }}
+        </p>
+    </section>
 </template>

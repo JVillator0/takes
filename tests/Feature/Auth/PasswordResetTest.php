@@ -1,95 +1,84 @@
 <?php
 
-namespace Tests\Feature\Auth;
+declare(strict_types=1);
 
+use App\Models\Customer;
 use App\Models\User;
 use Illuminate\Auth\Notifications\ResetPassword;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
-use Laravel\Fortify\Features;
-use Tests\TestCase;
+use Illuminate\Support\Facades\Password;
 
-class PasswordResetTest extends TestCase
-{
-    use RefreshDatabase;
+it('renders the forgot-password page', function (): void {
+    $this->get(route('password.request'))->assertOk();
+});
 
-    protected function setUp(): void
-    {
-        parent::setUp();
+it('sends the reset link through the customers broker and its own token table', function (): void {
+    Notification::fake();
+    $customer = Customer::factory()->create();
 
-        $this->skipUnlessFortifyHas(Features::resetPasswords());
-    }
+    $this->post(route('password.email'), ['email' => $customer->email]);
 
-    public function test_reset_password_link_screen_can_be_rendered()
-    {
-        $response = $this->get(route('password.request'));
+    Notification::assertSentTo($customer, ResetPassword::class);
+    expect(DB::table('customer_password_reset_tokens')->where('email', $customer->email)->exists())->toBeTrue()
+        ->and(DB::table('password_reset_tokens')->count())->toBe(0);
+});
 
-        $response->assertOk();
-    }
+it('renders the reset page and resets the password with a valid token', function (): void {
+    Notification::fake();
+    $customer = Customer::factory()->create();
 
-    public function test_reset_password_link_can_be_requested()
-    {
-        Notification::fake();
+    $this->post(route('password.email'), ['email' => $customer->email]);
 
-        $user = User::factory()->create();
+    Notification::assertSentTo($customer, ResetPassword::class, function (ResetPassword $notification) use ($customer): bool {
+        $this->get(route('password.reset', $notification->token))->assertOk();
 
-        $this->post(route('password.email'), ['email' => $user->email]);
+        $this->post(route('password.update'), [
+            'token' => $notification->token,
+            'email' => $customer->email,
+            'password' => 'new-password',
+            'password_confirmation' => 'new-password',
+        ])->assertSessionHasNoErrors()->assertRedirect(route('login'));
 
-        Notification::assertSentTo($user, ResetPassword::class);
-    }
+        return Hash::check('new-password', $customer->refresh()->password);
+    });
+});
 
-    public function test_reset_password_screen_can_be_rendered()
-    {
-        Notification::fake();
+it('rejects an invalid token', function (): void {
+    $customer = Customer::factory()->create();
 
-        $user = User::factory()->create();
+    $this->post(route('password.update'), [
+        'token' => 'invalid-token',
+        'email' => $customer->email,
+        'password' => 'new-password',
+        'password_confirmation' => 'new-password',
+    ])->assertSessionHasErrors('email');
+});
 
-        $this->post(route('password.email'), ['email' => $user->email]);
+it('keeps admin and customer resets isolated for the same email', function (): void {
+    Notification::fake();
+    $admin = User::factory()->create(['email' => 'same@example.com']);
+    $customer = Customer::factory()->create(['email' => 'same@example.com']);
 
-        Notification::assertSentTo($user, ResetPassword::class, function ($notification) {
-            $response = $this->get(route('password.reset', $notification->token));
+    $adminToken = Password::broker('users')->createToken($admin);
+    $this->post(route('password.email'), ['email' => 'same@example.com']);
 
-            $response->assertOk();
+    Notification::assertNotSentTo($admin, ResetPassword::class);
+    Notification::assertSentTo($customer, ResetPassword::class, function (ResetPassword $notification): bool {
+        $this->post(route('password.update'), [
+            'token' => $notification->token,
+            'email' => 'same@example.com',
+            'password' => 'new-password',
+            'password_confirmation' => 'new-password',
+        ])->assertSessionHasNoErrors();
 
-            return true;
-        });
-    }
+        return true;
+    });
 
-    public function test_password_can_be_reset_with_valid_token()
-    {
-        Notification::fake();
-
-        $user = User::factory()->create();
-
-        $this->post(route('password.email'), ['email' => $user->email]);
-
-        Notification::assertSentTo($user, ResetPassword::class, function ($notification) use ($user) {
-            $response = $this->post(route('password.update'), [
-                'token' => $notification->token,
-                'email' => $user->email,
-                'password' => 'password',
-                'password_confirmation' => 'password',
-            ]);
-
-            $response
-                ->assertSessionHasNoErrors()
-                ->assertRedirect(route('login'));
-
-            return true;
-        });
-    }
-
-    public function test_password_cannot_be_reset_with_invalid_token(): void
-    {
-        $user = User::factory()->create();
-
-        $response = $this->post(route('password.update'), [
-            'token' => 'invalid-token',
-            'email' => $user->email,
-            'password' => 'newpassword123',
-            'password_confirmation' => 'newpassword123',
-        ]);
-
-        $response->assertSessionHasErrors('email');
-    }
-}
+    // The admin's token and password are untouched; the customer's token was consumed.
+    expect(Password::broker('users')->tokenExists($admin, $adminToken))->toBeTrue()
+        ->and(Hash::check('password', $admin->refresh()->password))->toBeTrue()
+        ->and(DB::table('customer_password_reset_tokens')->count())->toBe(0)
+        ->and(Hash::check('new-password', $customer->refresh()->password))->toBeTrue();
+});

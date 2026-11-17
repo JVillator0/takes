@@ -1,39 +1,62 @@
 <?php
 
-namespace Tests\Feature\Auth;
+declare(strict_types=1);
 
-use Illuminate\Foundation\Testing\RefreshDatabase;
-use Laravel\Fortify\Features;
-use Tests\TestCase;
+use App\Enums\Auth\CustomerRole;
+use App\Models\Customer;
+use App\Models\User;
+use Database\Seeders\RolesAndPermissionsSeeder;
 
-class RegistrationTest extends TestCase
-{
-    use RefreshDatabase;
+beforeEach(function (): void {
+    $this->seed(RolesAndPermissionsSeeder::class);
+});
 
-    protected function setUp(): void
-    {
-        parent::setUp();
+it('renders the registration page', function (): void {
+    $this->get(route('register'))->assertOk();
+});
 
-        $this->skipUnlessFortifyHas(Features::registration());
-    }
+it('registers a customer with the customer role and signs them in, with no verification step', function (): void {
+    $response = $this->post(route('register.store'), [
+        'name' => 'Ana López',
+        'email' => 'ana@example.com',
+        'password' => 'password',
+        'password_confirmation' => 'password',
+    ]);
 
-    public function test_registration_screen_can_be_rendered()
-    {
-        $response = $this->get(route('register'));
+    $customer = Customer::query()->where('email', 'ana@example.com')->sole();
 
-        $response->assertOk();
-    }
+    $response->assertRedirect(route('dashboard', absolute: false));
+    $this->assertAuthenticatedAs($customer, 'customer');
+    expect($customer->hasRole(CustomerRole::Customer->value))->toBeTrue()
+        ->and($customer->email_verified_at)->toBeNull()
+        ->and(User::query()->count())->toBe(0);
 
-    public function test_new_users_can_register()
-    {
-        $response = $this->post(route('register.store'), [
-            'name' => 'Test User',
-            'email' => 'test@example.com',
-            'password' => 'password',
-            'password_confirmation' => 'password',
-        ]);
+    // D-030: straight into the app, no verification notice in between.
+    $this->get(route('dashboard'))->assertOk();
+});
 
-        $this->assertAuthenticated();
-        $response->assertRedirect(route('dashboard', absolute: false));
-    }
-}
+it('rejects an email that already belongs to a customer', function (): void {
+    Customer::factory()->create(['email' => 'ana@example.com']);
+
+    $this->post(route('register.store'), [
+        'name' => 'Ana López',
+        'email' => 'ana@example.com',
+        'password' => 'password',
+        'password_confirmation' => 'password',
+    ])->assertSessionHasErrors('email');
+
+    $this->assertGuest('customer');
+});
+
+it('lets an admin email register as a separate customer account', function (): void {
+    User::factory()->create(['email' => 'ana@example.com']);
+
+    $this->post(route('register.store'), [
+        'name' => 'Ana López',
+        'email' => 'ana@example.com',
+        'password' => 'password',
+        'password_confirmation' => 'password',
+    ])->assertSessionHasNoErrors();
+
+    expect(Customer::query()->where('email', 'ana@example.com')->exists())->toBeTrue();
+});

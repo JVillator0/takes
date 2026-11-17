@@ -1,92 +1,68 @@
 <?php
 
-namespace Tests\Feature\Auth;
+declare(strict_types=1);
 
+use App\Models\Customer;
 use App\Models\User;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\RateLimiter;
-use Laravel\Fortify\Features;
-use Tests\TestCase;
 
-class AuthenticationTest extends TestCase
-{
-    use RefreshDatabase;
+it('renders the sign-in page', function (): void {
+    $this->get(route('login'))->assertOk();
+});
 
-    public function test_login_screen_can_be_rendered()
-    {
-        $response = $this->get(route('login'));
+it('signs a customer in on the customer guard, never on web', function (): void {
+    $customer = Customer::factory()->create();
 
-        $response->assertOk();
-    }
+    $response = $this->post(route('login.store'), [
+        'email' => $customer->email,
+        'password' => 'password',
+    ]);
 
-    public function test_users_can_authenticate_using_the_login_screen()
-    {
-        $user = User::factory()->create();
+    $this->assertAuthenticatedAs($customer, 'customer');
+    $this->assertGuest('web');
+    $response->assertRedirect(route('dashboard', absolute: false));
+});
 
-        $response = $this->post(route('login.store'), [
-            'email' => $user->email,
-            'password' => 'password',
-        ]);
+it('does not sign an admin user in through the public login', function (): void {
+    $admin = User::factory()->create();
 
-        $this->assertAuthenticated();
-        $response->assertRedirect(route('dashboard', absolute: false));
-    }
+    $this->post(route('login.store'), [
+        'email' => $admin->email,
+        'password' => 'password',
+    ])->assertSessionHasErrors('email');
 
-    public function test_users_with_two_factor_enabled_are_redirected_to_two_factor_challenge()
-    {
-        $this->skipUnlessFortifyHas(Features::twoFactorAuthentication());
+    $this->assertGuest('customer');
+    $this->assertGuest('web');
+});
 
-        Features::twoFactorAuthentication([
-            'confirm' => true,
-            'confirmPassword' => true,
-        ]);
+it('rejects an invalid password', function (): void {
+    $customer = Customer::factory()->create();
 
-        $user = User::factory()->withTwoFactor()->create();
+    $this->post(route('login.store'), [
+        'email' => $customer->email,
+        'password' => 'wrong-password',
+    ]);
 
-        $response = $this->post(route('login'), [
-            'email' => $user->email,
-            'password' => 'password',
-        ]);
+    $this->assertGuest('customer');
+});
 
-        $response->assertRedirect(route('two-factor.login'));
-        $response->assertSessionHas('login.id', $user->id);
-        $this->assertGuest();
-    }
+it('logs a customer out', function (): void {
+    $customer = Customer::factory()->create();
 
-    public function test_users_can_not_authenticate_with_invalid_password()
-    {
-        $user = User::factory()->create();
+    $this->actingAs($customer, 'customer')
+        ->post(route('logout'))
+        ->assertRedirect(route('home'));
 
-        $this->post(route('login.store'), [
-            'email' => $user->email,
-            'password' => 'wrong-password',
-        ]);
+    $this->assertGuest('customer');
+});
 
-        $this->assertGuest();
-    }
+it('rate limits sign-in attempts', function (): void {
+    $customer = Customer::factory()->create();
 
-    public function test_users_can_logout()
-    {
-        $user = User::factory()->create();
+    RateLimiter::increment(md5('login'.implode('|', [$customer->email, '127.0.0.1'])), amount: 5);
 
-        $response = $this->actingAs($user)->post(route('logout'));
-
-        $response->assertRedirect(route('home'));
-
-        $this->assertGuest();
-    }
-
-    public function test_users_are_rate_limited()
-    {
-        $user = User::factory()->create();
-
-        RateLimiter::increment(md5('login'.implode('|', [$user->email, '127.0.0.1'])), amount: 5);
-
-        $response = $this->post(route('login.store'), [
-            'email' => $user->email,
-            'password' => 'wrong-password',
-        ]);
-
-        $response->assertTooManyRequests();
-    }
-}
+    $this->post(route('login.store'), [
+        'email' => $customer->email,
+        'password' => 'wrong-password',
+    ])->assertTooManyRequests();
+});

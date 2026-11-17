@@ -1,13 +1,15 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Requests\Settings;
 
 use App\Concerns\ProfileValidationRules;
+use App\Http\Requests\CustomerFormRequest;
 use Illuminate\Contracts\Validation\ValidationRule;
-use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Str;
 
-class ProfileUpdateRequest extends FormRequest
+final class ProfileUpdateRequest extends CustomerFormRequest
 {
     use ProfileValidationRules;
 
@@ -28,6 +30,6 @@ class ProfileUpdateRequest extends FormRequest
      */
     public function rules(): array
     {
-        return $this->profileRules($this->user()->id);
+        return $this->profileRules($this->customer()->id);
     }
 }

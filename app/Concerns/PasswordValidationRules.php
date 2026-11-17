@@ -24,6 +24,6 @@ trait PasswordValidationRules
      */
     protected function currentPasswordRules(): array
     {
-        return ['required', 'string', 'current_password'];
+        return ['required', 'string', 'current_password:customer'];
     }
 }

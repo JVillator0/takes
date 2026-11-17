@@ -1,33 +1,24 @@
 <?php
 
-namespace Tests\Feature\Auth;
+declare(strict_types=1);
 
-use App\Models\User;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use App\Models\Customer;
 use Inertia\Testing\AssertableInertia as Assert;
-use Tests\TestCase;
 
-class PasswordConfirmationTest extends TestCase
-{
-    use RefreshDatabase;
+it('renders the confirm-password page for a customer', function (): void {
+    $this->actingAs(Customer::factory()->create(), 'customer')
+        ->get(route('password.confirm'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page->component('auth/ConfirmPassword'));
+});
 
-    public function test_confirm_password_screen_can_be_rendered()
-    {
-        $user = User::factory()->create();
+it('confirms the password against the customer guard', function (): void {
+    $this->actingAs(Customer::factory()->create(), 'customer')
+        ->post(route('password.confirm.store'), ['password' => 'password'])
+        ->assertSessionHasNoErrors()
+        ->assertSessionHas('auth.password_confirmed_at');
+});
 
-        $response = $this->actingAs($user)->get(route('password.confirm'));
-
-        $response->assertOk();
-
-        $response->assertInertia(fn (Assert $page) => $page
-            ->component('auth/ConfirmPassword'),
-        );
-    }
-
-    public function test_password_confirmation_requires_authentication()
-    {
-        $response = $this->get(route('password.confirm'));
-
-        $response->assertRedirect(route('login'));
-    }
-}
+it('requires a signed-in customer', function (): void {
+    $this->get(route('password.confirm'))->assertRedirect(route('login'));
+});
