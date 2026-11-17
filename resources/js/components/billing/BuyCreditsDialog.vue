@@ -31,6 +31,8 @@ const props = defineProps<Props>();
 
 const emit = defineEmits<{
     close: [];
+    /** The outcome is unknown: the page reloads its money so a committed purchase shows. */
+    unconfirmed: [];
 }>();
 
 const { t } = useCopy();
@@ -40,8 +42,14 @@ const form = useForm({
     idempotency_key: '',
 });
 
-/** The server's answer was not a success (lost response, 409, 429, 5xx). */
-const failed = ref(false);
+/**
+ * How the last attempt ended when it did not succeed:
+ * - `failed`: the server definitely refused it (4xx), so nothing was bought;
+ * - `unconfirmed`: no answer, or a 5xx after the request may have committed.
+ *   The purchase may exist, so the copy never says "not charged" and asks
+ *   for Pay again here: the same key replays it instead of buying twice.
+ */
+const outcome = ref<'failed' | 'unconfirmed' | null>(null);
 
 const open = computed(() => props.pack !== null);
 
@@ -55,7 +63,7 @@ watch(
         form.clearErrors();
         form.package = pack.id;
         form.idempotency_key = crypto.randomUUID();
-        failed.value = false;
+        outcome.value = null;
     },
     { immediate: true },
 );
@@ -63,7 +71,15 @@ watch(
 const errorMessage = computed(() => {
     const firstError = Object.values(form.errors)[0];
 
-    return firstError ?? (failed.value ? t('billing.purchase_failed') : null);
+    if (firstError) {
+        return firstError;
+    }
+
+    if (outcome.value === 'unconfirmed') {
+        return t('billing.purchase_unconfirmed');
+    }
+
+    return outcome.value === 'failed' ? t('billing.purchase_failed') : null;
 });
 
 function pay(): void {
@@ -71,7 +87,7 @@ function pay(): void {
         return;
     }
 
-    failed.value = false;
+    outcome.value = null;
 
     form.post(store.url(), {
         preserveScroll: true,
@@ -79,18 +95,27 @@ function pay(): void {
         // hand focus back to the pack button that opened it.
         preserveState: true,
         onSuccess: () => emit('close'),
-        // Keep the page and the dialog: the same key is safe to retry.
-        onHttpException: () => {
-            failed.value = true;
+        // Keep the page and the dialog (and so the key): a retry replays.
+        onHttpException: (response) => {
+            if (response.status >= 500) {
+                unconfirmed();
+            } else {
+                outcome.value = 'failed';
+            }
 
             return false;
         },
         onNetworkError: () => {
-            failed.value = true;
+            unconfirmed();
 
             return false;
         },
     });
+}
+
+function unconfirmed(): void {
+    outcome.value = 'unconfirmed';
+    emit('unconfirmed');
 }
 
 function onOpenChange(value: boolean): void {

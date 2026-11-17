@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Head, setLayoutProps, usePage } from '@inertiajs/vue3';
+import { Head, router, setLayoutProps, usePage } from '@inertiajs/vue3';
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui';
 import { ref } from 'vue';
 import ActivityTable from '@/components/billing/ActivityTable.vue';
@@ -42,6 +42,14 @@ const tab = ref<'activity' | 'invoices'>('activity');
 setLayoutProps({
     breadcrumbs: [{ title: t('billing.page_title'), href: show() }],
 });
+
+/**
+ * After a purchase with an unknown outcome, refresh the money on the page
+ * (and the pill) so a purchase that did commit shows up.
+ */
+function reloadMoney(): void {
+    router.reload({ only: ['summary', 'activity', 'invoices', 'auth'] });
+}
 
 const tabClass =
     'relative -mb-px px-1 py-2 text-sm font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-selected:text-foreground aria-selected:after:absolute aria-selected:after:inset-x-0 aria-selected:after:bottom-0 aria-selected:after:border-b-2 aria-selected:after:border-foreground';
@@ -176,6 +184,10 @@ const tabClass =
             </TabsContent>
         </TabsRoot>
 
-        <BuyCreditsDialog :pack="selectedPack" @close="selectedPack = null" />
+        <BuyCreditsDialog
+            :pack="selectedPack"
+            @close="selectedPack = null"
+            @unconfirmed="reloadMoney"
+        />
     </div>
 </template>

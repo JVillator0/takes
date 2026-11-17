@@ -261,6 +261,7 @@ Billing page and invoice strings added with spec 6 (P08, P09). Keys are the full
 | `billing.cancel` | P08 purchase dialog | "Cancel" |
 | `billing.processing` | P08 purchase dialog (Pay disabled) | "Processing…" |
 | `billing.purchase_failed` | P08 purchase dialog, failed state | "The purchase did not go through. You were not charged. Try again." |
+| `billing.purchase_unconfirmed` | P08 purchase dialog, unknown outcome (no answer or a server error; the purchase may have gone through, so the same idempotency key is kept) | "We couldn't confirm the purchase. Press Pay again in this window to check it. You will not be charged twice." |
 | `billing.tabs.label` | P08 tabs | "Billing history" |
 | `billing.tabs.activity` | P08 tabs | "Activity" |
 | `billing.tabs.invoices` | P08 tabs | "Invoices" |

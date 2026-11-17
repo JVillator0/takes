@@ -53,6 +53,7 @@ return [
     'cancel' => 'Cancel',
     'processing' => 'Processing…',
     'purchase_failed' => 'The purchase did not go through. You were not charged. Try again.',
+    'purchase_unconfirmed' => "We couldn't confirm the purchase. Press Pay again in this window to check it. You will not be charged twice.",
     'tabs' => [
         'label' => 'Billing history',
         'activity' => 'Activity',
