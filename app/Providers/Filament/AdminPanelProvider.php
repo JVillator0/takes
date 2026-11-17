@@ -100,6 +100,8 @@ final class AdminPanelProvider extends PanelProvider
             ->widgets([])
             ->globalSearch(false)
             ->spa()
+            // The Reports CSV is a file download, not a page: a full request, never a wire:navigate SPA visit.
+            ->spaUrlExceptions(fn (): array => [url('admin/billing/reports/export').'*'])
             ->sidebarCollapsibleOnDesktop()
             ->breadcrumbs(hasNavigationHierarchy: true)
             // The whole sidebar order in one place: no navigationSort anywhere (FI-03).

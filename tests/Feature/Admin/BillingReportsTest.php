@@ -279,3 +279,13 @@ it('includes the first and last day of the range and nothing outside it', functi
         ->and($totals->takes)->toBe(Take::query()->where('created_at', '>=', '2026-10-19 00:00:00')->where('created_at', '<', '2026-11-18 00:00:00')->count())
         ->and($totals->takes)->toBe(4);
 });
+
+it('renders Export CSV as a real download link, never an SPA navigation', function (): void {
+    $this->actingAs(User::factory()->admin(AdminRole::Operator)->withAppAuthentication()->create());
+    $html = $this->get(Reports::getUrl())->assertOk()->getContent();
+
+    preg_match('/<a[^>]*billing\/reports\/export[^>]*>/', (string) $html, $link);
+
+    expect($link[0] ?? '')->toContain('download')
+        ->not->toContain('wire:navigate');
+});

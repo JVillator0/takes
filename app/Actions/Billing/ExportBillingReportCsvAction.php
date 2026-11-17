@@ -13,7 +13,7 @@ use App\Support\Money\Nanodollars;
 
 /**
  * Billing › Reports **Export CSV** (spec 7, D-035, D-042): day × customer × provider rows written to a stream
- * (never an HTTP response: the page wraps it in a streamed download). Money is an exact decimal string
+ * (never an HTTP response: ExportBillingReportController wraps it in a streamed download). Money is an exact decimal string
  * (`0.074037500`) next to its integer nanodollars; a customer name that a spreadsheet would run as a formula is
  * prefixed with `'`. The export itself is audited with its filters.
  */
@@ -34,7 +34,7 @@ final readonly class ExportBillingReportCsvAction
 
     /**
      * Audits the export (who, range and filters) and writes the CSV to `$stream` (any writable stream: the
-     * page passes php://output inside a streamed download; a command could pass a file). Returns the rows written.
+     * ExportBillingReportController passes php://output inside its streamed download; a command could pass a file). Returns the rows written.
      *
      * @param  resource  $stream
      */

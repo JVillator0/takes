@@ -159,7 +159,10 @@ final class Reports extends Page
                 ->authorize(fn (): bool => self::admin()?->can(AdminPermission::ExportReports->value) === true)
                 // A real GET route streams the file; the filters travel in the query string and are validated there.
                 ->url(fn (): string => route('filament.admin.billing.reports.export', $this->exportQuery()))
-                ->openUrlInNewTab(false),
+                ->openUrlInNewTab(false)
+                // Under spa() a link is a wire:navigate visit unless excluded: the panel lists the export route in
+                // spaUrlExceptions, and `download` tells the browser to save the response.
+                ->extraAttributes(['download' => true]),
         ];
     }
 
