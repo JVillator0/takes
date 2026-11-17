@@ -369,7 +369,7 @@ Strings added with spec 4 (takes and generation). Same rules: keys are the full 
 | `takes.projects.archive_confirm` | P04 archive confirmation | "Archive this project? It leaves your projects list; its takes stay in your billing history." |
 | `takes.projects.empty` | P03 empty state | "Start your first project. A sample prompt is ready in the composer." |
 | `takes.projects.no_results` | P03 search with no match | "No projects match your search." |
-| `takes.projects.summary` | P03 card, P04 heading | ":count takes · :amount spent" |
+| `takes.projects.summary` | P03 card, P04 heading (pluralised) | ":count take · :amount spent" · ":count takes · :amount spent" |
 | `takes.projects.in_progress` | P03 card badge | ":count in progress" |
 | `takes.projects.empty_cover` | P03 card without a finished take | "Empty" |
 | `takes.projects.load_more` | P04 grid | "Load more takes" |

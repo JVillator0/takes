@@ -74,7 +74,7 @@ type Props = {
 const props = defineProps<Props>();
 
 const page = usePage();
-const { t } = useCopy();
+const { t, tc } = useCopy();
 const buyCredits = useBuyCredits();
 
 const LIVE_PROPS = ['takes', 'counts', 'balance', 'project', 'take'];
@@ -441,10 +441,13 @@ const canManage = computed(
                             :title="project.spendExact"
                         >
                             {{
-                                t('takes.projects.summary', {
-                                    count: project.takeCount,
-                                    amount: project.spend,
-                                })
+                                tc(
+                                    'takes.projects.summary',
+                                    project.takeCount,
+                                    {
+                                        amount: project.spend,
+                                    },
+                                )
                             }}
                         </span>
                         <DropdownMenu v-if="canManage">

@@ -38,7 +38,7 @@ type Props = {
 const props = defineProps<Props>();
 
 const page = usePage();
-const { t } = useCopy();
+const { t, tc } = useCopy();
 
 const search = ref(props.search);
 const runSearch = useDebounceFn((value: string): void => {
@@ -125,10 +125,13 @@ const create = (): void => {
                             :title="project.spendExact"
                         >
                             {{
-                                t('takes.projects.summary', {
-                                    count: project.takeCount,
-                                    amount: project.spend,
-                                })
+                                tc(
+                                    'takes.projects.summary',
+                                    project.takeCount,
+                                    {
+                                        amount: project.spend,
+                                    },
+                                )
                             }}
                         </p>
                         <TakeStatusBadge

@@ -212,7 +212,7 @@ return [
         'archive_confirm' => 'Archive this project? It leaves your projects list; its takes stay in your billing history.',
         'empty' => 'Start your first project. A sample prompt is ready in the composer.',
         'no_results' => 'No projects match your search.',
-        'summary' => ':count takes · :amount spent',
+        'summary' => ':count take · :amount spent|:count takes · :amount spent',
         'in_progress' => ':count in progress',
         'empty_cover' => 'Empty',
         'load_more' => 'Load more takes',
