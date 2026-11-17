@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Actions\Billing\PurchaseCreditsAction;
 use App\Enums\Billing\LedgerEntryType;
 use App\Enums\Billing\PurchaseStatus;
+use App\Exceptions\Billing\IdempotencyKeyReusedException;
 use App\Models\Customer;
 use App\Models\LedgerEntry;
 use App\Models\Purchase;
@@ -59,6 +60,18 @@ describe('action', function (): void {
             ->and($this->customer->refresh()->balance_nanos)->toBe(10_000_000_000);
     });
 
+    it('refuses the same key with a different pack and credits nothing more', function (): void {
+        $key = (string) Str::uuid();
+        app(PurchaseCreditsAction::class)->execute($this->customer, 5, $key);
+
+        expect(fn () => app(PurchaseCreditsAction::class)->execute($this->customer, 25, $key))
+            ->toThrow(IdempotencyKeyReusedException::class);
+
+        expect(Purchase::query()->count())->toBe(1)
+            ->and(LedgerEntry::query()->count())->toBe(1)
+            ->and($this->customer->refresh()->balance_nanos)->toBe(5_000_000_000);
+    });
+
     it('scopes the idempotency key to the customer', function (): void {
         $key = (string) Str::uuid();
         $other = Customer::factory()->create();
@@ -99,6 +112,20 @@ describe('POST /billing/purchases', function (): void {
 
         expect(Purchase::query()->count())->toBe(1)
             ->and(LedgerEntry::query()->count())->toBe(1)
+            ->and($this->customer->refresh()->balance_nanos)->toBe(5_000_000_000);
+    });
+
+    it('answers 409 when the key is replayed with a different pack', function (): void {
+        $key = (string) Str::uuid();
+
+        $this->actingAs($this->customer, 'customer')
+            ->post(route('billing.purchases.store'), ['package' => 5, 'idempotency_key' => $key])
+            ->assertRedirect();
+        $this->actingAs($this->customer, 'customer')
+            ->post(route('billing.purchases.store'), ['package' => 10, 'idempotency_key' => $key])
+            ->assertConflict();
+
+        expect(Purchase::query()->count())->toBe(1)
             ->and($this->customer->refresh()->balance_nanos)->toBe(5_000_000_000);
     });
 

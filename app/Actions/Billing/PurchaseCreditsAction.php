@@ -6,6 +6,7 @@ namespace App\Actions\Billing;
 
 use App\Enums\Billing\LedgerEntryType;
 use App\Enums\Billing\PurchaseStatus;
+use App\Exceptions\Billing\IdempotencyKeyReusedException;
 use App\Models\Customer;
 use App\Models\Purchase;
 use App\Support\Money\Nanodollars;
@@ -23,6 +24,9 @@ final readonly class PurchaseCreditsAction
 {
     public function __construct(private RecordLedgerEntryAction $recordLedgerEntry) {}
 
+    /**
+     * @throws IdempotencyKeyReusedException when the key was already used for another pack
+     */
     public function execute(Customer $customer, int $packageUsd, string $idempotencyKey): Purchase
     {
         /** @var list<int> $packs */
@@ -42,12 +46,16 @@ final readonly class PurchaseCreditsAction
                 ->where('idempotency_key', $idempotencyKey)
                 ->first();
 
-            if ($existing !== null) {
-                return $existing;
-            }
-
             // Whole dollars × 10^9, integer math only (D-002).
             $amount = Nanodollars::fromInt($packageUsd * Nanodollars::PER_DOLLAR);
+
+            if ($existing !== null) {
+                // A replay is the same request: a key reused for another pack
+                // is a client bug, never a silent success for the first pack.
+                return $existing->amount_nanos === $amount->toInt()
+                    ? $existing
+                    : throw new IdempotencyKeyReusedException($idempotencyKey);
+            }
 
             $purchase = new Purchase;
             $purchase->forceFill([
