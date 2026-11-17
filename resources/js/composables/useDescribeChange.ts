@@ -15,6 +15,7 @@ import type {
     SuggestionData,
     SuggestionQuote,
     SuggestionRejection,
+    SuggestionRejectionCode,
 } from '@/types';
 
 /** While a replayed request is still running on the server, check again this often. */
@@ -22,7 +23,7 @@ const PENDING_POLL_MS = 2000;
 
 /**
  * At most this many checks (about a minute, past the 20 s call timeout).
- * After that the server expires the suggestion and frees its hold anyway.
+ * After that the panel offers Check again; the server expires the row anyway.
  */
 const PENDING_POLL_LIMIT = 30;
 
@@ -55,11 +56,18 @@ const rejectionFrom = (error: unknown): SuggestionRejection | null => {
 };
 
 /**
- * State and requests of the P07 panel (spec 8). The request key is minted
- * per draft on mount and again after a finished request, and reused on every
- * retry of the same draft, so a double click never pays twice (D-033, F-08).
- * Money and copy come formatted from the server; nothing here computes an amount.
- * Every failed request ends in a visible, announced 2-01 sentence (F-19).
+ * State and requests of the P07 panel (spec 8).
+ *
+ * - The request key is minted per draft and again after a finished request,
+ *   and reused on every retry of the same draft, so a retry never pays twice
+ *   (D-033, F-08).
+ * - Money and copy come formatted from the server; nothing here computes an amount.
+ * - Every failure ends in a visible, announced 2-01 sentence (F-19), and the
+ *   panel never claims "not charged" for an outcome it could not see: a lost
+ *   answer to Suggest is replayed once with the same key, then offered as
+ *   Check again (F-18).
+ * - Responses that belong to a previous take are dropped (a generation
+ *   counter), so another take's price never shows here (F-09, F-15).
  */
 export function useDescribeChange(takeId: Ref<string>) {
     const { t } = useCopy();
@@ -71,7 +79,10 @@ export function useDescribeChange(takeId: Ref<string>) {
         instruction: '',
         request_key: crypto.randomUUID(),
     });
-    const http = useHttp();
+    /** One instance per kind of request, so cancelling one never aborts another. */
+    const quoteHttp = useHttp();
+    const pollHttp = useHttp();
+    const actionHttp = useHttp();
 
     const quote = ref<SuggestionQuote | null>(null);
     const quoteState = ref<QuoteState>('loading');
@@ -79,10 +90,12 @@ export function useDescribeChange(takeId: Ref<string>) {
     const rejection = ref<SuggestionRejection | null>(null);
     const appliedMessage = ref<string | null>(null);
     const busy = ref(false);
-    /** The pending poll gave up (limit or error): the panel leaves Thinking. */
+    /** The pending poll stopped (limit or error): the panel offers Check again. */
     const pollFailed = ref(false);
     let pollTimer: number | undefined;
     let pollAttempts = 0;
+    /** Bumped when the take changes; a response from an older generation is dropped. */
+    let generation = 0;
 
     const step = computed<DescribeChangeStep>(() => {
         if (
@@ -106,19 +119,13 @@ export function useDescribeChange(takeId: Ref<string>) {
         return 'ask';
     });
 
-    /** The 2-01 fallback for an error without a server sentence (5xx, 419, network). */
-    const unavailable = (): SuggestionRejection => ({
-        reason: 'unavailable',
-        message: t('suggestions.unavailable'),
+    /** A client-side outcome with its 2-01 sentence (no charge claim). */
+    const clientRejection = (
+        reason: Extract<SuggestionRejectionCode, 'uncertain' | 'action_failed'>,
+    ): SuggestionRejection => ({
+        reason,
+        message: t(`suggestions.${reason}`),
     });
-
-    const fail = (error: unknown): void => {
-        if (error instanceof HttpCancelledError) {
-            return;
-        }
-
-        rejection.value = rejectionFrom(error) ?? unavailable();
-    };
 
     const stopPolling = (): void => {
         window.clearTimeout(pollTimer);
@@ -135,7 +142,7 @@ export function useDescribeChange(takeId: Ref<string>) {
 
         if (pollAttempts >= PENDING_POLL_LIMIT) {
             pollFailed.value = true;
-            rejection.value = unavailable();
+            rejection.value = clientRejection('uncertain');
 
             return;
         }
@@ -145,21 +152,33 @@ export function useDescribeChange(takeId: Ref<string>) {
     };
 
     async function loadQuote(): Promise<void> {
+        const current = generation;
         quoteState.value = 'loading';
 
         try {
-            quote.value = (await http.get(
+            const data = (await quoteHttp.get(
                 quoteRoute.url(takeId.value),
             )) as SuggestionQuote;
-            quoteState.value = 'ready';
-        } catch {
-            quote.value = null;
-            quoteState.value = 'failed';
+
+            if (current === generation) {
+                quote.value = data;
+                quoteState.value = 'ready';
+            }
+        } catch (error) {
+            if (
+                current === generation &&
+                !(error instanceof HttpCancelledError)
+            ) {
+                quote.value = null;
+                quoteState.value = 'failed';
+            }
         }
     }
 
     const receive = (data: SuggestionData): void => {
         suggestion.value = data;
+        rejection.value = null;
+        pollFailed.value = false;
         stopPolling();
 
         if (data.status === 'pending') {
@@ -176,88 +195,162 @@ export function useDescribeChange(takeId: Ref<string>) {
     };
 
     async function refresh(): Promise<void> {
+        const current = generation;
+
         if (!suggestion.value) {
             return;
         }
 
         try {
-            receive(
-                (await http.get(
-                    showRoute.url(suggestion.value.id),
-                )) as SuggestionData,
-            );
+            const data = (await pollHttp.get(
+                showRoute.url(suggestion.value.id),
+            )) as SuggestionData;
+
+            if (current === generation) {
+                receive(data);
+            }
         } catch (error) {
+            if (current !== generation || error instanceof HttpCancelledError) {
+                return;
+            }
+
+            // The suggestion id is kept: Check again resumes from it.
             stopPolling();
             pollFailed.value = true;
-            fail(error);
+            rejection.value =
+                rejectionFrom(error) ?? clientRejection('uncertain');
+        }
+    }
+
+    /** POSTs the draft; a server sentence is final, a lost answer is null. */
+    async function post(): Promise<
+        SuggestionData | SuggestionRejection | null
+    > {
+        try {
+            const data = await form.post(storeRoute.url(takeId.value));
+
+            // useHttp resolves a 422 to undefined: field errors show inline.
+            return data ?? null;
+        } catch (error) {
+            if (error instanceof HttpCancelledError) {
+                throw error;
+            }
+
+            return rejectionFrom(error);
         }
     }
 
     async function suggest(): Promise<void> {
+        const current = generation;
+        stopPolling();
+        suggestion.value = null;
         rejection.value = null;
         appliedMessage.value = null;
         pollFailed.value = false;
         pollAttempts = 0;
 
         try {
-            const data = await form.post(storeRoute.url(takeId.value));
+            let result = await post();
 
-            if (data) {
-                receive(data);
-            } else if (!form.hasErrors) {
-                // useHttp resolves a 422 to undefined; one without field
-                // errors still needs a sentence.
-                rejection.value = unavailable();
+            // No answer (network, 5xx, 419): the call may have run and been
+            // charged. Replay once with the same key; the server returns the
+            // same suggestion and never pays twice (D-033).
+            if (result === null && !form.hasErrors && current === generation) {
+                result = await post();
+            }
+
+            if (current !== generation) {
+                return;
+            }
+
+            if (result === null) {
+                if (!form.hasErrors) {
+                    rejection.value = clientRejection('uncertain');
+                }
+            } else if ('status' in result) {
+                receive(result);
+            } else {
+                rejection.value = result;
+            }
+        } catch {
+            // Cancelled: the take changed.
+        }
+    }
+
+    /** Check again after an unconfirmed outcome, without paying twice. */
+    function checkAgain(): void {
+        if (suggestion.value?.status === 'pending') {
+            pollFailed.value = false;
+            rejection.value = null;
+            pollAttempts = 0;
+            void refresh();
+
+            return;
+        }
+
+        // The draft keeps its request key, so this replays the same request.
+        void suggest();
+    }
+
+    async function act(
+        request: () => Promise<unknown>,
+        onDone: (data: unknown) => void,
+    ): Promise<void> {
+        const current = generation;
+        busy.value = true;
+        rejection.value = null;
+
+        try {
+            const data = await request();
+
+            if (current === generation) {
+                onDone(data);
             }
         } catch (error) {
-            fail(error);
+            if (
+                current === generation &&
+                !(error instanceof HttpCancelledError)
+            ) {
+                rejection.value =
+                    rejectionFrom(error) ?? clientRejection('action_failed');
+            }
+        } finally {
+            busy.value = false;
         }
     }
 
     async function apply(): Promise<void> {
-        if (!suggestion.value) {
+        const current = suggestion.value;
+
+        if (!current) {
             return;
         }
 
-        busy.value = true;
-        rejection.value = null;
-
-        try {
-            const result = (await http.post(
-                applyRoute.url(suggestion.value.id),
-            )) as SuggestionApplyResult;
-            appliedMessage.value = result.message;
-            suggestion.value = {
-                ...suggestion.value,
-                status: 'applied',
-                resultingTakeId: result.takeId,
-            };
-        } catch (error) {
-            fail(error);
-        } finally {
-            busy.value = false;
-        }
+        await act(
+            () => actionHttp.post(applyRoute.url(current.id)),
+            (data) => {
+                const result = data as SuggestionApplyResult;
+                appliedMessage.value = result.message;
+                suggestion.value = {
+                    ...current,
+                    status: 'applied',
+                    resultingTakeId: result.takeId,
+                };
+            },
+        );
     }
 
     async function discard(): Promise<void> {
-        if (!suggestion.value) {
+        const current = suggestion.value;
+
+        if (!current) {
             return;
         }
 
-        busy.value = true;
-        rejection.value = null;
-
-        try {
-            receive(
-                (await http.post(
-                    discardRoute.url(suggestion.value.id),
-                )) as SuggestionData,
-            );
-        } catch (error) {
-            fail(error);
-        } finally {
-            busy.value = false;
-        }
+        await act(
+            () => actionHttp.post(discardRoute.url(current.id)),
+            (data) => receive(data as SuggestionData),
+        );
     }
 
     /** Back to the ask step with the same instruction, and a fresh quote. */
@@ -288,6 +381,13 @@ export function useDescribeChange(takeId: Ref<string>) {
     };
 
     watch(takeId, () => {
+        // Everything in flight belongs to the previous take.
+        generation++;
+        form.cancel();
+        quoteHttp.cancel();
+        pollHttp.cancel();
+        actionHttp.cancel();
+        busy.value = false;
         startOver();
         form.instruction = '';
         form.request_key = crypto.randomUUID();
@@ -297,9 +397,15 @@ export function useDescribeChange(takeId: Ref<string>) {
     watch(
         () => page.props.auth?.customer?.available_exact,
         (now, before) => {
-            if (before !== undefined && now !== before) {
-                void loadQuote();
+            if (before === undefined || now === before) {
+                return;
             }
+
+            if (rejection.value?.reason === 'insufficient_credits') {
+                rejection.value = null;
+            }
+
+            void loadQuote();
         },
     );
 
@@ -323,6 +429,7 @@ export function useDescribeChange(takeId: Ref<string>) {
         step,
         loadQuote,
         suggest,
+        checkAgain,
         apply,
         discard,
         startOver,

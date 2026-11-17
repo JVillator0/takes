@@ -61,4 +61,9 @@ return [
     'not_proposed' => 'This suggestion can no longer be used. Describe a new change.',
     'request_key_reused' => 'This request was already sent for another take. Try again.',
 
+    /* Outcomes the panel cannot confirm: never a charge claim either way. */
+    'uncertain' => "We couldn't confirm the result yet. Check again to see it.",
+    'check_again' => 'Check again',
+    'action_failed' => "That didn't go through. Try again in a moment.",
+
 ];

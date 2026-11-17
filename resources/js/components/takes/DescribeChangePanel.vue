@@ -49,6 +49,7 @@ const {
     step,
     loadQuote,
     suggest,
+    checkAgain,
     apply,
     discard,
     startOver,
@@ -137,6 +138,27 @@ watch(step, async () => {
 
 const tryAgain = (): void => startOver();
 
+/** No answer to a paid request (or the poll stopped): never a charge claim, offer Check again. */
+const uncertain = computed(() => rejection.value?.reason === 'uncertain');
+
+/** Generate take is offered only when the new take can actually be created and paid for. */
+const canGenerate = computed(
+    () =>
+        suggestion.value?.newTake?.canAfford === true &&
+        !suggestion.value.noChange &&
+        !suggestion.value.baseImageUnavailable &&
+        rejection.value?.reason !== 'insufficient_credits',
+);
+/** Buy credits replaces Generate take when the new take is unaffordable (spec 8 States). */
+const offerCredits = computed(
+    () =>
+        suggestion.value !== null &&
+        !suggestion.value.noChange &&
+        !suggestion.value.baseImageUnavailable &&
+        (suggestion.value.newTake?.canAfford === false ||
+            rejection.value?.reason === 'insufficient_credits'),
+);
+
 const onApply = async (): Promise<void> => {
     await apply();
 
@@ -156,7 +178,6 @@ const priceBox = 'rounded-md border border-dashed px-3 py-2.5 text-sm';
 <template>
     <section
         class="flex flex-col gap-4"
-        :aria-busy="step === 'thinking' ? true : undefined"
         :aria-label="t('takes.actions.describe_change')"
     >
         <p class="sr-only" aria-live="polite" aria-atomic="true">
@@ -167,6 +188,7 @@ const priceBox = 'rounded-md border border-dashed px-3 py-2.5 text-sm';
         <form
             v-if="step === 'ask' || step === 'thinking'"
             class="flex flex-col gap-3"
+            :aria-busy="step === 'thinking' ? true : undefined"
             @submit.prevent="suggest"
         >
             <h3 ref="stepHeading" tabindex="-1" class="sr-only">
@@ -268,14 +290,12 @@ const priceBox = 'rounded-md border border-dashed px-3 py-2.5 text-sm';
                 }}
             </Button>
 
-            <!-- Failed: not charged (2-01). -->
+            <!-- Failed (the server voided it: not charged, 2-01). -->
             <div
-                v-if="suggestion?.status === 'failed' || pollFailed"
+                v-if="step === 'ask' && suggestion?.status === 'failed'"
                 class="flex flex-col gap-2 rounded-md border border-red-600/40 px-3 py-2.5 text-sm text-red-800 dark:border-red-400/40 dark:text-red-200"
             >
-                <p v-if="suggestion?.status === 'failed'">
-                    {{ suggestion.message }}
-                </p>
+                <p>{{ suggestion.message }}</p>
                 <Button
                     type="button"
                     variant="outline"
@@ -286,6 +306,17 @@ const priceBox = 'rounded-md border border-dashed px-3 py-2.5 text-sm';
                     {{ t('takes.actions.try_again') }}
                 </Button>
             </div>
+
+            <!-- Unconfirmed: the sentence above makes no charge claim. -->
+            <Button
+                v-if="step === 'ask' && uncertain"
+                type="button"
+                variant="outline"
+                class="self-start"
+                @click="checkAgain"
+            >
+                {{ t('suggestions.check_again') }}
+            </Button>
         </form>
 
         <!-- Step 2 · review the proposal. -->
@@ -366,6 +397,11 @@ const priceBox = 'rounded-md border border-dashed px-3 py-2.5 text-sm';
                                 >{{ row.after }}</ins
                             >
                             <template v-else>{{ row.after }}</template>
+                            <span
+                                v-if="row.note"
+                                class="mt-0.5 block text-xs font-normal text-amber-800 dark:text-amber-200"
+                                >{{ row.note }}</span
+                            >
                         </td>
                     </tr>
                 </tbody>
@@ -406,7 +442,7 @@ const priceBox = 'rounded-md border border-dashed px-3 py-2.5 text-sm';
 
             <div class="flex flex-wrap gap-2">
                 <Button
-                    v-if="suggestion.newTake?.canAfford && !suggestion.noChange"
+                    v-if="canGenerate && suggestion.newTake"
                     type="button"
                     size="lg"
                     :disabled="busy"
@@ -416,11 +452,7 @@ const priceBox = 'rounded-md border border-dashed px-3 py-2.5 text-sm';
                     {{ suggestion.newTake.generate }}
                 </Button>
                 <Button
-                    v-else-if="
-                        suggestion.newTake &&
-                        !suggestion.newTake.canAfford &&
-                        !suggestion.noChange
-                    "
+                    v-else-if="offerCredits"
                     type="button"
                     size="lg"
                     @click="emit('buyCredits')"

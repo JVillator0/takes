@@ -92,9 +92,9 @@ final class ComponentGalleryController extends Controller
                     ],
                 ],
                 'rows' => [
-                    ['key' => 'size', 'label' => __('suggestions.diff.size'), 'before' => __('takes.sizes.1024x1024').' 1024×1024', 'after' => __('takes.sizes.1024x1536').' 1024×1536', 'changed' => true],
-                    ['key' => 'quality', 'label' => __('suggestions.diff.quality'), 'before' => __('takes.quality.medium'), 'after' => __('takes.quality.high'), 'changed' => true],
-                    ['key' => 'references', 'label' => __('suggestions.diff.references'), 'before' => '1', 'after' => __('suggestions.diff.references_with_image', ['count' => 1]), 'changed' => true],
+                    ['key' => 'size', 'label' => __('suggestions.diff.size'), 'before' => __('takes.sizes.1024x1024').' 1024×1024', 'after' => __('takes.sizes.1024x1536').' 1024×1536', 'changed' => true, 'note' => null],
+                    ['key' => 'quality', 'label' => __('suggestions.diff.quality'), 'before' => __('takes.quality.medium'), 'after' => __('takes.quality.high'), 'changed' => true, 'note' => null],
+                    ['key' => 'references', 'label' => __('suggestions.diff.references'), 'before' => '1', 'after' => __('suggestions.diff.references_with_image', ['count' => 1]), 'changed' => true, 'note' => null],
                 ],
             ],
             'newTake' => [
@@ -103,6 +103,7 @@ final class ComponentGalleryController extends Controller
                 'canAfford' => true,
             ],
             'resultingTakeId' => null,
+            'baseImageUnavailable' => false,
         ];
 
         return [
