@@ -17,8 +17,9 @@ export type TakeLiveUpdate = {
 };
 
 /**
- * How the page is getting updates: `live` over the socket, `polling` while
- * the socket is down (the 2-01 Reconnecting indicator), `idle` when nothing
- * is in flight and the socket is down.
+ * How the page is getting updates: `live` over the subscribed channel,
+ * `connecting` during the first handshake after load (polls quietly, no
+ * indicator), `polling` once the socket or subscription is lost (the 2-01
+ * Reconnecting indicator), `idle` when nothing is in flight and not live.
  */
-export type LiveConnectionState = 'live' | 'polling' | 'idle';
+export type LiveConnectionState = 'live' | 'connecting' | 'polling' | 'idle';

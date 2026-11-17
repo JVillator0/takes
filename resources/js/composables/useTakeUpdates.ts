@@ -108,6 +108,8 @@ export function useTakeUpdates(
 
     /** The private channel answered `subscription_succeeded` on the current socket. */
     const subscribed = ref(false);
+    /** It did so at least once on this page, or the auth was refused: the handshake is over. */
+    const settled = ref(false);
 
     if (live) {
         const { channel } = useEcho<TakeLiveUpdate, 'reverb'>(
@@ -133,11 +135,13 @@ export function useTakeUpdates(
             }
 
             subscribed.value = true;
+            settled.value = true;
             reload();
         };
         const onSubscriptionError = (): void => {
             if (!disposed) {
                 subscribed.value = false;
+                settled.value = true;
             }
         };
 
@@ -158,6 +162,7 @@ export function useTakeUpdates(
         // will not announce it again: catch up once, now that this page is up.
         if (subscription.subscribed) {
             subscribed.value = true;
+            settled.value = true;
             onMounted(reload);
         }
 
@@ -204,6 +209,12 @@ export function useTakeUpdates(
     const state = computed<LiveConnectionState>(() => {
         if (connected.value) {
             return 'live';
+        }
+
+        // The first handshake (socket + /broadcasting/auth) is not a lost
+        // connection: poll quietly, without the Reconnecting indicator.
+        if (live && !settled.value) {
+            return 'connecting';
         }
 
         return polling.value ? 'polling' : 'idle';
