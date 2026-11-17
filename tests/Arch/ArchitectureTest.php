@@ -58,7 +58,11 @@ arch('enums are backed')
     ->toBeEnums()
     ->toImplement(BackedEnum::class);
 
-arch('controllers do not query the database or call services directly')
+// Class-reference check: it catches the DB facade, the connection, both
+// query builders and App\Services in controllers. Eloquent chains on models
+// (User::query(), $user->passkeys()->latest()) do not reference these
+// classes, so they are a review concern, not part of this rule.
+arch('controllers do not reference DB, query builder classes or App\Services')
     ->expect('App\Http\Controllers')
     ->not->toUse([
         'Illuminate\Support\Facades\DB',
@@ -69,12 +73,18 @@ arch('controllers do not query the database or call services directly')
         'App\Services',
     ]);
 
-arch('the Pixelforge client is never used from controllers, models or resources')
+// Allow-list from spec 1-01. Namespaces that do not exist yet are fine.
+arch('the Pixelforge client is only used from actions, queries, jobs, the shared-props middleware and Filament pages/widgets')
     ->expect('App\Services\Pixelforge')
-    ->not->toBeUsedIn([
-        'App\Http\Controllers',
-        'App\Http\Resources',
-        'App\Models',
+    ->toOnlyBeUsedIn([
+        'App\Services\Pixelforge',
+        'App\Actions',
+        'App\Queries',
+        'App\Jobs',
+        'App\Http\Middleware\HandleInertiaRequests',
+        'App\Filament\Pages',
+        'App\Filament\Widgets',
+        'App\Filament\Clusters',
     ]);
 
 arch('Eloquent models live only in App\Models')
