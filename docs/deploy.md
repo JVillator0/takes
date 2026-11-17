@@ -10,9 +10,9 @@ Status (2026-11-17): the organization-level resources below exist. The applicati
 |---|---|---|
 | PHP 8.5 | 8.2 – 8.5; 8.5 is the default for new environments | `composer.json` `php ^8.5`, CI `PHP_VERSION: '8.5'`, Sail `sail-8.5` |
 | Postgres 17 | Laravel Serverless Postgres 16, 17, 18 | CI `postgres:17`, compose `postgres:17-alpine` |
-| Managed queue | Standard queue, Flex workers from 256 MiB, ≤ 3 workers on Starter, per-job delay ≤ 15 min | Laravel ≥ 13.19 and `aws/aws-sdk-php` (added in this PR) |
+| Managed queue | Standard queue, Flex workers from 256 MiB, ≤ 3 workers on Starter, per-job delay ≤ 15 min | Laravel ≥ 13.19 and `aws/aws-sdk-php` |
 | WebSockets | Laravel Reverb clusters (100 – 5,000 connections) | `laravel/reverb` arrives with spec 5 |
-| Object storage | Cloudflare R2 buckets, private or public | `league/flysystem-aws-s3-v3` (added in this PR) |
+| Object storage | Cloudflare R2 buckets, private or public | `league/flysystem-aws-s3-v3` |
 | Node | 22, 24, 26 (26 is the default) | CI uses Node 24: set the environment's runtime to Node 24 in General Settings (no CLI flag) |
 
 No CI or compose pin had to change.
@@ -57,6 +57,8 @@ php artisan db:seed --class=RolesAndPermissionsSeeder --force
 The roles seeder is idempotent (`findOrCreate` + `syncPermissions`, D-068). Demo data (`DemoAccountsSeeder`, showcase customer) is seeded by hand, never on deploy. There is no scheduler (D-036).
 
 ## Environment variables
+
+Trusted proxies need no setting: on Cloud (`laravel_cloud()`), the framework's `TrustProxies` middleware trusts `'*'` when no proxies are configured, so `TRUSTED_PROXIES` is not used.
 
 Injected by Cloud: `DB_*` (attached database), `QUEUE_CONNECTION=cloud` (managed queue), `REVERB_*` and `VITE_REVERB_*` (WebSocket application), the bucket disk and `FILESYSTEM_DISK` (bucket attached as the default disk), `APP_KEY`.
 
