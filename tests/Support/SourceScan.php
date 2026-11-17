@@ -343,13 +343,16 @@ final class SourceScan
      * (`'status' => TakeStatus::Failed`, `->status = 'failed'`); in a file
      * that references App\Models\Take, a status written with any other value
      * (`'status' => $snapshot->status`), unless it is another model's status
-     * enum (UsageStatus, SuggestionStatus, PurchaseStatus).
+     * enum (UsageStatus, SuggestionStatus, PurchaseStatus). Models get the
+     * case/string check only, after their declared `$attributes` defaults
+     * (`'status' => 'pending'`) are set aside: a default is not a write.
      *
      * @param  list<string>  $paths
      * @param  list<string>  $except  project-relative path prefixes to skip
+     * @param  list<string>  $modelPaths  project-relative prefixes of model files
      * @return list<string>
      */
-    public static function takeStatusWrites(array $paths, array $except = []): array
+    public static function takeStatusWrites(array $paths, array $except = [], array $modelPaths = ['app/Models/']): array
     {
         $statuses = implode('|', array_map(fn (TakeStatus $status): string => $status->value, TakeStatus::cases()));
         // Possessive: the value lookahead below must not backtrack into the spaces.
@@ -368,7 +371,18 @@ final class SourceScan
             }
 
             $source = (string) file_get_contents($file);
-            $pattern = preg_match('/App\\\\Models\\\\Take\b/', $source) === 1 ? $anyValue : $takeValue;
+            $isModel = array_filter($modelPaths, fn (string $prefix): bool => str_starts_with($relative, $prefix)) !== [];
+
+            if ($isModel) {
+                // Blank the default-attributes declaration, keeping its line breaks for line numbers.
+                $source = (string) preg_replace_callback(
+                    '/\$attributes\s*=\s*\[.*?\];/s',
+                    fn (array $match): string => str_repeat("\n", substr_count($match[0], "\n")),
+                    $source,
+                );
+            }
+
+            $pattern = ! $isModel && preg_match('/App\\\\Models\\\\Take\b/', $source) === 1 ? $anyValue : $takeValue;
             $matches = [];
             preg_match_all($pattern, $source, $matches, PREG_OFFSET_CAPTURE);
 

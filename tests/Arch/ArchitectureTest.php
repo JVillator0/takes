@@ -160,12 +160,25 @@ test('the usage-record lock scan sees Eloquent and query-builder locks', functio
 });
 
 // money.md M-11: a take's status changes only in ApplyTakeSnapshotAction and
-// FailTakeAction (spec 3-02). Models declare the cast and the default.
+// FailTakeAction (spec 3-02). Models are scanned too; only their declared
+// `$attributes` default and the `TakeStatus::class` cast are allowed.
 test('only the transition actions write a take status', function (): void {
     expect(SourceScan::takeStatusWrites(
         ['app', 'routes', 'database/seeders'],
-        except: ['app/Actions/Takes/ApplyTakeSnapshotAction.php', 'app/Actions/Takes/FailTakeAction.php', 'app/Models/'],
+        except: ['app/Actions/Takes/ApplyTakeSnapshotAction.php', 'app/Actions/Takes/FailTakeAction.php'],
     ))->toBe([]);
+});
+
+test('the take-status scan allows a model default but not a model write', function (): void {
+    $model = SourceScan::root().'/storage/framework/testing-status-model.php';
+    file_put_contents($model, "<?php\nclass Take {\n    protected \$attributes = [\n        'status' => 'pending',\n    ];\n    protected function casts(): array { return ['status' => TakeStatus::class]; }\n    public function markFailed(): void { \$this->forceFill(['status' => TakeStatus::Failed])->save(); }\n}\n");
+
+    try {
+        expect(SourceScan::takeStatusWrites(['storage/framework/testing-status-model.php'], modelPaths: ['storage/framework/testing-status-model.php']))
+            ->toBe(['storage/framework/testing-status-model.php:7 writes a take status: \'status\' => TakeStatus::']);
+    } finally {
+        unlink($model);
+    }
 });
 
 test('the take-status scan sees enum cases, string values and variables next to a Take', function (): void {
