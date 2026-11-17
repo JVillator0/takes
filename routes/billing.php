@@ -12,6 +12,8 @@ use Illuminate\Support\Facades\Route;
 */
 Route::middleware(['auth:customer'])->group(function (): void {
     Route::post('billing/purchases', [PurchaseController::class, 'store'])
-        ->middleware('throttle:5,1')
+        // Own prefix: the bare throttle key is the user id alone, which customers
+        // and admin users (both bigint ids) would share with other limits.
+        ->middleware('throttle:5,1,purchases')
         ->name('billing.purchases.store');
 });
