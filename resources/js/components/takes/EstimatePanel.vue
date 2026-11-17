@@ -4,14 +4,20 @@ import { computed, useId } from 'vue';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCopy } from '@/composables/useCopy';
 import { cn } from '@/lib/utils';
-import type { EstimateState, TakeEstimate } from '@/types';
+import type { DenialReason, EstimateState, TakeEstimate } from '@/types';
 
 type Props = {
     /** Last valid estimate; kept (dimmed) while a newer one loads (2-02). */
     estimate: TakeEstimate | null;
     state: EstimateState;
-    /** Customer's available credits, 4 decimals, for the denied state (P05-A). */
+    /** Customer's available credits, 4 decimals, for `insufficient_credits` (P05-A). */
     availableDisplay?: string | null;
+    /**
+     * Why the take is denied (`App\Enums\Auth\DenialReason`). Only
+     * `insufficient_credits` adds the balance lines; every other reason shows
+     * just its 2-01 sentence (F-17).
+     */
+    deniedReason?: DenialReason | null;
     /** Denial sentence from the server (`denials.*`, owned by spec 3-01). */
     deniedMessage?: string | null;
     /**
@@ -25,6 +31,7 @@ type Props = {
 
 const props = withDefaults(defineProps<Props>(), {
     availableDisplay: null,
+    deniedReason: null,
     deniedMessage: null,
     messageId: undefined,
     class: '',
@@ -46,6 +53,9 @@ const range = computed(() =>
 
 const isLoading = computed(() => props.state === 'loading');
 const isDenied = computed(() => props.state === 'denied');
+const isInsufficient = computed(
+    () => isDenied.value && props.deniedReason === 'insufficient_credits',
+);
 </script>
 
 <template>
@@ -98,7 +108,7 @@ const isDenied = computed(() => props.state === 'denied');
         -->
         <div :id="messageId" aria-live="polite" aria-atomic="true">
             <div v-if="isDenied" class="mt-2 space-y-1.5 text-sm">
-                <p v-if="estimate && availableDisplay">
+                <p v-if="isInsufficient && estimate && availableDisplay">
                     {{
                         t('takes.estimate.insufficient', {
                             max: estimate.max_display,
@@ -116,7 +126,7 @@ const isDenied = computed(() => props.state === 'denied');
                     />
                     {{ deniedMessage }}
                 </p>
-                <p class="text-xs text-muted-foreground">
+                <p v-if="isInsufficient" class="text-xs text-muted-foreground">
                     {{ t('takes.estimate.max_not_average') }}
                 </p>
             </div>

@@ -33,6 +33,7 @@ type Props = {
     estimates: Record<'square' | 'remix' | 'heavy', TakeEstimate>;
     lowBalance: BalanceSummary;
     insufficientMessage: string;
+    denialMessages: Record<'daily_take_cap' | 'rate_limited', string>;
 };
 
 const props = defineProps<Props>();
@@ -155,6 +156,7 @@ const caption = 'text-xs font-medium text-muted-foreground';
         show-buy-credits
         :breadcrumbs="[{ title: 'Component gallery', href: gallery() }]"
         @buy-credits="log('buyCredits')"
+        @show-on-hold="log('showOnHold')"
     >
         <div class="flex flex-col gap-12 px-4 py-8">
             <div class="flex flex-col gap-3">
@@ -193,7 +195,10 @@ const caption = 'text-xs font-medium text-muted-foreground';
                     (P10).
                 </p>
                 <div class="flex flex-wrap items-center gap-3">
-                    <BalancePill :balance="balance" />
+                    <BalancePill
+                        :balance="balance"
+                        @show-on-hold="log('showOnHold')"
+                    />
                     <BalancePill :balance="lowBalance" />
                 </div>
                 <ServiceNotConfiguredBanner />
@@ -298,12 +303,31 @@ const caption = 'text-xs font-medium text-muted-foreground';
                             :estimate="estimates.heavy"
                             state="denied"
                             :available-display="lowBalance.available"
+                            denied-reason="insufficient_credits"
                             :denied-message="insufficientMessage"
                         />
                     </div>
                     <div class="flex flex-col gap-2">
                         <span :class="caption">Error</span>
                         <EstimatePanel :estimate="null" state="error" />
+                    </div>
+                    <div class="flex flex-col gap-2">
+                        <span :class="caption">Denied: daily take cap</span>
+                        <EstimatePanel
+                            :estimate="estimates.square"
+                            state="denied"
+                            denied-reason="daily_take_cap"
+                            :denied-message="denialMessages.daily_take_cap"
+                        />
+                    </div>
+                    <div class="flex flex-col gap-2">
+                        <span :class="caption">Denied: rate limited</span>
+                        <EstimatePanel
+                            :estimate="estimates.square"
+                            state="denied"
+                            denied-reason="rate_limited"
+                            :denied-message="denialMessages.rate_limited"
+                        />
                     </div>
                 </div>
             </section>
@@ -339,10 +363,12 @@ const caption = 'text-xs font-medium text-muted-foreground';
                             :estimate="estimates.heavy"
                             estimate-state="denied"
                             :available-display="lowBalance.available"
+                            denied-reason="insufficient_credits"
                             :denied-message="insufficientMessage"
                             show-buy-credits
                             @submit="log('submit')"
                             @buy-credits="log('buyCredits')"
+                            @show-on-hold="log('showOnHold')"
                         />
                     </div>
                     <div class="flex flex-col gap-2 rounded-xl border p-4">

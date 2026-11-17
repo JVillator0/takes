@@ -16,6 +16,7 @@ it('renders every take state in the gallery with copy from the lang files', func
             ->where('takes.4.failureMessage', 'The image could not be generated. You were not charged.')
             ->where('details.done.price.amount', '$0.0740375')
             ->where('insufficientMessage', 'Your available credits are below the max price. Buy credits to continue.')
+            ->where('denialMessages.daily_take_cap', "You reached today's take limit. It resets at 00:00 UTC.")
         );
 });
 
