@@ -13,6 +13,7 @@ use App\Filament\Admin\Clusters\Studio\StudioCluster;
 use App\Filament\Admin\Pages\Dashboard;
 use App\Filament\Admin\Resources\Customers\CustomerResource;
 use App\Http\Middleware\EnsureAdminMultiFactorAuthentication;
+use App\Http\Middleware\SweepStaleTakes;
 use App\Listeners\RecordAdminWrites;
 use App\Models\User;
 use App\Policies\ActivityPolicy;
@@ -150,6 +151,9 @@ final class AdminPanelProvider extends PanelProvider
             ])
             ->authMiddleware([
                 Authenticate::class,
+                // Every authenticated console GET (dashboard, Needs attention, resources) queues the
+                // throttled sweeper, at most once per 2 min (D-036, W-16); it runs as the system.
+                SweepStaleTakes::class,
             ]);
     }
 

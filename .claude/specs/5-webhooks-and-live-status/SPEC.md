@@ -51,9 +51,9 @@ The Pest outcome tests are driven from this table. `ignored_conflict` always wri
 - Admin "Reconcile now" (A06) applies the same action per take. Day-level mismatch drill-down (spec 7, D-034, D-058) lists in-flight takes, takes with outcome `unknown_take`, provider generations missing locally from `GET /v1/generations`, and a separate group "Orphan success (cost absorbed)" for `orphan_success` takes; each has Reconcile now (same action as A06).
 
 ## Live status
-- Event `TakeUpdated` (`ShouldBroadcast`, queued, `ShouldDispatchAfterCommit`) with explicit `broadcastAs()` name, on private channel `App.Models.Customer.{id}`, authorised with `Broadcast::channel(..., ['guards' => ['customer']])` (D-032). Payload = `TakeResource` (strings for money; price fields only, never provider cost, tokens or provider names, D-023) plus an `available` balance summary. Reverb client `client_options.timeout` set to 2 s; the broadcast is wrapped in `rescue()`.
-- Frontend: `useEcho` from `@laravel/echo-vue` patches the card in place and updates the balance pill; on reconnect `router.reload({ only: ['takes', 'counts'] })`.
-- **Automatic fallback (D-028, no env switch):** when Echo is not connected and any take is non-terminal and the tab is visible, `usePoll(4000, { only: ['takes', 'counts'] })` runs; the header shows the Reconnecting indicator from 2-01. Polling stops when the socket reconnects. Local/test with `BROADCAST_CONNECTION=log` simply behaves as "not connected".
+- Event `TakeUpdated` (`ShouldBroadcast`, queued, `ShouldDispatchAfterCommit`) with explicit `broadcastAs()` name, on private channel `App.Models.Customer.{id}`, authorised with `Broadcast::channel(..., ['guards' => ['customer']])` (D-032). Payload = `TakeLiveUpdateDTO` (take id, project id, status, failure code, updated at) plus the balance pill (`available`, `onHold`, as server strings); never provider cost, tokens or provider names (D-023, D-079). Reverb client `client_options.timeout` set to 2 s; the broadcast is wrapped in `rescue()`.
+- Frontend: `useEcho` from `@laravel/echo-vue` refreshes the card with a scoped `router.reload({ only: ['takes', 'counts', 'auth'] })` (D-079; `auth` carries the balance pill) and updates the balance pill from the payload; the page is live only while the private channel is subscribed, and every successful subscription (first one, after a reconnect, or on mount when already subscribed) reloads once.
+- **Automatic fallback (D-028, no env switch):** when Echo is not connected and any take is non-terminal and the tab is visible, `usePoll(4000, { only: ['takes', 'counts', 'auth'] })` runs; the header shows the Reconnecting indicator from 2-01. Polling stops when the socket reconnects. Local/test with `BROADCAST_CONNECTION=log` simply behaves as "not connected".
 - Toast, `aria-live` and "Reconnecting" copy come from the single source in 2-01 (D-057, lang files); this spec restates no strings and uses no provider or cost wording.
 
 ## Tests (Pest)
@@ -72,7 +72,7 @@ The Pest outcome tests are driven from this table. `ignored_conflict` always wri
 - Channel authorisation: a customer cannot subscribe to another customer's channel.
 
 ## Acceptance
-- Delete a delivery in the Pixelforge dashboard (or drop webhooks): the take still settles within 60 s via reconcile/sweeper while the workspace is open. Documented in the README walkthrough.
+- Delete a delivery in the Pixelforge dashboard (or drop webhooks): the take still settles via reconcile/sweeper while the workspace is open: within 60 s of acceptance for a normal take (first poll), about 180 s after acceptance for a `[slow]` one (second poll), since the 60/120/300/600/840 s delays are fixed above. Documented in the README walkthrough ("When webhooks never arrive").
 
 ## Issues
 1. Route, middleware, handle action (tables come from 3-02).

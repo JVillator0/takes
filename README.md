@@ -130,7 +130,7 @@ Spec [5](.claude/specs/5-webhooks-and-live-status/SPEC.md) and the checklist [`.
 - **Reconcile.** Webhooks are not trusted to arrive. `ReconcileTakeJob` polls `GET /v1/generations/{id}` with delays of 1, 2, 5, 10 and 14 minutes (every delay within the managed queue's 15-minute limit) for about 30 minutes. An opportunistic sweeper, throttled to once every 2 minutes and triggered by page loads, restarts lost chains: there is no scheduler, so the app can scale to zero (D-036).
 - **`orphan_success`** (D-025, D-077). An ambiguous submit (timeout, connection error, 5xx) retries with the same idempotency key for 30 minutes, then fails free. If Pixelforge later reports that generation succeeded, the take stays failed, the usage stays voided, the cost is absorbed and the take is flagged `orphan_success` in the admin. The customer is never charged for a take they were told failed.
 - **Delivery log** (D-027). Every verified delivery appends a `webhook_deliveries` row with its attempt number and outcome (`applied`, `duplicate`, `ignored_stale`, `orphan_success`, ...). The evidence is in `/admin` › Studio › Takes › a take (A06, deliveries per take) and Providers › Webhook deliveries.
-- **Live status.** After commit, `TakeUpdated` broadcasts on the customer's private Reverb channel; the card and the balance pill update in place. When the socket is down, the page polls every 4 s and shows "Reconnecting…" (D-028); no setting turns this on.
+- **Live status.** After commit, `TakeUpdated` broadcasts a small payload (take status plus the balance pill strings, D-079) on the customer's private Reverb channel; the page then refreshes the card with a scoped partial reload, so card copy and money lines keep one source. When the private channel is not subscribed, the page polls every 4 s and shows "Reconnecting…" (D-028); no setting turns this on. See "When webhooks never arrive" under Run locally.
 
 ## Architecture
 
@@ -247,10 +247,17 @@ DB_HOST=pgsql
 DB_PORT=5432
 DB_USERNAME=sail
 DB_PASSWORD=password
+# Live status (optional; without it pages poll). PHP containers reach Reverb by
+# service name, browsers through the published port on localhost.
+BROADCAST_CONNECTION=reverb
+REVERB_HOST=reverb
+VITE_REVERB_HOST=localhost
 ```
 
+Set `REVERB_APP_ID`, `REVERB_APP_KEY` and `REVERB_APP_SECRET` to any values of your choice.
+
 ```bash
-./vendor/bin/sail up -d                 # app, Postgres 17 and a queue worker (compose.yaml)
+./vendor/bin/sail up -d                 # app, Postgres 17, a queue worker and Reverb (compose.yaml)
 ./vendor/bin/sail artisan key:generate
 ./vendor/bin/sail artisan migrate --seed
 ./vendor/bin/sail npm ci && ./vendor/bin/sail npm run dev
@@ -259,6 +266,17 @@ DB_PASSWORD=password
 Open http://localhost. To run the tests under Sail, create the test database once: `./vendor/bin/sail exec pgsql createdb -U sail takes_testing`, then `./vendor/bin/sail artisan test`.
 
 To receive webhooks locally, expose the app with a tunnel (ngrok, Expose or Cloudflare Tunnel), set the tunnel URL plus `/webhooks/pixelforge` on your local Pixelforge key, and copy that key's signing secret into `PIXELFORGE_WEBHOOK_SECRET`. Use a separate key per environment.
+
+### When webhooks never arrive
+
+Webhooks are an optimisation, not a dependency (spec 5). To see it, point the key's webhook URL nowhere (or delete a delivery in the Pixelforge dashboard) and generate a take:
+
+1. When Pixelforge accepts the take, a reconcile chain starts: `GET /v1/generations/{id}` 60 s later, then after 120, 300, 600 and 840 s (each delay ≤ 900 s for the managed queue), until the take is succeeded or failed. It settles with the generation's own rates, exactly as a webhook would; after about 32 min without a result the take is flagged `attention_reason = reconcile_exhausted`.
+2. Expected latency: a normal take (5 to 30 s) is settled by the first poll, **60 s after it was accepted**. A `[slow]` take (60 to 90 s) is picked up by the second poll, about 180 s after acceptance, so up to roughly 2 minutes after it finished.
+3. If a chain is lost (a worker died), any signed-in page load (workspace, billing, the admin console) runs the opportunistic sweeper, at most once every 2 minutes, which queues a poll for every non-terminal take older than 2 minutes. No scheduler is needed (D-036). By hand: `php artisan takes:reconcile --take=<id>` or `--stale`.
+4. The open page polls `takes`, `counts` and `auth` every 4 s while the live channel is down, so the card updates as soon as the take settles.
+
+Pool worktrees never receive webhooks (D-047), so every take there finishes this way.
 
 ## Quality
 
