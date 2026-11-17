@@ -69,6 +69,13 @@ const { estimate, state, deniedMessage, deniedReason, refresh } =
         references: toRef(form, 'reference_images'),
     });
 
+/**
+ * A denial from the create itself (the policy re-checked under lock), with
+ * its 2-01 copy. Kept apart from the form's field errors: DenialResponse
+ * sends it under `denial`, which is not a form field (F-04).
+ */
+const submitDenial = ref<string | null>(null);
+
 /*
  * A purchase or a finished take changes the available balance; the same
  * inputs may be allowed now, so a stale insufficient-credits denial (from
@@ -85,7 +92,7 @@ watch(
             return;
         }
 
-        form.clearErrors('denial' as never);
+        submitDenial.value = null;
         refresh();
     },
 );
@@ -103,11 +110,6 @@ const errors = computed<ComposerErrors>(() => {
     };
 });
 
-/** A denial from the create itself (the policy re-checked under lock), with its 2-01 copy. */
-const submitDenial = computed(
-    () => (form.errors as Record<string, string | undefined>).denial ?? null,
-);
-
 const showBuyCredits = computed(
     () =>
         page.props.auth.can?.purchaseCredits.allowed === true &&
@@ -120,6 +122,7 @@ const submit = (): void => {
         onSuccess: () => {
             // A new draft: a new key; the inputs stay for the next variation.
             mintKey();
+            submitDenial.value = null;
             form.parent_take_id = null;
             remixingFrom.value = null;
             referenceUnavailable.value = false;
@@ -127,7 +130,10 @@ const submit = (): void => {
             emit('created');
         },
         // A denial under lock (credits, caps): the estimate shows it with its code.
-        onError: () => refresh(),
+        onError: (errors) => {
+            submitDenial.value = errors.denial ?? null;
+            refresh();
+        },
     });
 };
 
@@ -147,6 +153,7 @@ const cancelRemix = (): void => {
  */
 const remix = (take: TakeDetailData): void => {
     form.clearErrors();
+    submitDenial.value = null;
     form.prompt = take.prompt;
     form.size = take.size;
     form.quality = take.quality;
@@ -163,6 +170,7 @@ const remix = (take: TakeDetailData): void => {
 /** Try again (D-044): the same inputs and lineage, a new key; the customer presses Generate. */
 const tryAgain = (take: TakeDetailData): void => {
     form.clearErrors();
+    submitDenial.value = null;
     form.prompt = take.prompt;
     form.size = take.size;
     form.quality = take.quality;
