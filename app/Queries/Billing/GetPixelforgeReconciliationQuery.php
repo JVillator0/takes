@@ -24,7 +24,8 @@ use InvalidArgumentException;
  * Providers › Pixelforge usage (A04, D-034): per UTC billing day, our settled Pixelforge usage (generations, the
  * four token sums, cost) against `GET /v1/usage`, cached 5 minutes per range. A day is Pending while takes created
  * that day are still in flight, and today always is ("N in flight"), never Mismatch. When Pixelforge cannot be
- * reached each day falls back to its last good figures, marked unavailable.
+ * reached each closed day falls back to its last good figures, marked unavailable. Today and later days are
+ * Pending: never judged, never kept as last-good, and figures fetched before a day ended are never judged for it.
  */
 final readonly class GetPixelforgeReconciliationQuery
 {
@@ -53,7 +54,8 @@ final readonly class GetPixelforgeReconciliationQuery
 
         $days = [];
         $oursTotal = UsageTotalsDTO::zero();
-        $theirsTotal = null;
+        $theirsTotal = UsageTotalsDTO::zero();
+        $missingTheirs = false;
         $matched = 0;
         $judged = 0;
 
@@ -64,8 +66,10 @@ final readonly class GetPixelforgeReconciliationQuery
             $flying = $inFlight[$date] ?? 0;
 
             $status = match (true) {
+                // Today and later are still open: never judged (D-034).
+                $date >= $today => ReconciliationStatus::Pending,
                 $theirDay === null => ReconciliationStatus::Unavailable,
-                $date === $today || $flying > 0 => ReconciliationStatus::Pending,
+                $flying > 0 => ReconciliationStatus::Pending,
                 $ourDay->equals($theirDay) => ReconciliationStatus::Match,
                 default => ReconciliationStatus::Mismatch,
             };
@@ -76,11 +80,13 @@ final readonly class GetPixelforgeReconciliationQuery
             }
 
             $oursTotal = $oursTotal->plus($ourDay);
-            $theirsTotal = $theirDay === null ? $theirsTotal : ($theirsTotal ?? UsageTotalsDTO::zero())->plus($theirDay);
+            $missingTheirs = $missingTheirs || $theirDay === null;
+            $theirsTotal = $theirDay === null ? $theirsTotal : $theirsTotal->plus($theirDay);
             $days[] = new ReconciliationDayDTO($date, $ourDay, $theirDay, $flying, $status);
         }
 
-        return new PixelforgeReconciliationDTO($days, $oursTotal, $theirsTotal, $matched, $judged, $fetchedAt, $unavailable);
+        // A total over a different set of days than ours would be misleading.
+        return new PixelforgeReconciliationDTO($days, $oursTotal, $missingTheirs ? null : $theirsTotal, $matched, $judged, $fetchedAt, $unavailable);
     }
 
     /**
@@ -154,7 +160,7 @@ final readonly class GetPixelforgeReconciliationQuery
             }
         }
 
-        $fresh = array_filter(array_combine($dates, array_map(fn (string $date): mixed => Cache::get(self::dayKey($date)), $dates)), is_array(...));
+        $fresh = array_filter(array_combine($dates, array_map(fn (string $date): mixed => Cache::get(self::dayKey($date)), $dates)), self::isFinalOrOpen(...), ARRAY_FILTER_USE_BOTH);
 
         if (count($fresh) === count($dates)) {
             return [...$this->decode($fresh), false];
@@ -163,7 +169,7 @@ final readonly class GetPixelforgeReconciliationQuery
         try {
             $report = $this->client->getUsage($from, $until);
         } catch (PixelforgeException|PixelforgeNotConfigured) {
-            $last = array_filter(array_combine($dates, array_map(fn (string $date): mixed => Cache::get(self::lastKey($date)), $dates)), is_array(...));
+            $last = array_filter(array_combine($dates, array_map(fn (string $date): mixed => Cache::get(self::lastKey($date)), $dates)), self::isFinalOrOpen(...), ARRAY_FILTER_USE_BOTH);
 
             return [...$this->decode($last), true];
         }
@@ -186,12 +192,33 @@ final readonly class GetPixelforgeReconciliationQuery
             ))->toArray()];
         }
 
+        $today = CarbonImmutable::now('UTC')->toDateString();
+
         foreach ($fetched as $date => $entry) {
             Cache::put(self::dayKey($date), $entry, self::CACHE_SECONDS);
-            Cache::put(self::lastKey($date), $entry, self::LAST_GOOD_SECONDS);
+
+            // Only a closed day's figures are final; an open day is never kept as last-good.
+            if ($date < $today) {
+                Cache::put(self::lastKey($date), $entry, self::LAST_GOOD_SECONDS);
+            }
         }
 
         return [...$this->decode($fetched), false];
+    }
+
+    /**
+     * A cached entry can stand for a closed day only if it was fetched after that day ended (UTC); figures fetched
+     * while the day was open are partial. An open day (today or later) takes any fresh entry, since it is not judged.
+     */
+    private static function isFinalOrOpen(mixed $entry, string $date): bool
+    {
+        if (! is_array($entry) || ! is_string($entry['fetched_at'] ?? null)) {
+            return false;
+        }
+
+        $dayEnd = CarbonImmutable::parse($date, 'UTC')->addDay();
+
+        return $dayEnd->greaterThan(CarbonImmutable::now('UTC')) || CarbonImmutable::parse($entry['fetched_at'])->greaterThanOrEqualTo($dayEnd);
     }
 
     public static function dayKey(string $date): string

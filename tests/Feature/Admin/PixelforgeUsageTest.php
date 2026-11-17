@@ -16,6 +16,8 @@ use Filament\Facades\Filament;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\RateLimiter;
+use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 use Tests\Support\PixelforgeFixture;
 
@@ -304,4 +306,90 @@ it('is hidden from an admin without the page permission', function (): void {
 
     $this->actingAs($admin)->get(PixelforgeUsage::getUrl())->assertForbidden();
     Http::assertNothingSent();
+});
+
+it('keeps today and later days Pending, unjudged and out of the last-good cache', function (): void {
+    Http::fake(['pixelforge.test/v1/usage*' => Http::response(usagePayload('2026-11-16', '2026-11-18', []))]);
+
+    $report = app(GetPixelforgeReconciliationQuery::class)->execute(CarbonImmutable::parse('2026-11-16'), CarbonImmutable::parse('2026-11-18'));
+
+    expect(array_map(fn ($day): string => $day->date.':'.$day->status->value, $report->days))
+        ->toBe(['2026-11-18:pending', '2026-11-17:pending', '2026-11-16:match'])
+        ->and([$report->matchedDays, $report->judgedDays])->toBe([1, 1])
+        ->and(Cache::has('admin:pixelforge-usage:last:2026-11-16'))->toBeTrue()
+        ->and(Cache::has('admin:pixelforge-usage:last:2026-11-17'))->toBeFalse()
+        ->and(Cache::has('admin:pixelforge-usage:last:2026-11-18'))->toBeFalse();
+});
+
+it('never judges a closed day with figures fetched before it ended', function (): void {
+    settledFixtureTake('2026-11-16', 'gen_a');
+    Cache::put(GetPixelforgeReconciliationQuery::dayKey('2026-11-16'), [
+        'fetched_at' => '2026-11-16T23:59:00+00:00',
+        'totals' => ['generations' => 0, 'input_text_tokens' => 0, 'input_image_tokens' => 0, 'output_tokens' => 0, 'reasoning_tokens' => 0, 'cost_nanos' => 0],
+    ], 300);
+    Http::fake(['pixelforge.test/v1/usage*' => Http::response(usagePayload('2026-11-16', '2026-11-16', [
+        '2026-11-16' => [1, 12, 765, 6450, 3184, '0.305510000'],
+    ]))]);
+
+    $day = app(GetPixelforgeReconciliationQuery::class)->execute(CarbonImmutable::parse('2026-11-16'), CarbonImmutable::parse('2026-11-16'))->days[0];
+
+    expect($day->status)->toBe(ReconciliationStatus::Match);
+    Http::assertSentCount(1);
+});
+
+it('drops the Pixelforge total when a fallback covers only part of the range', function (): void {
+    Cache::put('admin:pixelforge-usage:last:2026-11-15', [
+        'fetched_at' => '2026-11-16T08:00:00+00:00',
+        'totals' => ['generations' => 0, 'input_text_tokens' => 0, 'input_image_tokens' => 0, 'output_tokens' => 0, 'reasoning_tokens' => 0, 'cost_nanos' => 0],
+    ], 3600);
+    Http::fake(['pixelforge.test/v1/usage*' => Http::response(['error' => ['type' => 'api_error', 'code' => 'internal_error', 'message' => 'down']], 503)]);
+
+    $report = app(GetPixelforgeReconciliationQuery::class)->execute(CarbonImmutable::parse('2026-11-15'), CarbonImmutable::parse('2026-11-16'));
+
+    expect(array_map(fn ($day): ReconciliationStatus => $day->status, $report->days))->toBe([ReconciliationStatus::Unavailable, ReconciliationStatus::Match])
+        ->and($report->theirsTotal)->toBeNull();
+});
+
+it('lists our settled usage that Pixelforge did not report for the day', function (): void {
+    $extra = settledFixtureTake('2026-11-15', 'gen_not_listed');
+    Http::fake(['pixelforge.test/v1/generations*' => Http::response(['object' => 'list', 'data' => [], 'has_more' => false, 'next_cursor' => null])]);
+
+    $result = app(ListPixelforgeDayDiscrepanciesQuery::class)->execute(CarbonImmutable::parse('2026-11-15'));
+
+    expect(array_map(fn ($row): array => [$row->generationId, $row->takeId, $row->theirCost, $row->ourCost?->toInt()], $result->amountDiffers))
+        ->toBe([['gen_not_listed', $extra->id, null, FIXTURE_COST_NANOS]]);
+});
+
+it('caches Find takes per day and throttles provider checks for everyone', function (): void {
+    settledFixtureTake('2026-11-15', 'gen_a');
+    Http::fake([
+        'pixelforge.test/v1/usage*' => Http::response(usagePayload('2026-11-04', '2026-11-17', [
+            '2026-11-15' => [2, 24, 1530, 12900, 6368, '0.611020000'],
+        ])),
+        'pixelforge.test/v1/generations*' => Http::response(['object' => 'list', 'data' => [], 'has_more' => false, 'next_cursor' => null]),
+    ]);
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
+
+    $page = Livewire::test(PixelforgeUsage::class)
+        ->callAction('findTakes', arguments: ['date' => '2026-11-15'])
+        ->callAction('findTakes', arguments: ['date' => '2026-11-15']);
+    Http::assertSentCount(2); // one usage report, one generations page
+
+    foreach (range(1, PixelforgeUsage::PROVIDER_CHECKS_PER_MINUTE) as $ignored) {
+        RateLimiter::hit(PixelforgeUsage::PROVIDER_CHECKS_KEY);
+    }
+
+    $page->callAction('refresh')->assertNotified();
+    Http::assertSentCount(2);
+});
+
+it('locks the applied range and the drill-down result against client writes, and errors per field', function (): void {
+    Http::fake(['pixelforge.test/v1/usage*' => Http::response(usagePayload('2026-11-04', '2026-11-17', []))]);
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
+    $page = Livewire::test(PixelforgeUsage::class);
+
+    expect(fn () => $page->set('rangeFrom', 'not-a-date'))->toThrow(CannotUpdateLockedPropertyException::class)
+        ->and(fn () => $page->set('findResult', ['date' => 'x']))->toThrow(CannotUpdateLockedPropertyException::class);
+
+    $page->set('from', '')->set('until', '2026-11-16')->assertHasErrors(['from'])->assertHasNoErrors(['until']);
 });

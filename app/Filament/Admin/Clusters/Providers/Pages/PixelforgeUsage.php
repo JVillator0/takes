@@ -19,7 +19,10 @@ use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\RateLimiter;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 
 /**
  * Providers › Pixelforge usage (A04, normative; D-034, D-058): the brief's "admin report matches GET /v1/usage".
@@ -28,12 +31,18 @@ use Livewire\Attributes\Computed;
  *
  * The report reads the last valid range (`rangeFrom`/`rangeUntil`); a date input that would make the range
  * invalid shows an error and changes nothing, so no intermediate range ever calls Pixelforge.
+ *
+ * @property-read PixelforgeReconciliationDTO $report  the #[Computed] report, memoized per request
  */
 final class PixelforgeUsage extends Page
 {
     use HasPageShield;
 
     public const int DEFAULT_DAYS = 14;
+
+    public const string PROVIDER_CHECKS_KEY = 'admin:pixelforge-checks';
+
+    public const int PROVIDER_CHECKS_PER_MINUTE = 6;
 
     private const string DATE_PATTERN = '/^\d{4}-\d{2}-\d{2}$/';
 
@@ -49,14 +58,18 @@ final class PixelforgeUsage extends Page
 
     public string $until = '';
 
+    #[Locked]
     public string $rangeFrom = '';
 
+    #[Locked]
     public string $rangeUntil = '';
 
-    public bool $refresh = false;
-
     /** @var array{date: string, truncated: bool, groups: array<string, list<array{generation: string, take: string|null, theirs: string, ours: string}>>}|null */
+    #[Locked]
     public ?array $findResult = null;
+
+    /** Set only by the Refresh action within one request; never client state. */
+    private bool $refreshUsage = false;
 
     public function mount(): void
     {
@@ -78,13 +91,10 @@ final class PixelforgeUsage extends Page
     #[Computed]
     public function report(): PixelforgeReconciliationDTO
     {
-        $refresh = $this->refresh;
-        $this->refresh = false;
-
         return app(GetPixelforgeReconciliationQuery::class)->execute(
             CarbonImmutable::parse($this->rangeFrom, 'UTC'),
             CarbonImmutable::parse($this->rangeUntil, 'UTC'),
-            $refresh,
+            $this->refreshUsage,
         );
     }
 
@@ -98,10 +108,13 @@ final class PixelforgeUsage extends Page
         }
 
         $this->resetErrorBag(['from', 'until']);
+        $invalid = array_filter(['from' => $this->from, 'until' => $this->until], fn (string $value): bool => ! self::isDate($value));
 
-        if (! self::isDate($this->from) || ! self::isDate($this->until)) {
-            $this->addError($property, __('console.pixelforge.invalid_date'));
+        foreach (array_keys($invalid) as $field) {
+            $this->addError($field, __('console.pixelforge.invalid_date'));
+        }
 
+        if ($invalid !== []) {
             return;
         }
 
@@ -139,6 +152,10 @@ final class PixelforgeUsage extends Page
                     return;
                 }
 
+                if (! Cache::has(ListPixelforgeDayDiscrepanciesQuery::cacheKey($date)) && ! self::spendProviderCheck()) {
+                    return;
+                }
+
                 try {
                     $result = app(ListPixelforgeDayDiscrepanciesQuery::class)->execute(CarbonImmutable::parse($date, 'UTC'));
                 } catch (PixelforgeException|PixelforgeNotConfigured) {
@@ -167,7 +184,11 @@ final class PixelforgeUsage extends Page
                 ->label(__('console.pixelforge.refresh'))
                 ->icon(Heroicon::OutlinedArrowPath)
                 ->action(function (): void {
-                    $this->refresh = true;
+                    if (! self::spendProviderCheck()) {
+                        return;
+                    }
+
+                    $this->refreshUsage = true;
                     $this->findResult = null;
                     unset($this->report);
                 }),
@@ -180,11 +201,28 @@ final class PixelforgeUsage extends Page
             return false;
         }
 
-        foreach ($this->report()->days as $day) {
+        foreach ($this->report->days as $day) {
             if ($day->date === $date) {
                 return $day->status === ReconciliationStatus::Mismatch;
             }
         }
+
+        return false;
+    }
+
+    /**
+     * Find takes (uncached) and Refresh call Pixelforge on the account-wide 60 rpm budget the customers' takes
+     * share, so every admin together gets a few per minute (the auditor's login is public).
+     */
+    private static function spendProviderCheck(): bool
+    {
+        if (RateLimiter::attempt(self::PROVIDER_CHECKS_KEY, self::PROVIDER_CHECKS_PER_MINUTE, fn (): bool => true)) {
+            return true;
+        }
+
+        Notification::make()->warning()
+            ->title(__('console.pixelforge.throttled', ['seconds' => RateLimiter::availableIn(self::PROVIDER_CHECKS_KEY)]))
+            ->send();
 
         return false;
     }

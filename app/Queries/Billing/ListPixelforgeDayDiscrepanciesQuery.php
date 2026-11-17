@@ -7,6 +7,7 @@ namespace App\Queries\Billing;
 use App\DTOs\Billing\FindTakesResultDTO;
 use App\DTOs\Billing\ReconciliationGenerationDTO;
 use App\DTOs\Pixelforge\GenerationSnapshotDTO;
+use App\Enums\Billing\Provider;
 use App\Enums\Billing\UsageStatus;
 use App\Enums\Takes\TakeStatus;
 use App\Models\Take;
@@ -15,17 +16,22 @@ use App\Services\Pixelforge\PixelforgeClient;
 use App\Support\Money\Nanodollars;
 use App\Support\Money\TokenCost;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Cache;
 use Psr\Log\NullLogger;
 
 /**
  * A04 **Find takes** (D-034, D-058): pages `GET /v1/generations?status=succeeded`, keeps the generations Pixelforge
  * completed on the day (UTC), and diffs them against our takes by `pixelforge_id` (or `metadata.app_take_id`).
- * Runs only on an explicit click; never on page load.
+ * Our settled usage on the day that Pixelforge did not list also lands in Amount differs (their cost unknown).
+ * Runs only on an explicit click, never on page load; each day's result is cached 5 minutes.
  */
 final readonly class ListPixelforgeDayDiscrepanciesQuery
 {
     /** Provider pages read at most (100 generations each). */
     public const int MAX_PAGES = 20;
+
+    /** A day's result is reused this long, so repeated clicks do not spend the shared 60 rpm budget. */
+    public const int CACHE_SECONDS = 300;
 
     private TokenCost $tokenCost;
 
@@ -35,10 +41,30 @@ final readonly class ListPixelforgeDayDiscrepanciesQuery
         $this->tokenCost = new TokenCost(new NullLogger);
     }
 
+    public static function cacheKey(string $date): string
+    {
+        return 'admin:pixelforge-find:'.$date;
+    }
+
     public function execute(CarbonImmutable $day): FindTakesResultDTO
     {
         $date = $day->utc()->toDateString();
-        [$generations, $truncated] = $this->generationsCompletedOn($day->utc()->startOfDay());
+        $cached = Cache::get(self::cacheKey($date));
+
+        if ($cached instanceof FindTakesResultDTO) {
+            return $cached;
+        }
+
+        $result = $this->discrepancies($day->utc()->startOfDay());
+        Cache::put(self::cacheKey($date), $result, self::CACHE_SECONDS);
+
+        return $result;
+    }
+
+    private function discrepancies(CarbonImmutable $dayStart): FindTakesResultDTO
+    {
+        $date = $dayStart->toDateString();
+        [$generations, $truncated] = $this->generationsCompletedOn($dayStart);
 
         $takes = Take::query()
             ->with('usageRecord')
@@ -69,6 +95,32 @@ final readonly class ListPixelforgeDayDiscrepanciesQuery
             if ($group !== null) {
                 $groups[$group][] = $row;
             }
+        }
+
+        // Our side billing more: settled usage on this day whose generation Pixelforge did not list as completed on
+        // it. Only knowable when the whole list was read.
+        if (! $truncated) {
+            $listed = array_map(fn (GenerationSnapshotDTO $generation): string => $generation->id, $generations);
+
+            UsageRecord::query()
+                ->with('billable')
+                ->where('provider', Provider::Pixelforge->value)
+                ->where('status', UsageStatus::Settled->value)
+                ->whereDate('billing_date', $date)
+                ->get()
+                ->each(function (UsageRecord $usage) use ($listed, &$groups): void {
+                    $take = $usage->billable;
+                    $generationId = $take instanceof Take ? $take->pixelforge_id : null;
+
+                    if ($generationId === null || ! in_array($generationId, $listed, true)) {
+                        $groups['differs'][] = new ReconciliationGenerationDTO(
+                            $generationId ?? '',
+                            $take instanceof Take ? $take->id : null,
+                            null,
+                            $usage->provider_cost_nanos === null ? null : Nanodollars::fromInt($usage->provider_cost_nanos),
+                        );
+                    }
+                });
         }
 
         return new FindTakesResultDTO($date, $groups['theirs'], $groups['unsettled'], $groups['differs'], $groups['orphan'], $truncated);
