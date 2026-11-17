@@ -63,7 +63,7 @@ const { t } = useCopy();
             href="#main"
             class="sr-only z-50 rounded-md bg-background px-3 py-2 text-sm font-medium focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:ring-[3px] focus:ring-ring/50"
         >
-            Skip to content
+            {{ t('landing.shell.skip_to_content') }}
         </a>
 
         <header

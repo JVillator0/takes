@@ -29,37 +29,33 @@ const page = usePage();
 const signedIn = computed(() => Boolean(page.props.auth.user));
 const { t } = useCopy();
 
-const steps = [
-    {
-        title: 'Describe',
-        body: 'Write a prompt, pick size and quality. The price range shows before you start.',
-    },
-    {
-        title: 'Take',
-        body: 'Every generation is a take, saved in a project, with its exact cost.',
-    },
-    {
-        title: 'Remix',
-        body: 'Branch any take, or describe a change (“warmer, portrait”) and review it before it runs.',
-    },
-];
+const steps = (['describe', 'take', 'remix'] as const).map((step) => ({
+    title: t(`landing.steps.${step}_title`),
+    body: t(`landing.steps.${step}`),
+}));
 
 const tiles = [
-    { label: 'take #1', tone: 'from-sky-300 via-orange-200 to-slate-700' },
     {
-        label: 'take #2 · warmer',
+        label: t('landing.example.take', { id: 1 }),
+        tone: 'from-sky-300 via-orange-200 to-slate-700',
+    },
+    {
+        label: t('landing.example.take_warmer', { id: 2 }),
         tone: 'from-amber-300 via-orange-400 to-rose-900',
     },
     {
-        label: 'take #3 · portrait',
+        label: t('landing.example.take_portrait', { id: 3 }),
         tone: 'from-slate-300 via-slate-500 to-slate-900',
     },
-    { label: 'take #4', tone: 'from-indigo-300 via-violet-400 to-slate-900' },
+    {
+        label: t('landing.example.take', { id: 4 }),
+        tone: 'from-indigo-300 via-violet-400 to-slate-900',
+    },
 ];
 </script>
 
 <template>
-    <Head title="Describe it. Take it. Remix it." />
+    <Head :title="t('landing.meta_title')" />
 
     <div class="flex min-h-svh flex-col bg-background text-foreground">
         <header class="border-b">
@@ -68,24 +64,32 @@ const tiles = [
             >
                 <TakesMark />
                 <nav
-                    aria-label="Sections"
+                    :aria-label="t('landing.nav.label')"
                     class="hidden items-center gap-5 text-sm text-muted-foreground md:flex"
                 >
                     <a href="#how-it-works" class="hover:text-foreground">
-                        How it works
+                        {{ t('landing.nav.how_it_works') }}
                     </a>
-                    <a href="#pricing" class="hover:text-foreground">Pricing</a>
+                    <a href="#pricing" class="hover:text-foreground">
+                        {{ t('landing.nav.pricing') }}
+                    </a>
                 </nav>
                 <div class="ml-auto flex items-center gap-2">
                     <Button v-if="signedIn" as-child size="sm">
-                        <Link :href="dashboard()">Open Takes</Link>
+                        <Link :href="dashboard()">{{
+                            t('landing.nav.open_app')
+                        }}</Link>
                     </Button>
                     <template v-else>
                         <Button as-child variant="outline" size="sm">
-                            <Link :href="login()">Sign in</Link>
+                            <Link :href="login()">{{
+                                t('landing.nav.sign_in')
+                            }}</Link>
                         </Button>
                         <Button as-child size="sm">
-                            <Link :href="register()">Start free</Link>
+                            <Link :href="register()">{{
+                                t('landing.nav.start_free')
+                            }}</Link>
                         </Button>
                     </template>
                 </div>
@@ -102,18 +106,21 @@ const tiles = [
                         id="hero-title"
                         class="text-5xl leading-[1.02] font-semibold tracking-tight text-balance sm:text-6xl"
                     >
-                        Describe it.<br />
-                        Take it.<br />
-                        Remix it.
+                        {{ t('landing.hero.line_1') }}<br />
+                        {{ t('landing.hero.line_2') }}<br />
+                        {{ t('landing.hero.line_3') }}
                     </h1>
                     <p class="max-w-md text-lg text-muted-foreground">
-                        Generate images, iterate on them as versions, and always
-                        see the price before you press Generate.
+                        {{ t('landing.hero.lead') }}
                     </p>
                     <div class="flex flex-col gap-3 sm:flex-row">
                         <Button as-child size="lg">
                             <Link :href="register()">
-                                Start with {{ welcomeCredit }} free
+                                {{
+                                    t('landing.hero.start', {
+                                        amount: welcomeCredit,
+                                    })
+                                }}
                             </Link>
                         </Button>
                         <Button
@@ -123,26 +130,26 @@ const tiles = [
                             size="lg"
                         >
                             <Link :href="demo.action" method="post" as="button">
-                                Try a demo account
+                                {{ t('landing.hero.demo') }}
                             </Link>
                         </Button>
                     </div>
                     <p class="text-sm text-muted-foreground">
-                        No card. Credits are simulated for this demo.
+                        {{ t('landing.hero.no_card') }}
                     </p>
                 </div>
 
                 <figure
                     class="rounded-2xl border bg-card p-4 shadow-sm sm:p-5"
-                    aria-label="Example project with five takes"
+                    :aria-label="t('landing.example.label')"
                 >
                     <div class="mb-3 flex items-center justify-between">
                         <span class="text-sm font-semibold">
-                            Lighthouse series
+                            {{ t('landing.example.project') }}
                         </span>
-                        <span class="text-xs text-muted-foreground"
-                            >5 takes</span
-                        >
+                        <span class="text-xs text-muted-foreground">
+                            {{ t('landing.example.count', { count: 5 }) }}
+                        </span>
                     </div>
                     <ul
                         role="list"
@@ -181,7 +188,7 @@ const tiles = [
             >
                 <div class="mx-auto w-full max-w-6xl px-4 py-12 sm:px-6">
                     <h2 id="how-title" class="text-2xl font-semibold">
-                        How it works
+                        {{ t('landing.steps.title') }}
                     </h2>
                     <ol role="list" class="mt-6 grid gap-4 md:grid-cols-3">
                         <li
@@ -210,39 +217,43 @@ const tiles = [
                 >
                     <div class="flex flex-col gap-3">
                         <h2 id="pricing-title" class="text-2xl font-semibold">
-                            Clear pricing
+                            {{ t('landing.pricing.title') }}
                         </h2>
                         <p class="text-muted-foreground">
-                            Pay per take from prepaid credits. See the price
-                            range before you generate, the exact amount after.
+                            {{ t('landing.pricing.body') }}
                             <strong class="font-semibold text-foreground">
-                                Failed takes cost nothing.
+                                {{ t('takes.estimate.failed_free') }}
                             </strong>
                         </p>
                         <p class="text-muted-foreground">
-                            New accounts start with {{ welcomeCredit }} of
-                            credits.
+                            {{
+                                t('landing.pricing.welcome', {
+                                    amount: welcomeCredit,
+                                })
+                            }}
                             <span class="whitespace-nowrap">
-                                1 credit = $1.00.
+                                {{ t('landing.pricing.credit_rate') }}
                             </span>
                         </p>
                     </div>
                     <table class="w-full self-start text-sm">
                         <caption class="sr-only">
-                            Example prices per take
+                            {{
+                                t('landing.pricing.caption')
+                            }}
                         </caption>
                         <thead>
                             <tr
                                 class="border-b text-left text-xs tracking-wide text-muted-foreground uppercase"
                             >
                                 <th scope="col" class="py-2 font-semibold">
-                                    Example take
+                                    {{ t('landing.pricing.example_take') }}
                                 </th>
                                 <th
                                     scope="col"
                                     class="py-2 text-right font-semibold"
                                 >
-                                    Price range
+                                    {{ t('landing.pricing.price_range') }}
                                 </th>
                             </tr>
                         </thead>
@@ -269,7 +280,7 @@ const tiles = [
             <div
                 class="mx-auto w-full max-w-6xl px-4 py-6 text-xs text-muted-foreground sm:px-6"
             >
-                Takes is a take-home project. Payments are simulated.
+                {{ t('landing.footer') }}
             </div>
         </footer>
     </div>

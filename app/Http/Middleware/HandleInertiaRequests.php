@@ -56,19 +56,20 @@ class HandleInertiaRequests extends Middleware
     }
 
     /**
-     * Customer-facing UI copy for the Vue `trans()` helper (D-057).
+     * Customer-facing UI copy read on the client by `useCopy().t()` (D-057).
      *
      * An Inertia once prop: sent on the first page load and kept by the client
      * across visits, because the strings never change while the app runs.
-     * Only these two files are exposed; they hold no secrets.
+     * Only these files are exposed; they hold no secrets.
      *
-     * @return array{takes: mixed, billing: mixed}
+     * @return array{takes: mixed, billing: mixed, landing: mixed}
      */
     private static function copy(): array
     {
         return [
             'takes' => trans('takes'),
             'billing' => trans('billing'),
+            'landing' => trans('landing'),
         ];
     }
 }

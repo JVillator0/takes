@@ -8,9 +8,12 @@ use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * Landing page (P01). Presentational only: spec 4 issue #53 replaces the
- * example ranges with TakeEstimator output, and issue #46 turns on the demo
- * button (POST /demo) when demo logins are enabled.
+ * Landing page (P01). Presentational only. Placeholders, each with its owner:
+ * - `welcomeCredit` is '$1.00' until `config/takes.php` (spec 3-01, PR #92)
+ *   lands on main; then it becomes the formatted
+ *   `config('takes.welcome_credit_nanos')` (WELCOME_CREDIT_USD, D-019).
+ * - the example ranges become TakeEstimator output (spec 4 issue #53);
+ * - the demo button (POST /demo) is turned on by spec 4 issue #46.
  */
 class LandingController extends Controller
 {
@@ -24,11 +27,11 @@ class LandingController extends Controller
             ],
             'pricingExamples' => [
                 [
-                    'label' => 'Square · medium · short prompt',
+                    'label' => __('landing.pricing.square_medium_short'),
                     'range' => __('takes.estimate.range', ['min' => '$0.0581', 'max' => '$0.0863']),
                 ],
                 [
-                    'label' => 'Landscape · high · 2 references',
+                    'label' => __('landing.pricing.landscape_high_two_refs'),
                     'range' => __('takes.estimate.range', ['min' => '$0.3577', 'max' => '$0.4674']),
                 ],
             ],
