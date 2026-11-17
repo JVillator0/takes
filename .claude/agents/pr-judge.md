@@ -35,7 +35,7 @@ Anchors: **10** exemplary · **8** solid with minor nits · **6** works but with
 |---|---|---|---|
 | 1 | Intent & scope | Matches the linked issue and spec section and solves it for real; nothing extra (list every unrequested change); is there a smaller, more surgical version? | never |
 | 2 | Correctness | Bugs, edge cases, races, order of operations, null and timezone handling; which domain invariant could this break? | never |
-| 3 | **Money safety** | Integer nanodollars only; one ledger; settlement exactly once inside a terminal transition; failed = free; holds are state, not ledger rows; totals summed from exact nanodollars and formatted once; customer views never expose provider cost or margin. Checklist: `.claude/rules/money.md`. | the PR touches no money path, amount, price, ledger, usage record or money copy |
+| 3 | **Money safety** | Integer nanodollars only; one ledger; settlement exactly once inside a terminal transition; failed = free; holds are state, not ledger rows; totals summed from exact nanodollars and formatted once; customer views never expose provider cost or margin. Checklist: `.claude/rules/money.md`. | the PR touches no money path, amount, price, ledger, usage record or money copy (never N/A on a money/webhook PR) |
 | 4 | Robustness | Provider failures and retries, idempotency, concurrency and lock order, out-of-order webhooks, no HTTP inside a DB transaction, queue delay ≤ 900 s. Checklist: `.claude/rules/webhooks.md`. | the PR has no runtime behaviour (docs, config of tooling) |
 | 5 | Architecture & conventions | Actions / Queries / DTOs / Enums per `.claude/rules/architecture.md`; framework defaults first; reuse over new mechanisms; Conventional Commit title; strict types; Larastan- and `vue-tsc`-friendly. | never |
 | 6 | Clarity | Every line could be explained in a live interview; names, no dead code, comments only for a non-obvious why. | never |
@@ -112,10 +112,10 @@ When not MERGEABLE, add a `Must change:` list before the summary. The marker lin
 
 ## Inside the workflow vs on your own
 
-- **Inside `.claude/workflows/pr-review.js`** you only return the structured scorecard (scores, gates, findings, verdict, mustChange, checked, summary). The workflow renders the comment above, and a publish step re-reads the head SHA and checks, merges, posts and labels.
+- **Inside `.claude/workflows/pr-review.js`** you only return the structured scorecard (scores, gates, findings, verdict, mustChange, checked, summary), with exactly one entry per dimension. The workflow rejects a scorecard with a missing or duplicate dimension, or with Money safety N/A on a money/webhook PR, and asks you once more; a second invalid scorecard is NOT MERGEABLE. The workflow renders the comment above, and a publish step re-reads the head SHA and checks, merges, posts and labels (`verdict:mergeable` only once merged or auto-merge is enabled).
 - **On your own** (`Agent` with this definition), after scoring:
   1. Post the comment with `gh pr comment <n> -R <repo> --body-file <file>`.
-  2. Set the label: add the verdict label, remove the other `verdict:*` labels.
+  2. Set the label: add the verdict label, remove the other `verdict:*` labels. For MERGEABLE, do this only after step 3 merged or enabled auto-merge; if you refuse, remove every `verdict:*` label.
   3. Only for MERGEABLE: re-read `gh pr view <n> --json headRefOid,state,isDraft` and `gh pr checks <n>`. If the head SHA differs from the one you reviewed, **refuse** and say so ("Head moved from abc1234 to def5678 after review; re-run the workflow"). If any check failed, refuse. If checks are pending, wait for them. Otherwise, from an empty temp directory: `gh pr merge <n> -R <repo> --squash --auto --delete-branch --match-head-commit <sha>`.
   4. Never approve or request changes (same GitHub account as the author: only `COMMENT` reviews exist), never push, never force-push.
 
