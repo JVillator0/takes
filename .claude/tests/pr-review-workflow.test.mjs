@@ -341,11 +341,12 @@ test('decision lines at the round limit name the D-075 next step', async () => {
   const r3Nits = await decision(3, nitsJudge)
   assert.equal(r3Nits.verdict, 'MERGEABLE AFTER NITS')
   assert.match(r3Nits.line, /^Decision: not merged\. Round 3 of 3 reached \(D-075\): /)
-  assert.match(r3Nits.line, /runs round 4 with judgeOnly and escalation 'D-075', the last round\.$/)
+  assert.match(r3Nits.line, /runs round 4 as a full run with escalation 'D-075', the last round\.$/)
+  assert.doesNotMatch(r3Nits.line, /judgeOnly/)
 
   const r3Blocked = await decision(3, blockedJudge)
   assert.equal(r3Blocked.verdict, 'NOT MERGEABLE')
-  assert.match(r3Blocked.line, /fixes the open important and critical findings/)
+  assert.match(r3Blocked.line, /fixes the items above in new commits/)
   assert.match(r3Blocked.line, /runs round 4 as a full run with escalation 'D-075', the last round\.$/)
 
   const r4Nits = await decision(4, nitsJudge, 'D-075')
@@ -355,7 +356,15 @@ test('decision lines at the round limit name the D-075 next step', async () => {
   )
 
   const r4Blocked = await decision(4, blockedJudge, 'D-075')
-  assert.match(r4Blocked.line, /^Decision: not merged\. Round 4 of 4 \(D-075\) was the last round and findings above minor remain: .*; no round 5\.$/)
+  assert.equal(
+    r4Blocked.line,
+    'Decision: not merged. Round 4 of 4 (D-075) was the last round and the items above remain: the lead decides what happens to the PR and records it there; no round 5.',
+  )
+
+  // NOT MERGEABLE from a failed gate alone (only minor findings): the wording still fits.
+  const gateOnly = await decision(3, judgeResult({ findings: [finding()], gates: gates({ english: { status: 'fail', note: 'Spanish comment' } }) }))
+  assert.equal(gateOnly.verdict, 'NOT MERGEABLE')
+  assert.match(gateOnly.line, /fixes the items above in new commits/)
 
   for (const { line } of [r3Nits, r3Blocked, r4Nits, r4Blocked]) assert.doesNotMatch(line, /escalates/)
 

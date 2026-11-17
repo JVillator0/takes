@@ -700,16 +700,16 @@ const otherLabels = Object.values(VERDICT_LABELS).filter((l) => l !== label)
 const lastRound = round >= roundLimit
 
 // D-075 next steps once the round limit is reached: after round MAX_ROUNDS the lead fixes
-// and runs the one extra round with escalation "D-075"; after that round, minors go to a
-// follow-up issue and nothing is re-run. Single quotes only: the line is quoted in the prompt.
+// and runs the one extra FULL round with escalation "D-075"; after that round, minors go to
+// a follow-up issue and nothing is re-run. Single quotes only: the line is quoted in the prompt.
 const roundLimitDecision = escalation
   ? {
       nits: `Decision: not merged. Round ${round} of ${roundLimit} (${escalation}) was the last round: the lead opens a follow-up issue for the open minor findings; no round ${round + 1}.`,
-      notMergeable: `Decision: not merged. Round ${round} of ${roundLimit} (${escalation}) was the last round and findings above minor remain: the lead decides what happens to the PR and records it there; no round ${round + 1}.`,
+      notMergeable: `Decision: not merged. Round ${round} of ${roundLimit} (${escalation}) was the last round and the items above remain: the lead decides what happens to the PR and records it there; no round ${round + 1}.`,
     }
   : {
-      nits: `Decision: not merged. Round ${round} of ${roundLimit} reached (${ESCALATION_DECISION}): the lead fixes the minor findings in new commits, records the decision on the PR, then runs round ${round + 1} with judgeOnly and escalation '${ESCALATION_DECISION}', the last round.`,
-      notMergeable: `Decision: not merged. Round ${round} of ${roundLimit} reached (${ESCALATION_DECISION}): the lead fixes the open important and critical findings in new commits, records the decision on the PR, then runs round ${round + 1} as a full run with escalation '${ESCALATION_DECISION}', the last round.`,
+      nits: `Decision: not merged. Round ${round} of ${roundLimit} reached (${ESCALATION_DECISION}): the lead fixes the minor findings in new commits, records the decision on the PR, then runs round ${round + 1} as a full run with escalation '${ESCALATION_DECISION}', the last round.`,
+      notMergeable: `Decision: not merged. Round ${round} of ${roundLimit} reached (${ESCALATION_DECISION}): the lead fixes the items above in new commits, records the decision on the PR, then runs round ${round + 1} as a full run with escalation '${ESCALATION_DECISION}', the last round.`,
     }
 const decisions = {
   merged: 'Decision: merged with squash.',
