@@ -177,38 +177,4 @@ final class HandleInertiaRequests extends Middleware
             'updateAccount' => AbilityDTO::fromResponse($gate->inspect('updateAccount', $customer))->toArray(),
         ];
     }
-
-    /**
-     * Customer-facing UI copy read on the client by `useCopy().t()` (D-057).
-     *
-     * An Inertia once prop: sent on the first page load and kept by the client
-     * across visits. Its once key carries a hash of the lang files (see
-     * copyVersion()), so a deploy that changes only copy re-sends it to tabs
-     * that are already open; the asset version does not cover lang files.
-     *
-     * @return array<string, mixed>
-     */
-    private static function copy(): array
-    {
-        $copy = [];
-
-        foreach (self::COPY_GROUPS as $group) {
-            $copy[$group] = trans($group);
-        }
-
-        return $copy;
-    }
-
-    /**
-     * Content hash of the shared lang files; it changes whenever a string does.
-     */
-    public static function copyVersion(): string
-    {
-        $contents = array_map(
-            fn (string $group): string => File::get(lang_path("en/{$group}.php")),
-            self::COPY_GROUPS,
-        );
-
-        return hash('xxh128', implode("\0", $contents));
-    }
 }
