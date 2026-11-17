@@ -12,6 +12,7 @@ use App\Filament\Admin\Clusters\Providers\ProvidersCluster;
 use App\Filament\Admin\Clusters\Studio\StudioCluster;
 use App\Filament\Admin\Pages\Dashboard;
 use App\Filament\Admin\Resources\Customers\CustomerResource;
+use App\Http\Controllers\Admin\ExportBillingReportController;
 use App\Http\Middleware\EnsureAdminMultiFactorAuthentication;
 use App\Http\Middleware\SweepStaleTakes;
 use App\Listeners\RecordAdminWrites;
@@ -42,9 +43,11 @@ use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Routing\Middleware\SubstituteBindings;
+use Illuminate\Routing\Route;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Route as RouteFacade;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 use pxlrbt\FilamentEnvironmentIndicator\EnvironmentIndicatorPlugin;
 use Rmsramos\Activitylog\ActivitylogPlugin;
@@ -149,6 +152,10 @@ final class AdminPanelProvider extends PanelProvider
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
             ])
+            // Billing › Reports CSV: a plain GET so the file streams (a Livewire action would buffer it).
+            ->authenticatedRoutes(fn (): Route => RouteFacade::get('billing/reports/export', ExportBillingReportController::class)
+                ->middleware(EnsureAdminMultiFactorAuthentication::class)
+                ->name('billing.reports.export'))
             ->authMiddleware([
                 Authenticate::class,
                 // Every authenticated console GET (dashboard, Needs attention, resources) queues the

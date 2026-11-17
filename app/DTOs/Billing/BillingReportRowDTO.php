@@ -14,6 +14,9 @@ use App\Support\Money\Nanodollars;
  */
 final readonly class BillingReportRowDTO
 {
+    /** 25% markup on cost is 20.0% of spend (spec 7 Definitions): any other margin is an invariant alert. */
+    public const int MARGIN_INVARIANT_BPS = 2000;
+
     public function __construct(
         public string $key,
         public string $label,
@@ -55,6 +58,14 @@ final readonly class BillingReportRowDTO
     public function marginBps(): ?int
     {
         return BasisPoints::ratio($this->profit()->toInt(), $this->spend->toInt());
+    }
+
+    /** Spend with a margin other than 20.0% (an empty row, with no margin, never breaks it). */
+    public function breaksMarginInvariant(): bool
+    {
+        $margin = $this->marginBps();
+
+        return $margin !== null && $margin !== self::MARGIN_INVARIANT_BPS;
     }
 
     /** This row's share of the total spend, in integer basis points. */

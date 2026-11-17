@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Filament\Admin\Clusters\Billing\Pages;
 
-use App\Actions\Billing\ExportBillingReportCsvAction;
 use App\DTOs\Billing\BillingReportDTO;
 use App\DTOs\Billing\BillingReportFilterDTO;
 use App\Enums\Auth\AdminPermission;
@@ -22,7 +21,6 @@ use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
-use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Billing › Reports (A03, normative; D-035): customer spend vs provider cost vs profit, by UTC day or by customer,
@@ -159,24 +157,25 @@ final class Reports extends Page
                 ->label(__('console.reports.export'))
                 ->icon(Heroicon::OutlinedArrowDownTray)
                 ->authorize(fn (): bool => self::admin()?->can(AdminPermission::ExportReports->value) === true)
-                ->action(function (): ?StreamedResponse {
-                    $admin = self::admin();
+                // A real GET route streams the file; the filters travel in the query string and are validated there.
+                ->url(fn (): string => route('filament.admin.billing.reports.export', $this->exportQuery()))
+                ->openUrlInNewTab(false),
+        ];
+    }
 
-                    if ($admin === null) {
-                        return null;
-                    }
+    /**
+     * @return array{from: string, until: string, group_by: string, customer_id: int|null, provider: string|null}
+     */
+    private function exportQuery(): array
+    {
+        $filter = $this->filter();
 
-                    $filter = $this->filter();
-
-                    return response()->streamDownload(function () use ($admin, $filter): void {
-                        $out = fopen('php://output', 'wb');
-
-                        if ($out !== false) {
-                            app(ExportBillingReportCsvAction::class)->execute($admin, $filter, $out);
-                            fclose($out);
-                        }
-                    }, sprintf('takes-report-%s-%s.csv', $filter->from->toDateString(), $filter->until->toDateString()), ['Content-Type' => 'text/csv; charset=UTF-8']);
-                }),
+        return [
+            'from' => $filter->from->toDateString(),
+            'until' => $filter->until->toDateString(),
+            'group_by' => $filter->groupBy,
+            'customer_id' => $filter->customerId,
+            'provider' => $filter->provider?->value,
         ];
     }
 

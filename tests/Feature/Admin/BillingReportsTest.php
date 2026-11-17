@@ -168,7 +168,11 @@ it('exports day × customer × provider rows with exact decimals, a formula guar
         ->and([$audit?->properties['customer_id'] ?? null, $audit?->properties['provider'] ?? null])->toBe([(int) $anaId, 'pixelforge']);
 
     $this->actingAs($operator);
-    Livewire::test(Reports::class)->assertActionVisible('exportCsv')->callAction('exportCsv')->assertFileDownloaded('takes-report-2026-10-19-2026-11-17.csv');
+    Livewire::test(Reports::class)
+        ->assertActionVisible('exportCsv')
+        ->assertActionHasUrl('exportCsv', route('filament.admin.billing.reports.export', [
+            'from' => '2026-10-19', 'until' => '2026-11-17', 'group_by' => 'day',
+        ]));
 });
 
 it('keeps the last valid range and reports a lang error for an invalid one, never reading a cleared date as today', function (): void {
@@ -226,4 +230,52 @@ it('hides Billing in the sidebar from an admin who may open nothing in it', func
     app(PermissionRegistrar::class)->forgetCachedPermissions();
 
     $this->actingAs($admin->refresh())->get('/admin')->assertOk()->assertDontSee('Billing');
+});
+
+it('streams the CSV from a real GET route for an admin with Export:Reports, and refuses everyone else', function (): void {
+    reportDataset();
+    $query = ['from' => '2026-10-19', 'until' => '2026-11-17', 'group_by' => 'day', 'provider' => 'pixelforge'];
+    $url = route('filament.admin.billing.reports.export', $query);
+
+    $response = $this->actingAs(User::factory()->admin(AdminRole::Operator)->withAppAuthentication()->create())->get($url);
+    $response->assertOk()->assertHeader('content-type', 'text/csv; charset=UTF-8')->assertDownload('takes-report-2026-10-19-2026-11-17.csv');
+    $lines = array_values(array_map(fn (string $line): array => str_getcsv($line, escape: ''), array_filter(explode("\n", $response->streamedContent()))));
+
+    expect($lines[0])->toBe(ExportBillingReportCsvAction::COLUMNS)
+        ->and(array_unique(array_map(fn (array $line): string => $line[3], array_slice($lines, 1))))->toBe(['pixelforge']);
+
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create())->get($url)->assertForbidden();
+    $this->actingAs(User::factory()->admin(AdminRole::Operator)->withAppAuthentication()->create())
+        ->get(route('filament.admin.billing.reports.export', ['from' => '2026-11-17', 'until' => '2026-11-01']))
+        ->assertSessionHasErrors('until');
+});
+
+it('prefixes a name starting with a tab', function (): void {
+    $tabbed = Customer::factory()->create(['name' => "\tcmd"]);
+    UsageRecord::factory()->settled(59_230_000)->create(['customer_id' => $tabbed->id, 'billing_date' => '2026-11-16']);
+
+    $lines = exportLines(User::factory()->admin(AdminRole::Operator)->create(), BillingReportFilterDTO::lastThirtyDays());
+
+    expect($lines[1][2])->toBe("'\tcmd");
+});
+
+it('opens the Reports page over HTTP for the auditor', function (): void {
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create())->get(Reports::getUrl())->assertOk();
+});
+
+it('includes the first and last day of the range and nothing outside it', function (): void {
+    $customer = Customer::factory()->create();
+    foreach (['2026-10-18' => 10_000_000, '2026-10-19' => 20_000_000, '2026-11-17' => 40_000_000] as $day => $cost) {
+        UsageRecord::factory()->settled($cost)->create(['customer_id' => $customer->id, 'billing_date' => $day]);
+    }
+    Take::factory()->create(['customer_id' => $customer->id, 'created_at' => '2026-11-17 23:59:59']);
+    Take::factory()->create(['customer_id' => $customer->id, 'created_at' => '2026-11-18 00:00:00']);
+    Take::factory()->create(['customer_id' => $customer->id, 'created_at' => '2026-10-18 23:59:59']);
+
+    $totals = app(GetBillingReportQuery::class)->execute(BillingReportFilterDTO::lastThirtyDays())->totals;
+
+    // The UsageRecord factory also creates one take per usage, created now (2026-11-17 12:00).
+    expect($totals->cost->toInt())->toBe(60_000_000)
+        ->and($totals->takes)->toBe(Take::query()->where('created_at', '>=', '2026-10-19 00:00:00')->where('created_at', '<', '2026-11-18 00:00:00')->count())
+        ->and($totals->takes)->toBe(4);
 });

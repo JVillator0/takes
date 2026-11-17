@@ -101,7 +101,7 @@
                                 <td class="px-2 py-2 text-end tabular-nums">{{ $row->pixelforgeCost->formatExact() }}</td>
                                 <td class="px-2 py-2 text-end tabular-nums">{{ $row->anthropicCost->formatExact() }}</td>
                                 <td class="px-2 py-2 text-end tabular-nums">{{ $row->profit()->formatExact() }}</td>
-                                <td @class(['px-2 py-2 text-end tabular-nums', 'font-semibold text-danger-600 dark:text-danger-400' => $margin !== null && $margin !== 2000]) data-testid="margin-{{ $row->key }}">{{ Money::percentFromBps($margin) }}</td>
+                                <td @class(['px-2 py-2 text-end tabular-nums', 'font-semibold text-danger-600 dark:text-danger-400' => $row->breaksMarginInvariant()]) data-testid="margin-{{ $row->key }}">{{ Money::percentFromBps($margin) }}</td>
                                 @unless ($byDay)
                                     <td class="px-2 py-2 text-end tabular-nums">{{ Money::percentFromBps($row->shareOfSpendBps($total->spend)) }}</td>
                                 @endunless
@@ -120,7 +120,7 @@
                             <td class="px-2 py-2 text-end tabular-nums">{{ $total->pixelforgeCost->formatExact() }}</td>
                             <td class="px-2 py-2 text-end tabular-nums">{{ $total->anthropicCost->formatExact() }}</td>
                             <td class="px-2 py-2 text-end tabular-nums">{{ $total->profit()->formatExact() }}</td>
-                            <td @class(['px-2 py-2 text-end tabular-nums', 'text-danger-600 dark:text-danger-400' => $totalMargin !== null && $totalMargin !== 2000]) data-testid="margin-total">{{ Money::percentFromBps($totalMargin) }}</td>
+                            <td @class(['px-2 py-2 text-end tabular-nums', 'text-danger-600 dark:text-danger-400' => $total->breaksMarginInvariant()]) data-testid="margin-total">{{ Money::percentFromBps($totalMargin) }}</td>
                             @unless ($byDay)
                                 <td class="px-2 py-2 text-end tabular-nums">{{ $total->spend->isZero() ? '-' : '100.0%' }}</td>
                             @endunless
