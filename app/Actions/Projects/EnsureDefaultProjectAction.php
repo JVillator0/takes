@@ -8,6 +8,7 @@ use App\DTOs\Projects\ProjectNameDTO;
 use App\Enums\Auth\CustomerPermission;
 use App\Models\Customer;
 use App\Models\Project;
+use Illuminate\Support\Facades\DB;
 
 /**
  * P03 decision 1: the first visit creates "Untitled project", so the
@@ -21,11 +22,20 @@ final readonly class EnsureDefaultProjectAction
 
     public function execute(Customer $customer): ?Project
     {
-        if (! $customer->checkPermissionTo(CustomerPermission::ProjectsManage->value)
-            || Project::query()->where('customer_id', $customer->id)->exists()) {
+        if (! $customer->checkPermissionTo(CustomerPermission::ProjectsManage->value)) {
             return null;
         }
 
-        return $this->createProject->execute($customer, new ProjectNameDTO(__('takes.projects.untitled')));
+        // Two first visits at once (a prefetch and the visit, two tabs)
+        // serialize on the customer row, so only one creates the project.
+        return DB::transaction(function () use ($customer): ?Project {
+            Customer::query()->lockForUpdate()->findOrFail($customer->id);
+
+            if (Project::query()->where('customer_id', $customer->id)->exists()) {
+                return null;
+            }
+
+            return $this->createProject->execute($customer, new ProjectNameDTO(__('takes.projects.untitled')));
+        });
     }
 }

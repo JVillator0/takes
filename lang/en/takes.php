@@ -198,6 +198,7 @@ return [
     /* Projects (P03). */
     'projects' => [
         'untitled' => 'Untitled project',
+        'archived' => "This project is archived. Takes can't be added to it.",
         'sample_prompt' => 'A lighthouse on a cliff at dusk, warm light, cinematic wide shot',
         'title' => 'Projects',
         'search' => 'Search projects',

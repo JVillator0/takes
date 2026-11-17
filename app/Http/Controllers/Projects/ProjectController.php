@@ -10,10 +10,7 @@ use App\Actions\Projects\EnsureDefaultProjectAction;
 use App\Actions\Projects\RenameProjectAction;
 use App\DTOs\Billing\BalanceSummaryDTO;
 use App\DTOs\Projects\ProjectNameDTO;
-use App\DTOs\Takes\EstimateTakeDTO;
 use App\Enums\Takes\TakeFilter;
-use App\Enums\Takes\TakeQuality;
-use App\Enums\Takes\TakeSize;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Projects\ProjectNameRequest;
 use App\Http\Requests\Projects\ShowProjectRequest;
@@ -26,8 +23,8 @@ use App\Queries\Projects\GetProjectSpendQuery;
 use App\Queries\Projects\GetProjectWorkspaceQuery;
 use App\Queries\Projects\ListProjectCoversQuery;
 use App\Queries\Projects\ListProjectsQuery;
-use App\Queries\Takes\EstimateTakeQuery;
 use App\Queries\Takes\GetCustomerTakeQuery;
+use App\Queries\Takes\GetSmallestTakeQuery;
 use App\Queries\Takes\GetTakeDetailQuery;
 use App\Support\Money\Nanodollars;
 use App\Support\Money\RoundingMode;
@@ -82,7 +79,7 @@ final class ProjectController extends Controller
         Project $project,
         GetProjectWorkspaceQuery $workspace,
         GetTakeDetailQuery $takeDetail,
-        EstimateTakeQuery $estimateTake,
+        GetSmallestTakeQuery $smallestTake,
         GetCustomerTakeQuery $customerTake,
     ): Response {
         $customer = $request->customer();
@@ -105,10 +102,8 @@ final class ProjectController extends Controller
             'counts' => $data->counts,
             'balance' => $balance->toArray(),
             // 2-01 negative-balance banner: by how much (4 decimals), null when not below zero.
-            'negativeBalance' => $balance->available->isNegative()
-                ? Nanodollars::zero()->minus($balance->available)->format(4, RoundingMode::HalfUp)
-                : null,
-            'smallestTake' => fn (): array => $this->smallestTake($estimateTake, $balance),
+            'negativeBalance' => $balance->negativeBy(),
+            'smallestTake' => fn (): array => $smallestTake->execute($balance->available)->toArray(),
             'take' => is_string($takeId) && $takeId !== ''
                 ? fn (): array => (new TakeDetailResource($takeDetail->execute(
                     $customerTake->execute($customer, $takeId, $project) ?? abort(404),
@@ -154,21 +149,5 @@ final class ProjectController extends Controller
         assert($customer instanceof Customer);
 
         return $customer;
-    }
-
-    /**
-     * The low-balance banner (2-01): shown when the available credits are
-     * below the smallest possible take's maximum price.
-     *
-     * @return array{max: string, below: bool}
-     */
-    private function smallestTake(EstimateTakeQuery $estimateTake, BalanceSummaryDTO $balance): array
-    {
-        $max = $estimateTake->execute(new EstimateTakeDTO(1, TakeSize::Square, TakeQuality::Low, 0))->estimate->maxCharge;
-
-        return [
-            'max' => $max->format(4, RoundingMode::Ceil),
-            'below' => $balance->available->lessThan($max),
-        ];
     }
 }

@@ -8,6 +8,7 @@ use App\Contracts\Takes\CreatesSuggestedTake;
 use App\DTOs\Suggestions\SuggestedTakeDTO;
 use App\DTOs\Suggestions\TakeChangeProposalDTO;
 use App\Enums\Suggestions\SuggestionStatus;
+use App\Exceptions\Projects\ProjectArchivedException;
 use App\Exceptions\Suggestions\BaseImageUnavailableException;
 use App\Exceptions\Suggestions\SuggestionDeniedException;
 use App\Exceptions\Suggestions\SuggestionNotProposedException;
@@ -47,6 +48,7 @@ final readonly class ApplySuggestionAction
      * @throws BaseImageUnavailableException when the base image was asked for and has no usable URL
      * @throws SuggestionDeniedException when the new take is denied (credits, caps)
      * @throws TakeCreationUnavailableException until spec 4 binds the take creator
+     * @throws ProjectArchivedException when the project was archived meanwhile
      */
     public function execute(Customer $customer, Suggestion $suggestion): Take
     {

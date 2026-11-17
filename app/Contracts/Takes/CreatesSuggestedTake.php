@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Contracts\Takes;
 
 use App\DTOs\Suggestions\SuggestedTakeDTO;
+use App\Exceptions\Projects\ProjectArchivedException;
 use App\Exceptions\Suggestions\SuggestionDeniedException;
 use App\Exceptions\Takes\TakeCreationUnavailableException;
 use App\Models\Customer;
@@ -39,6 +40,7 @@ interface CreatesSuggestedTake
     /**
      * @throws SuggestionDeniedException when a policy or the hold denies it (insufficient credits, caps)
      * @throws TakeCreationUnavailableException when spec 4 is not bound yet
+     * @throws ProjectArchivedException when the project was archived meanwhile (nothing is held)
      */
     public function create(Customer $customer, Project $project, SuggestedTakeDTO $take): Take;
 }

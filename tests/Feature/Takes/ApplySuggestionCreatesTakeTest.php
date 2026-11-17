@@ -2,11 +2,13 @@
 
 declare(strict_types=1);
 
+use App\Actions\Projects\ArchiveProjectAction;
 use App\Actions\Suggestions\ApplySuggestionAction;
 use App\Enums\Auth\DenialReason;
 use App\Enums\Billing\UsageStatus;
 use App\Enums\Takes\TakeSource;
 use App\Enums\Takes\TakeStatus;
+use App\Exceptions\Projects\ProjectArchivedException;
 use App\Exceptions\Suggestions\BaseImageUnavailableException;
 use App\Exceptions\Suggestions\SuggestionDeniedException;
 use App\Jobs\SubmitTakeJob;
@@ -152,4 +154,18 @@ it('refuses a kept take-image reference that can no longer be resolved, with not
         ->and($customer->refresh()->held_nanos)->toBe(0)
         ->and(UsageRecord::query()->where('customer_id', $customer->id)->count())->toBe(0);
     Queue::assertNothingPushed();
+});
+
+it('refuses to apply a suggestion in a project archived meanwhile, with nothing held', function (): void {
+    $customer = Suggestions::customer(10_000_000_000);
+    $suggestion = proposedSuggestion($customer);
+    app(ArchiveProjectAction::class)->execute($suggestion->project()->firstOrFail());
+
+    expect(fn () => app(ApplySuggestionAction::class)->execute($customer, $suggestion))
+        ->toThrow(ProjectArchivedException::class);
+
+    expect(Take::query()->where('suggestion_id', $suggestion->id)->exists())->toBeFalse()
+        ->and(UsageRecord::query()->where('customer_id', $customer->id)->count())->toBe(0)
+        ->and($customer->refresh()->held_nanos)->toBe(0)
+        ->and($suggestion->refresh()->resulting_take_id)->toBeNull();
 });

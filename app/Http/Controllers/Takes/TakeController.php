@@ -7,6 +7,8 @@ namespace App\Http\Controllers\Takes;
 use App\Actions\Takes\CreateTakeAction;
 use App\DTOs\Takes\CreateTakeDTO;
 use App\Exceptions\Auth\ActionDeniedException;
+use App\Exceptions\Projects\ProjectArchivedException;
+use App\Exceptions\Suggestions\BaseImageUnavailableException;
 use App\Exceptions\Takes\ServiceNotConfiguredException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Takes\StoreTakeRequest;
@@ -40,6 +42,11 @@ final class TakeController extends Controller
             return DenialResponse::make($request, $denied->reason);
         } catch (ServiceNotConfiguredException) {
             throw ValidationException::withMessages(['prompt' => __('takes.service.not_configured')]);
+        } catch (BaseImageUnavailableException) {
+            // A remix or Try again whose earlier take image has no usable URL any more (2-01).
+            throw ValidationException::withMessages(['reference_images' => __('takes.image_unavailable')]);
+        } catch (ProjectArchivedException) {
+            return DenialResponse::rejected($request, ProjectArchivedException::CODE, __('takes.projects.archived'), 'prompt');
         }
 
         return back(303);

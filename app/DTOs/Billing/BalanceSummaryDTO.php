@@ -34,6 +34,17 @@ final readonly class BalanceSummaryDTO
     }
 
     /**
+     * The 2-01 negative-balance banner ("below zero by $X", 4 decimals), or
+     * null while available credits are zero or more (spec 3-03 §6).
+     */
+    public function negativeBy(): ?string
+    {
+        return $this->available->isNegative()
+            ? Nanodollars::zero()->minus($this->available)->format(4, RoundingMode::HalfUp)
+            : null;
+    }
+
+    /**
      * @return array{available: string, availableExact: string, onHold: string, onHoldExact: string}
      */
     public function toArray(): array

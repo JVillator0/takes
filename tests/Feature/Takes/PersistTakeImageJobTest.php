@@ -124,3 +124,13 @@ it('gives up quietly on an expired URL (4xx) and retries a 5xx', function (): vo
 
     app(PersistTakeImageAction::class)->execute($take);
 })->throws(RequestException::class);
+
+it('retries a rate-limited or timed-out download instead of giving up', function (int $status): void {
+    $take = succeededTake();
+    Http::fake([IMAGE_URL => Http::response('slow down', $status)]);
+
+    expect(fn () => app(PersistTakeImageAction::class)->execute($take))
+        ->toThrow(RequestException::class);
+
+    expect($take->refresh()->image_path)->toBeNull();
+})->with([408, 429]);
