@@ -12,6 +12,7 @@ use App\Filament\Admin\Clusters\Providers\ProvidersCluster;
 use App\Filament\Admin\Clusters\Studio\StudioCluster;
 use App\Filament\Admin\Pages\Dashboard;
 use App\Http\Middleware\EnsureAdminMultiFactorAuthentication;
+use App\Http\Middleware\SweepStaleTakes;
 use App\Listeners\RecordAdminWrites;
 use App\Models\User;
 use App\Policies\ActivityPolicy;
@@ -148,6 +149,8 @@ final class AdminPanelProvider extends PanelProvider
             ])
             ->authMiddleware([
                 Authenticate::class,
+                // Admin dashboard and Needs attention loads run the throttled sweeper (D-036, W-16).
+                SweepStaleTakes::class,
             ]);
     }
 

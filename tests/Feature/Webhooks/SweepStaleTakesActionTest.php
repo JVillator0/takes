@@ -5,26 +5,28 @@ declare(strict_types=1);
 use App\Actions\Billing\OpenUsageAction;
 use App\Actions\Takes\SweepStaleTakesAction;
 use App\DTOs\Takes\SweepResultDTO;
+use App\Enums\Auth\AdminRole;
 use App\Enums\Billing\Provider;
 use App\Enums\Billing\UsageStatus;
 use App\Enums\Suggestions\SuggestionStatus;
 use App\Enums\Takes\AttentionReason;
 use App\Enums\Takes\ReconcileStatus;
 use App\Events\TakeUpdated;
-use App\Http\Middleware\SweepStaleTakes;
 use App\Jobs\ReconcileTakeJob;
+use App\Models\Customer;
 use App\Models\Suggestion;
 use App\Models\Take;
 use App\Models\UsageRecord;
 use App\Models\User;
 use App\Support\Takes\ReconcileStopMarker;
-use Illuminate\Http\Request;
+use Database\Seeders\AdminRolesSeeder;
+use Database\Seeders\RolesAndPermissionsSeeder;
+use Filament\Facades\Filament;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
-use Symfony\Component\HttpFoundation\Response;
 use Tests\Support\Billing;
 use Tests\Support\PixelforgeWebhook;
 use Tests\Support\Takes;
@@ -170,31 +172,55 @@ it('expires a suggestion pending for more than 2 minutes and releases its hold',
     Billing::assertCachedColumnsMatch($stale->customer()->sole());
 });
 
-it('sweeps after a signed-in page load has been answered', function (): void {
+it('sweeps after a customer page load', function (): void {
+    $this->seed(RolesAndPermissionsSeeder::class);
+    $customer = Customer::factory()->withRole()->create();
     takeAged('processing', 5);
     Queue::fake();
     Cache::flush();
 
-    $request = Request::create('/dashboard');
-    $request->setUserResolver(fn () => User::factory()->make());
-
-    app(SweepStaleTakes::class)->terminate($request, new Response);
+    $this->actingAs($customer, 'customer')->get(route('billing.show'))->assertOk();
 
     Queue::assertPushed(ReconcileTakeJob::class, 1);
 });
 
-it('does not sweep for guests or writes', function (string $method, bool $signedIn): void {
+it('sweeps after an admin console page load', function (): void {
+    $this->seed(AdminRolesSeeder::class);
+    Filament::setCurrentPanel('admin');
     takeAged('processing', 5);
     Queue::fake();
     Cache::flush();
 
-    $request = Request::create('/dashboard', $method);
-    $request->setUserResolver(fn () => $signedIn ? User::factory()->make() : null);
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create())->get('/admin')->assertOk();
 
-    app(SweepStaleTakes::class)->terminate($request, new Response);
+    Queue::assertPushed(ReconcileTakeJob::class, 1);
+});
+
+it('does not sweep for a guest page load or a write', function (): void {
+    $this->seed(RolesAndPermissionsSeeder::class);
+    takeAged('processing', 5);
+    Queue::fake();
+    Cache::flush();
+
+    $this->get('/')->assertOk();
+    $this->actingAs(Customer::factory()->withRole()->create(), 'customer')
+        ->post(route('billing.purchases.store'), []);
 
     Queue::assertNothingPushed();
-})->with([['GET', false], ['POST', true]]);
+});
+
+it('never lets definitive stops crowd out newer stale takes', function (): void {
+    $stopped = Take::factory()->processing()->count(SweepStaleTakesAction::BATCH)->create(['created_at' => now()->subHour()]);
+    $newer = takeAged('processing', 5);
+    Queue::fake();
+    Cache::flush();
+    foreach ($stopped as $take) {
+        ReconcileStopMarker::mark($take->id, ReconcileStatus::NotFound);
+    }
+
+    expect(sweep()->reconcilesDispatched)->toBe(1);
+    Queue::assertPushed(ReconcileTakeJob::class, fn (ReconcileTakeJob $job): bool => $job->takeId === $newer->id);
+});
 
 it('sweeps stale takes from the command', function (): void {
     takeAged('processing', 5);

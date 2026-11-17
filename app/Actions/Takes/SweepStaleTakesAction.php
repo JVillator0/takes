@@ -13,6 +13,8 @@ use App\Models\Suggestion;
 use App\Models\Take;
 use App\Services\Pixelforge\PixelforgeClient;
 use App\Support\Takes\ReconcileStopMarker;
+use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
 
 /**
@@ -55,22 +57,7 @@ final readonly class SweepStaleTakesAction
         $staleBefore = now()->subSeconds(self::STALE_AFTER_SECONDS);
 
         // Without an API key nothing can be polled; do not queue no-op polls.
-        $candidates = ! $this->client->isConfigured() ? [] : Take::query()
-            ->whereIn('status', array_map(fn (TakeStatus $status): string => $status->value, TakeStatus::nonTerminal()))
-            ->where('created_at', '<=', $staleBefore)
-            ->orderBy('created_at')
-            // Room for takes whose chain stopped for good, filtered out below.
-            ->limit(self::BATCH * 2)
-            ->get(['id'])
-            ->map(fn (Take $take): string => $take->id)
-            ->values()
-            ->all();
-
-        // Only a definitive stop (404, a fetched generation without rates) is
-        // skipped; a flag from a webhook or from a run of 429/5xx is not
-        // (W-16): those takes keep being swept until they finish.
-        $stopped = ReconcileStopMarker::stopped($candidates);
-        $takeIds = collect($candidates)->reject(fn (string $id): bool => in_array($id, $stopped, true))->take(self::BATCH)->values();
+        $takeIds = $this->client->isConfigured() ? $this->staleTakeIds($staleBefore) : [];
 
         foreach ($takeIds as $takeId) {
             ReconcileTakeJob::dispatch($takeId);
@@ -91,8 +78,43 @@ final readonly class SweepStaleTakesAction
 
         return new SweepResultDTO(
             ran: true,
-            reconcilesDispatched: $takeIds->count(),
+            reconcilesDispatched: count($takeIds),
             suggestionsExpired: $expired,
         );
+    }
+
+    /**
+     * The oldest stale in-flight takes, up to BATCH, skipping only chains that
+     * stopped for a definitive reason (404, a fetched generation without
+     * rates; ReconcileStopMarker). A flag from a webhook or a run of 429/5xx
+     * never stops the sweep (W-16). Stopped takes are filtered page by page
+     * before the batch is cut, so they can never crowd out newer stale takes.
+     *
+     * @return list<string>
+     */
+    private function staleTakeIds(CarbonInterface $staleBefore): array
+    {
+        $takeIds = [];
+
+        Take::query()
+            ->whereIn('status', array_map(fn (TakeStatus $status): string => $status->value, TakeStatus::nonTerminal()))
+            ->where('created_at', '<=', $staleBefore)
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->select('id')
+            ->chunk(self::BATCH, function (Collection $page) use (&$takeIds): bool {
+                $ids = $page->map(fn (Take $take): string => $take->id)->values()->all();
+                $stopped = ReconcileStopMarker::stopped($ids);
+
+                foreach ($ids as $id) {
+                    if (! in_array($id, $stopped, true)) {
+                        $takeIds[] = $id;
+                    }
+                }
+
+                return count($takeIds) < self::BATCH;
+            });
+
+        return array_slice($takeIds, 0, self::BATCH);
     }
 }
