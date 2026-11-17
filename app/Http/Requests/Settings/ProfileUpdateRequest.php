@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace App\Http\Requests\Settings;
 
 use App\Concerns\ProfileValidationRules;
-use App\Models\User;
-use Illuminate\Container\Attributes\CurrentUser;
+use App\Http\Requests\CustomerFormRequest;
+use Illuminate\Auth\Access\Response;
 use Illuminate\Contracts\Validation\ValidationRule;
-use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 
-class ProfileUpdateRequest extends FormRequest
+final class ProfileUpdateRequest extends CustomerFormRequest
 {
     use ProfileValidationRules;
 
@@ -25,13 +25,19 @@ class ProfileUpdateRequest extends FormRequest
         }
     }
 
+    /** Shared demo logins cannot change their account (D-072); the action re-checks. */
+    public function authorize(): Response
+    {
+        return Gate::inspect('updateAccount', $this->customer());
+    }
+
     /**
      * Get the validation rules that apply to the request.
      *
      * @return array<string, ValidationRule|array<mixed>|string>
      */
-    public function rules(#[CurrentUser] User $user): array
+    public function rules(): array
     {
-        return $this->profileRules($user->id);
+        return $this->profileRules($this->customer()->id);
     }
 }

@@ -1,29 +1,42 @@
-export type User = {
+import type { DenialReason } from '@/types/denials';
+
+/**
+ * The signed-in customer, shared on every page as `auth.customer` (spec 3-01).
+ * Money arrives as server-formatted strings; the frontend never does money math.
+ */
+export type Customer = {
     id: number;
     name: string;
     email: string;
-    avatar?: string;
-    email_verified_at: string | null;
-    two_factor_enabled?: boolean;
-    created_at: string;
-    updated_at: string;
-    [key: string]: unknown;
+    available: string;
+    on_hold: string;
 };
 
+/** One entry of a `can` object: `{ allowed: false, reason: 'insufficient_credits', message }`. */
+export type Ability = {
+    allowed: boolean;
+    reason: DenialReason | null;
+    message: string | null;
+};
+
+/** Estimate-independent abilities shared with every customer page as `auth.can`. */
+export type SharedAbilities = {
+    createProject: Ability;
+    purchaseCredits: Ability;
+    /** Denied with `demo_account_locked` for shared demo logins (D-072). */
+    updateAccount: Ability;
+};
+
+/** Shared `auth`: page-level `can` props never clash with `auth.can`. */
 export type Auth = {
-    user: User;
+    customer: Customer | null;
+    can: SharedAbilities | null;
 };
 
-export type Passkey = {
-    id: number;
-    name: string;
-    authenticator: string | null;
-    created_at_diff: string | null;
-    last_used_at_diff: string | null;
-};
-
-export type TwoFactorConfigContent = {
-    title: string;
-    description: string;
-    buttonText: string;
+/** A seeded login on the P02 demo panel (only when DEMO_LOGIN_ENABLED=true). */
+export type DemoLogin = {
+    key: string;
+    label: string;
+    email: string;
+    password: string;
 };
