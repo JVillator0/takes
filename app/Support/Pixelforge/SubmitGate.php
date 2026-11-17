@@ -42,7 +42,10 @@ final class SubmitGate
 
     public const string RESERVATIONS_KEY = 'pixelforge:submit-gate:submitting';
 
-    public function acquire(Take $take): SubmitGateDecision
+    /**
+     * @param  string  $holder  the caller's own token (one per submit job): only it can free the slot
+     */
+    public function acquire(Take $take, string $holder): SubmitGateDecision
     {
         $lock = $this->lock();
 
@@ -53,14 +56,17 @@ final class SubmitGate
         }
 
         try {
-            return $this->decide($take);
+            return $this->decide($take, $holder);
         } finally {
             $lock->release();
         }
     }
 
-    /** Frees this take's "submitting" slot once the create call has returned. */
-    public function finish(Take $take): void
+    /**
+     * Frees this take's "submitting" slot once the create call has returned,
+     * only if `$holder` reserved it: another job's finish() never frees it.
+     */
+    public function finish(Take $take, string $holder): void
     {
         $lock = $this->lock();
 
@@ -72,8 +78,11 @@ final class SubmitGate
 
         try {
             $reservations = $this->reservations();
-            unset($reservations[$take->id]);
-            $this->saveReservations($reservations);
+
+            if (($reservations[$take->id]['holder'] ?? null) === $holder) {
+                unset($reservations[$take->id]);
+                $this->saveReservations($reservations);
+            }
         } finally {
             $lock->release();
         }
@@ -95,18 +104,29 @@ final class SubmitGate
         return $this->providerInFlight() + $this->submittingCount($this->reservations(), exceptTakeId: null);
     }
 
-    private function decide(Take $take): SubmitGateDecision
+    private function decide(Take $take, string $holder): SubmitGateDecision
     {
         $reservations = $this->reservations();
+        $current = $reservations[$take->id]['holder'] ?? null;
+
+        // Another job is submitting this take right now: never take over its
+        // slot (two creates with one key would race), wait instead.
+        if ($current !== null && $current !== $holder) {
+            return SubmitGateDecision::releaseAfter($this->jitter());
+        }
+
         $inFlight = $this->providerInFlight() + $this->submittingCount($reservations, exceptTakeId: $take->id);
 
         if ($inFlight >= config()->integer('pixelforge.gate.concurrency_cap')) {
             return SubmitGateDecision::releaseAfter($this->jitter());
         }
 
-        $reservations[$take->id] = CarbonImmutable::now()
-            ->addSeconds(config()->integer('pixelforge.gate.reservation_seconds'))
-            ->getTimestamp();
+        $reservations[$take->id] = [
+            'holder' => $holder,
+            'expires_at' => CarbonImmutable::now()
+                ->addSeconds(config()->integer('pixelforge.gate.reservation_seconds'))
+                ->getTimestamp(),
+        ];
         $this->saveReservations($reservations);
 
         return SubmitGateDecision::allow();
@@ -125,7 +145,7 @@ final class SubmitGate
      * Reserved takes still waiting for their create response. A take that
      * already has its pixelforge_id is counted by providerInFlight() instead.
      *
-     * @param  array<string, int>  $reservations
+     * @param  array<string, array{holder: string, expires_at: int}>  $reservations
      */
     private function submittingCount(array $reservations, ?string $exceptTakeId): int
     {
@@ -143,9 +163,10 @@ final class SubmitGate
     }
 
     /**
-     * Live reservations: take id ⇒ expiry (unix seconds). Expired ones are dropped.
+     * Live reservations: take id ⇒ holder token and expiry (unix seconds).
+     * Expired or unreadable ones are dropped.
      *
-     * @return array<string, int>
+     * @return array<string, array{holder: string, expires_at: int}>
      */
     private function reservations(): array
     {
@@ -153,9 +174,12 @@ final class SubmitGate
         $stored = $this->store()->get(self::RESERVATIONS_KEY);
         $live = [];
 
-        foreach (is_array($stored) ? $stored : [] as $takeId => $expiresAt) {
-            if (is_string($takeId) && is_int($expiresAt) && $expiresAt > $now) {
-                $live[$takeId] = $expiresAt;
+        foreach (is_array($stored) ? $stored : [] as $takeId => $reservation) {
+            $holder = is_array($reservation) ? ($reservation['holder'] ?? null) : null;
+            $expiresAt = is_array($reservation) ? ($reservation['expires_at'] ?? null) : null;
+
+            if (is_string($takeId) && is_string($holder) && is_int($expiresAt) && $expiresAt > $now) {
+                $live[$takeId] = ['holder' => $holder, 'expires_at' => $expiresAt];
             }
         }
 
@@ -163,7 +187,7 @@ final class SubmitGate
     }
 
     /**
-     * @param  array<string, int>  $reservations
+     * @param  array<string, array{holder: string, expires_at: int}>  $reservations
      */
     private function saveReservations(array $reservations): void
     {

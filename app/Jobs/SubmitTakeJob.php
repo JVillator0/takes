@@ -26,6 +26,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
 use Throwable;
 
 /**
@@ -49,10 +50,12 @@ use Throwable;
  * Pixelforge's 60) and the 3-04 in-flight gate (3); when either says no it
  * releases without calling and without counting an attempt.
  *
- * Unique per take while it waits: the reconcile job and the sweeper
- * re-dispatch it for a pending take with no generation (spec 4 "Lost
- * jobs"); a duplicate is dropped while this one is alive, and is harmless
- * anyway (same key, the attempt is counted under the take lock).
+ * Unique per take for the whole submit window plus one maximum release:
+ * the reconcile job and the sweeper re-dispatch it for a pending take with
+ * no generation (spec 4 "Lost jobs"), and that dispatch is dropped for as
+ * long as this job can still run. Only a job that was really lost (its lock
+ * expired) is replaced. Its gate slot is reserved under this job's own
+ * token, so even then one job's finish() never frees another's slot.
  */
 final class SubmitTakeJob implements ShouldBeUnique, ShouldQueue
 {
@@ -75,10 +78,24 @@ final class SubmitTakeJob implements ShouldBeUnique, ShouldQueue
     /** Released attempts are not capped; retryUntil() bounds the job (D-025). */
     public int $tries = 0;
 
-    /** Outlives the longest release, so a lost job frees its slot for a re-dispatch. */
-    public int $uniqueFor = 960;
+    /** This job's own claim on the gate slot (kept across its releases). */
+    public readonly string $holder;
 
-    public function __construct(public readonly string $takeId) {}
+    public function __construct(public readonly string $takeId)
+    {
+        $this->holder = (string) Str::uuid();
+    }
+
+    /**
+     * Seconds the unique lock lives: the 30-minute window plus one maximum
+     * release plus a minute of grace, so the lock never expires while this
+     * job can still be released into the queue (its TTL is not renewed on
+     * release).
+     */
+    public function uniqueFor(): int
+    {
+        return config()->integer('pixelforge.submit.window_minutes') * 60 + self::MAX_DELAY_SECONDS + 60;
+    }
 
     public function uniqueId(): string
     {
@@ -138,7 +155,7 @@ final class SubmitTakeJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $decision = $gate->acquire($take);
+        $decision = $gate->acquire($take, $this->holder);
 
         if (! $decision->allowed) {
             // Three already in flight: nothing is sent, so nothing can exist (D-044).
@@ -152,7 +169,7 @@ final class SubmitTakeJob implements ShouldBeUnique, ShouldQueue
 
         if (! $recordAttempt->execute($take)) {
             // Cancelled while we waited for the gate.
-            $gate->finish($take);
+            $gate->finish($take, $this->holder);
 
             return;
         }
@@ -163,7 +180,7 @@ final class SubmitTakeJob implements ShouldBeUnique, ShouldQueue
             $snapshot = $client->createGeneration(CreateGenerationDTO::forTake($take), $take->idempotency_key);
         } catch (PixelforgeBusy $exception) {
             // Definite non-creation: free the slot now (#98).
-            $gate->finish($take);
+            $gate->finish($take, $this->holder);
             $recordOutcome->execute($take, $waitingKind, $exception->errorCode);
             $this->releaseWithin($take, min($exception->retryAfter, self::MAX_DELAY_SECONDS) + $this->jitter());
 
@@ -176,12 +193,12 @@ final class SubmitTakeJob implements ShouldBeUnique, ShouldQueue
 
             return;
         } catch (PixelforgeRejected $exception) {
-            $gate->finish($take);
+            $gate->finish($take, $this->holder);
             $failTake->execute($take, $exception->failureCode(), $exception->getMessage());
 
             return;
         } catch (PixelforgeNotConfigured $exception) {
-            $gate->finish($take);
+            $gate->finish($take, $this->holder);
             Log::critical('Submit failed the take: Pixelforge is not configured.', ['take_id' => $take->id]);
             $failTake->execute($take, FailureCode::Internal, $exception->getMessage());
 
@@ -190,7 +207,7 @@ final class SubmitTakeJob implements ShouldBeUnique, ShouldQueue
 
         // Starts the reconcile chain when the take first gets its pixelforge_id (spec 5).
         $applySnapshot->execute($take, $snapshot);
-        $gate->finish($take);
+        $gate->finish($take, $this->holder);
     }
 
     /**

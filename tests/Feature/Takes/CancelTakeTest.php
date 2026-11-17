@@ -67,7 +67,7 @@ it('refuses with 422 cannot_cancel unless the take is waiting for capacity', fun
 
 it('refuses while a create call for the take is in flight', function (): void {
     $take = Takes::pendingWithHold(['last_submit_error_kind' => SubmitErrorKind::Capacity]);
-    expect(app(SubmitGate::class)->acquire($take)->allowed)->toBeTrue();
+    expect(app(SubmitGate::class)->acquire($take, 'another-job')->allowed)->toBeTrue();
 
     $this->actingAs($take->customer()->firstOrFail(), 'customer')
         ->postJson(route('takes.cancel', $take))
