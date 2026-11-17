@@ -15,11 +15,16 @@ export type UseCurrentUrlReturn = {
         urlToCheck: NonNullable<InertiaLinkProps['href']>,
         currentUrl?: string,
     ) => boolean;
-    whenCurrentUrl: <T, F = null>(
+    whenCurrentUrl: WhenCurrentUrl;
+};
+
+type WhenCurrentUrl = {
+    <T>(urlToCheck: NonNullable<InertiaLinkProps['href']>, ifTrue: T): T | null;
+    <T, F>(
         urlToCheck: NonNullable<InertiaLinkProps['href']>,
         ifTrue: T,
-        ifFalse?: F,
-    ) => T | F;
+        ifFalse: F,
+    ): T | F;
 };
 
 const page = usePage();
@@ -65,13 +70,25 @@ export function useCurrentUrl(): UseCurrentUrlReturn {
         return isCurrentUrl(urlToCheck, currentUrl, true);
     }
 
-    function whenCurrentUrl<T, F = null>(
+    function whenCurrentUrl<T>(
         urlToCheck: NonNullable<InertiaLinkProps['href']>,
         ifTrue: T,
-        // `F` defaults to `null`, so the default value matches it.
-        ifFalse: F = null as F,
-    ): T | F {
-        return isCurrentUrl(urlToCheck) ? ifTrue : ifFalse;
+    ): T | null;
+    function whenCurrentUrl<T, F>(
+        urlToCheck: NonNullable<InertiaLinkProps['href']>,
+        ifTrue: T,
+        ifFalse: F,
+    ): T | F;
+    function whenCurrentUrl<T, F>(
+        urlToCheck: NonNullable<InertiaLinkProps['href']>,
+        ifTrue: T,
+        ifFalse?: F,
+    ): T | F | null {
+        if (isCurrentUrl(urlToCheck)) {
+            return ifTrue;
+        }
+
+        return ifFalse === undefined ? null : ifFalse;
     }
 
     return {
