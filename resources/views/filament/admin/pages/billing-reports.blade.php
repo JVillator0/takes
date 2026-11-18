@@ -68,7 +68,7 @@
             </p>
         @else
             <div class="overflow-x-auto">
-                <table class="w-full text-sm" data-testid="reports-table">
+                <table class="w-full whitespace-nowrap text-sm" data-testid="reports-table">
                     <thead>
                         <tr class="border-b border-gray-200 text-xs uppercase text-gray-500 dark:border-white/10 dark:text-gray-400">
                             <th class="px-2 py-2 text-start">{{ $byDay ? __('console.reports.day') : __('console.common.customer') }}</th>

@@ -1,0 +1,5 @@
+/* Admin panel theme (spec 7): Filament's theme plus the utilities used by the console's custom Blade views. */
+@import '../../../../vendor/filament/filament/resources/css/theme.css';
+
+@source '../../../../app/Filament/Admin/**/*';
+@source '../../../../resources/views/filament/admin/**/*';

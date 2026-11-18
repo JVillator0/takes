@@ -38,8 +38,14 @@
     @endif
 
     <x-filament::section>
+        <div class="mb-3 flex justify-end">
+            <x-filament::badge :color="$report->judgedDays > 0 && $report->matchedDays === $report->judgedDays ? 'success' : 'warning'" data-testid="pixelforge-summary">
+                {{ __('console.pixelforge.summary', ['matched' => $report->matchedDays, 'judged' => $report->judgedDays]) }}
+            </x-filament::badge>
+        </div>
+
         <div class="overflow-x-auto">
-            <table class="w-full text-sm" data-testid="pixelforge-usage-table">
+            <table class="w-full whitespace-nowrap text-sm" data-testid="pixelforge-usage-table">
                 <thead>
                     <tr class="border-b border-gray-200 text-xs uppercase text-gray-500 dark:border-white/10 dark:text-gray-400">
                         <th class="px-2 py-2 text-start">{{ __('console.pixelforge.day') }}</th>
@@ -87,7 +93,7 @@
                         <td class="px-2 py-2 text-end font-mono tabular-nums">{{ $report->oursTotal->cost->toDecimalString() }}</td>
                         <td class="px-2 py-2 text-end font-mono tabular-nums">{{ $report->theirsTotal?->cost->toDecimalString() ?? '-' }}</td>
                         <td class="px-2 py-2 text-end font-mono tabular-nums">{{ $report->theirsTotal ? $report->oursTotal->cost->minus($report->theirsTotal->cost)->toDecimalString() : '-' }}</td>
-                        <td class="px-2 py-2" colspan="3">{{ __('console.pixelforge.summary', ['matched' => $report->matchedDays, 'judged' => $report->judgedDays]) }}</td>
+                        <td class="px-2 py-2" colspan="3"></td>
                     </tr>
                 </tfoot>
             </table>

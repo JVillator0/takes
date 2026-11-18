@@ -90,6 +90,9 @@ final class AdminPanelProvider extends PanelProvider
             )
             ->multiFactorAuthenticationRequiredMiddlewareName(EnsureAdminMultiFactorAuthentication::class)
             ->colors(['primary' => Color::Indigo])
+            // The panel's own Tailwind build: Filament's prebuilt CSS has only its own classes, so the custom
+            // Blade pages (Reports, Pixelforge usage, demo access) need their utilities compiled from these views.
+            ->viteTheme('resources/css/filament/admin/theme.css')
             ->databaseNotifications()
             ->databaseNotificationsPolling(null)
             ->discoverClusters(in: app_path('Filament/Admin/Clusters'), for: 'App\\Filament\\Admin\\Clusters')
