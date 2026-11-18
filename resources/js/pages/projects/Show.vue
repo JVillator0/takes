@@ -30,6 +30,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useBuyCredits } from '@/composables/useBuyCredits';
 import { useCopy } from '@/composables/useCopy';
+import { useReturnFocus } from '@/composables/useReturnFocus';
 import { useTakeUpdates } from '@/composables/useTakeUpdates';
 import StudioLayout from '@/layouts/StudioLayout.vue';
 import {
@@ -416,7 +417,13 @@ watch(
 const renaming = ref(false);
 const renameForm = useForm({ name: props.project.name });
 
+/* Rename opens from a menu item; focus returns to the menu trigger (F-20). */
+const renameFocus = useReturnFocus();
+/* A ref, not an id: reka's DropdownMenuTrigger owns the trigger's id (aria-labelledby). */
+const projectActions = ref<{ $el: HTMLElement } | null>(null);
+
 const startRename = (): void => {
+    renameFocus.remember(projectActions.value?.$el ?? null);
     renameForm.name = props.project.name;
     renameForm.clearErrors();
     renaming.value = true;
@@ -598,6 +605,7 @@ const canPurchase = computed(
                         <DropdownMenu v-if="canManage">
                             <DropdownMenuTrigger as-child>
                                 <Button
+                                    ref="projectActions"
                                     variant="ghost"
                                     size="icon"
                                     class="size-8 shrink-0"
@@ -656,7 +664,10 @@ const canPurchase = computed(
         </TakeDrawer>
 
         <Dialog v-model:open="renaming">
-            <DialogContent class="sm:max-w-md">
+            <DialogContent
+                class="sm:max-w-md"
+                @close-auto-focus="renameFocus.onCloseAutoFocus"
+            >
                 <DialogHeader>
                     <DialogTitle>{{ t('takes.projects.rename') }}</DialogTitle>
                 </DialogHeader>

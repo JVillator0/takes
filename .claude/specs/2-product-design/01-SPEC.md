@@ -337,6 +337,9 @@ Describe a change (P07) chrome added with spec 8. Prices reuse `takes.money.on_h
 | `suggestions.diff.quality` | P07 proposal table | "Quality" |
 | `suggestions.diff.references` | P07 proposal table | "References" |
 | `suggestions.diff.references_with_image` | P07 proposal table | ":count + take image" |
+| `suggestions.diff.removed` | P07 prompt diff, screen-reader text before removed words | "removed:" |
+| `suggestions.diff.added` | P07 prompt diff, screen-reader text before added words | "added:" |
+| `suggestions.diff.end` | P07 prompt diff, screen-reader text after a removed or added run | "end of change." |
 | `suggestions.new_take` | P07 proposal | "New take: :range" |
 | `suggestions.discard` | P07 proposal | "Discard" |
 | `suggestions.discarded` | P07 result | "Suggestion discarded." |

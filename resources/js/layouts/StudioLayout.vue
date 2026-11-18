@@ -127,7 +127,9 @@ const holdsLabel = computed(() =>
         <header
             class="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 print:hidden"
         >
-            <div class="mx-auto flex h-14 w-full items-center gap-3 px-4">
+            <div
+                class="mx-auto flex h-14 w-full items-center gap-2 px-4 sm:gap-3"
+            >
                 <Link
                     :href="dashboard()"
                     class="shrink-0 rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
@@ -144,8 +146,13 @@ const holdsLabel = computed(() =>
                     </slot>
                 </div>
 
+                <!--
+                    On phones this group takes the whole bar: the balance pill
+                    and the avatar never shrink, so the connection label
+                    truncates first and nothing overlaps (P10, 390 px).
+                -->
                 <div
-                    class="ml-auto flex min-w-0 items-center justify-end gap-2"
+                    class="ml-auto flex min-w-0 flex-1 items-center justify-end gap-1 sm:flex-initial sm:gap-2"
                 >
                     <slot name="status" />
                     <slot name="balance">
