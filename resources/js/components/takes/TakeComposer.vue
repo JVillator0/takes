@@ -37,6 +37,8 @@ const props = defineProps<Props>();
 
 const emit = defineEmits<{
     created: [];
+    /** The collapsed phone sheet must open to show what blocks Generate. */
+    expand: [];
 }>();
 
 const page = usePage();
@@ -212,6 +214,7 @@ defineExpose({ remix, tryAgain, refresh });
         @submit="submit"
         @buy-credits="buyCredits.open()"
         @cancel-remix="cancelRemix"
+        @expand="emit('expand')"
     >
         <template v-if="referenceUnavailable" #disabled-reason>
             <p>{{ t('takes.image_unavailable') }}</p>

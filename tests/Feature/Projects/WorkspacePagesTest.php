@@ -110,6 +110,26 @@ it('keeps creation order newest first and filters by status group', function ():
         ->assertInertia(fn (Assert $page) => $page->has('takes', 1)->where('filter', 'in_progress')->where('counts.all', 3));
 });
 
+it('answers the pill\'s On hold click with the In progress takes only, as a partial reload (2-02, QA #153)', function (): void {
+    $customer = TakeFlow::customer();
+    $project = TakeFlow::project($customer);
+    Take::factory()->succeeded()->create(['customer_id' => $customer->id, 'project_id' => $project->id, 'created_at' => now()->subMinute()]);
+    $running = Take::factory()->create(['customer_id' => $customer->id, 'project_id' => $project->id]);
+
+    // The click sets the filter in place: Show.vue's filter setter, the same visit as the tabs.
+    $this->actingAs($customer, 'customer')->get(route('projects.show', [$project, 'status' => 'in_progress']))
+        ->assertInertia(fn (Assert $page) => $page
+            ->reloadOnly(['takes', 'counts', 'filter', 'hasMoreTakes', 'pages'], fn (Assert $reload) => $reload
+                ->where('filter', 'in_progress')
+                ->has('takes', 1)
+                ->where('takes.0.id', $running->id)
+                ->where('counts.in_progress', 1)
+                // Nothing that would reset the page: the composer config, the balance and the drawer stay as they are.
+                ->missing('composer')
+                ->missing('balance')
+                ->missing('take')));
+});
+
 it('opens the drawer at ?take= with the exact price and lineage', function (): void {
     $take = Takes::in('succeeded');
 

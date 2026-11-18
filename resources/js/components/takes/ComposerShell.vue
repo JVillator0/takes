@@ -7,7 +7,7 @@ import {
     Square,
     X,
 } from '@lucide/vue';
-import { computed, useId } from 'vue';
+import { computed, useId, watch } from 'vue';
 import EstimatePanel from '@/components/takes/EstimatePanel.vue';
 import ScenarioChips from '@/components/takes/ScenarioChips.vue';
 import ServiceNotConfiguredBanner from '@/components/takes/ServiceNotConfiguredBanner.vue';
@@ -86,6 +86,8 @@ const emit = defineEmits<{
     submit: [estimate: TakeEstimate];
     buyCredits: [];
     cancelRemix: [];
+    /** Collapsed: a hidden setting blocks Generate; the page expands the sheet. */
+    expand: [];
 }>();
 
 const slots = defineSlots<{
@@ -106,6 +108,7 @@ const ids = {
     referenceError: useId(),
     referencesError: useId(),
     banner: useId(),
+    hiddenBlocker: useId(),
 };
 
 const sizes: { value: TakeSize; icon: typeof Square }[] = [
@@ -157,6 +160,34 @@ const referenceDescribedBy = (index: number): string | undefined => {
 
 const hasInvalidReference = computed(() =>
     references.value.some(referenceInvalid),
+);
+
+/**
+ * Collapsed (P10), a setting hidden with the rest of the form blocks
+ * Generate: an invalid reference, or a server error on size, quality or the
+ * references. The sheet says so; a server error also asks the page to
+ * expand it, so the error is seen where it is (F-20).
+ */
+const hiddenBlocker = computed(
+    () =>
+        props.compact &&
+        (hasInvalidReference.value ||
+            Boolean(props.errors.size) ||
+            Boolean(props.errors.quality) ||
+            Boolean(props.errors.reference_images)),
+);
+
+watch(
+    () => [
+        props.errors.size,
+        props.errors.quality,
+        props.errors.reference_images,
+    ],
+    (now) => {
+        if (props.compact && now.some(Boolean)) {
+            emit('expand');
+        }
+    },
 );
 
 /**
@@ -212,6 +243,7 @@ const submitDescribedBy = computed(() => {
             ? ids.estimateMessage
             : null,
         promptError.value ? ids.promptError : null,
+        hiddenBlocker.value ? ids.hiddenBlocker : null,
         props.disabledReason || slots['disabled-reason'] ? ids.reason : null,
     ].filter((id): id is string => id !== null);
 
@@ -293,7 +325,7 @@ const segmentClass =
         </div>
 
         <ServiceNotConfiguredBanner
-            v-if="!serviceConfigured && !compact"
+            v-if="!serviceConfigured"
             :id="ids.banner"
         />
 
@@ -520,7 +552,11 @@ const segmentClass =
 
         <!-- Collapsed, the panel shows only to say why Generate is blocked. -->
         <EstimatePanel
-            v-show="!compact || estimateState === 'denied'"
+            v-show="
+                !compact ||
+                estimateState === 'denied' ||
+                estimateState === 'error'
+            "
             :estimate="estimate"
             :state="estimateState"
             :available-display="availableDisplay"
@@ -569,6 +605,20 @@ const segmentClass =
                     {{ t('billing.buy_credits') }}
                 </Button>
             </div>
+            <p
+                v-if="hiddenBlocker"
+                :id="ids.hiddenBlocker"
+                class="flex flex-wrap items-center gap-x-2 text-sm text-red-700 dark:text-red-300"
+            >
+                {{ t('takes.composer.settings_need_attention') }}
+                <button
+                    type="button"
+                    class="rounded-sm font-medium underline underline-offset-4 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                    @click="emit('expand')"
+                >
+                    {{ t('takes.composer.show_settings') }}
+                </button>
+            </p>
             <!-- Hidden: read only through Generate's aria-describedby while the price loads. -->
             <span :id="ids.pricePending" hidden>
                 {{ t('takes.estimate.loading') }}

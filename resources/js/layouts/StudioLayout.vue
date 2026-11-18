@@ -35,11 +35,11 @@ type Props = {
     /** Full-bleed pages (the workspace) manage their own padding. */
     fluid?: boolean;
     /**
-     * Where the pill's On hold leads; the workspace passes its In progress
-     * filter. By default the projects list (its cards carry the in-progress
-     * badges), and nothing on that list itself.
+     * The workspace's On hold click: applies its In progress filter in
+     * place. Without it the pill links to the projects list (its cards carry
+     * the in-progress badges), and to nothing on that list itself.
      */
-    holdsHref?: string | null;
+    holdsAction?: (() => void) | null;
 };
 
 const props = withDefaults(defineProps<Props>(), {
@@ -47,7 +47,7 @@ const props = withDefaults(defineProps<Props>(), {
     balance: null,
     showBuyCredits: false,
     fluid: false,
-    holdsHref: undefined,
+    holdsAction: null,
 });
 
 const emit = defineEmits<{
@@ -65,6 +65,7 @@ defineSlots<{
 }>();
 
 const page = usePage();
+const { t } = useCopy();
 const customer = computed(() => page.props.auth.customer);
 const buyCredits = useBuyCredits();
 
@@ -100,15 +101,18 @@ const shellBalance = computed<BalanceSummary | null>(() => {
           }
         : null;
 });
-const holdsLink = computed<string | null>(() => {
-    if (props.holdsHref !== undefined) {
-        return props.holdsHref;
-    }
+const holdsLink = computed<string | null>(() =>
+    props.holdsAction || page.component === 'projects/Index'
+        ? null
+        : projectsIndex().url,
+);
 
-    return page.component === 'projects/Index' ? null : projectsIndex().url;
-});
-
-const { t } = useCopy();
+/** Where the click leads, in words (2-01: one string per destination). */
+const holdsLabel = computed(() =>
+    props.holdsAction
+        ? t('billing.on_hold_link')
+        : t('billing.on_hold_link_projects'),
+);
 </script>
 
 <template>
@@ -148,7 +152,9 @@ const { t } = useCopy();
                         <BalancePill
                             v-if="shellBalance"
                             :balance="shellBalance"
+                            :holds-action="holdsAction"
                             :holds-href="holdsLink"
+                            :holds-label="holdsLabel"
                         />
                     </slot>
                     <Button
