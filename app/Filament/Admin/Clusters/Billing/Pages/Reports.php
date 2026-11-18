@@ -108,14 +108,17 @@ final class Reports extends Page implements HasTable
         return __('console.reports.title');
     }
 
+    /**
+     * The filters, one column on mobile. From md: From and Until share a row, Group by fills its own row, and
+     * Provider and Customer share the next. From xl: From, Until and Group by fill one row of four, and Provider and
+     * Customer split the next, so each toggle group gets two of four columns and no button runs under its
+     * neighbour at 1280–1440 px (#176).
+     */
     public function form(Schema $schema): Schema
     {
         return $schema
             ->statePath('data')
             ->components([
-                // Two filters per row up to xl, then From · Until · Group by on one row and Provider · Customer on
-                // the next: each toggle group gets two of four columns, so no button runs under its neighbour
-                // at 1280–1440 px (#176).
                 Section::make()
                     ->columns(['default' => 1, 'md' => 2, 'xl' => 4])
                     ->schema([
