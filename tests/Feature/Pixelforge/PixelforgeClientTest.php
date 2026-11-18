@@ -367,6 +367,10 @@ describe('getPricing', function (): void {
         'timeout' => [fn () => Http::failedConnection()],
         '503' => [fn () => Http::response(PixelforgeFixture::error('overloaded'), 503)],
         'unreadable body' => [fn () => Http::response(['object' => 'pricing'])],
+        'token table that would overflow the estimate (#107)' => [fn () => Http::response(array_replace_recursive(
+            PixelforgeFixture::json('pricing'),
+            ['tokens' => ['characters_per_text_token' => PHP_INT_MAX]],
+        ))],
     ]);
 });
 

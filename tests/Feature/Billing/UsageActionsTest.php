@@ -479,7 +479,7 @@ describe('void with absorbed provider cost', function (): void {
             ->and($voided->output_tokens)->toBe(3)
             ->and($voided->external_id)->toBe('msg_01Refusal')
             ->and($voided->completed_at?->toIso8601String())->toBe('2026-11-17T10:00:00+00:00')
-            ->and($voided->billing_date)->toBeNull()
+            ->and($voided->billing_date?->toDateString())->toBe('2026-11-17')
             ->and($this->customer->held_nanos)->toBe(0)
             ->and($this->customer->balance_nanos)->toBe(10_000_000_000)
             ->and(LedgerEntry::query()->where('usage_record_id', $voided->id)->count())->toBe(0);

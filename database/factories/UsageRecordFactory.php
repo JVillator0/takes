@@ -71,6 +71,7 @@ final class UsageRecordFactory extends Factory
             'charge_nanos' => 0,
             'absorbed_cost_nanos' => $absorbedCostNanos,
             'completed_at' => $absorbedCostNanos === null ? null : now(),
+            'billing_date' => $absorbedCostNanos === null ? null : now()->utc()->toDateString(),
         ]);
     }
 

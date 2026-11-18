@@ -86,8 +86,10 @@ final readonly class VoidUsageAction
             ...$tokenColumns,
             'absorbed_cost_nanos' => $cost->toInt(),
             'external_id' => $absorbed->externalId ?? $usage->external_id,
-            // No billing_date: that marks charged work in every report (spec 3-03).
+            // The call's UTC day, as for an orphan success (D-087): reports and
+            // the Pixelforge check read only settled rows on a billing day.
             'completed_at' => $absorbed->completedAt->utc(),
+            'billing_date' => $absorbed->completedAt->utc()->toDateString(),
         ]);
     }
 }

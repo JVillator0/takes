@@ -246,7 +246,7 @@ describe('voided calls the provider billed (spec 8 budget, issue #122)', functio
             ->and($usage->absorbed_cost_nanos)->toBe($absorbed)
             ->and($usage->input_text_tokens)->toBe(Suggestions::EXAMPLE_INPUT_TOKENS)
             ->and($usage->external_id)->toBe('msg_01TestSuggestion')
-            ->and($usage->billing_date)->toBeNull()
+            ->and($usage->billing_date?->toDateString())->toBe(now()->utc()->toDateString())
             ->and(app(GetDailyAiSpendQuery::class)->execute()->toInt())->toBe($absorbed);
 
         $this->artisan('billing:verify')->assertSuccessful();

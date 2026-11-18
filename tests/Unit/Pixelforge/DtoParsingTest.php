@@ -207,12 +207,47 @@ describe('PricingDTO', function (): void {
     })->with([
         'four decimals' => [0.1234, 1234],
         'zero' => [0.0, 0],
-        'one' => [1.0, 10_000],
+        'just below one' => [0.9999, 9_999],
+        // A ratio of 1 parses, but the estimator's bound (TokenFactsDTO) is below 1.
+        'one' => [1.0, null],
         'integer zero' => [0, 0],
         'five decimals' => [0.15001, null],
         'negative' => [-0.15, null],
         'above 9' => [10.5, null],
     ]);
+
+    it('rejects token values the estimator cannot use, at the boundary (#107)', function (Closure $break): void {
+        $payload = PixelforgeFixture::json('pricing');
+        $break($payload);
+
+        expect(fn () => PricingDTO::fromArray($payload))->toThrow(InvalidArgumentException::class);
+    })->with([
+        'characters per token that overflow intdiv' => [function (array &$p): void {
+            $p['tokens']['characters_per_text_token'] = PHP_INT_MAX;
+        }],
+        'characters per token above the prompt limit' => [function (array &$p): void {
+            $p['tokens']['characters_per_text_token'] = 4_001;
+        }],
+        'huge output' => [function (array &$p): void {
+            $p['tokens']['output']['high']['1536x1024'] = PHP_INT_MAX;
+        }],
+        'huge reasoning max' => [function (array &$p): void {
+            $p['tokens']['reasoning']['high']['max'] = 1_000_001;
+        }],
+        'huge reference tokens' => [function (array &$p): void {
+            $p['tokens']['per_reference_image'] = 1_000_001;
+        }],
+    ]);
+
+    it('accepts token values at the bounds', function (): void {
+        $payload = PixelforgeFixture::json('pricing');
+        $payload['tokens']['characters_per_text_token'] = 4_000;
+        $payload['tokens']['output']['high']['1536x1024'] = 1_000_000;
+        $payload['tokens']['reasoning']['high']['max'] = 1_000_000;
+        $payload['tokens']['per_reference_image'] = 1_000_000;
+
+        expect(PricingDTO::fromArray($payload)->charactersPerTextToken)->toBe(4_000);
+    });
 
     it('rejects a table missing a quality or size', function (): void {
         $payload = PixelforgeFixture::json('pricing');
