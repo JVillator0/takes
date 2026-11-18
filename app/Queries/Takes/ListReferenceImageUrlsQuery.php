@@ -17,16 +17,15 @@ use App\Support\Takes\TakeImageUrl;
  * signed image URL (24 h). Its path is the stable identity of the take image
  * (the customer and take ids, or the generation id), so the stored URL is
  * never trusted as is: it is re-issued through TakeImageUrl::forReference
- * (persisted copy, then the provider URL while valid) whenever references
- * are attached (create, remix, Try again, AI apply) or shown (the drawer).
+ * (persisted copy, then the provider URL while valid, spec 4's documented
+ * fallback until the image is persisted) whenever references are attached
+ * (create, remix, Try again, AI apply), checked (P07) or shown (the drawer).
  * Any other URL (the customer's own http(s) references) passes through
  * unchanged.
  *
  * A take image with no usable URL any more is refused on `Attach`, so a
- * take is never created and held with a dead reference; on `Check` it is left
- * out. On `Display` (the drawer) only our persisted copy is used: the
- * provider's signed URL never reaches the customer (D-023, M-23), so a take
- * image without one is left out.
+ * take is never created and held with a dead reference; on `Check` it is
+ * left out, so the caller can tell exactly which ones Attach would refuse.
  */
 final class ListReferenceImageUrlsQuery
 {
@@ -55,9 +54,7 @@ final class ListReferenceImageUrlsQuery
                 continue;
             }
 
-            $reissued = $for === ReferenceResolution::Display
-                ? TakeImageUrl::forPersistedReference($take)
-                : TakeImageUrl::forReference($take);
+            $reissued = TakeImageUrl::forReference($take);
 
             if ($reissued !== null) {
                 $urls[] = $reissued;

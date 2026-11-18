@@ -94,7 +94,7 @@ it('shares updateAccount as denied for a shared demo login and allowed otherwise
         ->assertInertia(fn (Assert $page) => $page->where('auth.can.updateAccount.allowed', true));
 });
 
-it('gives both settings pages the lock and the 2-01 notice their disabled form shows (F-20)', function (string $route, string $component): void {
+it('shares the lock and its 2-01 notice with both settings pages', function (string $route, string $component): void {
     $this->actingAs(sharedDemo(), 'customer')
         ->withSession(['auth.password_confirmed_at' => time()])
         ->get(route($route))

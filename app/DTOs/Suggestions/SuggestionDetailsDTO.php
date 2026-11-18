@@ -24,15 +24,15 @@ final readonly class SuggestionDetailsDTO
         public ?UsageRecord $usage,
         public ?EstimateDTO $newTakeEstimate,
         public Nanodollars $available,
-        public bool $referenceUnavailable = false,
+        public bool $referenceUnavailable,
     ) {}
 
     /**
-     * @param  array{suggestion: Suggestion, base_take: Take, usage: UsageRecord|null, new_take_estimate: EstimateDTO|null, available: Nanodollars, reference_unavailable?: bool}  $data
+     * @param  array{suggestion: Suggestion, base_take: Take, usage: UsageRecord|null, new_take_estimate: EstimateDTO|null, available: Nanodollars, reference_unavailable: bool}  $data
      */
     public static function fromArray(array $data): self
     {
-        return new self($data['suggestion'], $data['base_take'], $data['usage'], $data['new_take_estimate'], $data['available'], $data['reference_unavailable'] ?? false);
+        return new self($data['suggestion'], $data['base_take'], $data['usage'], $data['new_take_estimate'], $data['available'], $data['reference_unavailable']);
     }
 
     /** The validated proposal, when the suggestion has one. */

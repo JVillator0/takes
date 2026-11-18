@@ -220,10 +220,12 @@ defineExpose({ remix, tryAgain, refresh });
             v-if="referenceUnavailable || referencesNotice"
             #disabled-reason
         >
-            <p v-if="referenceUnavailable">
+            <p v-if="referenceUnavailable" role="status">
                 {{ t('takes.image_unavailable') }}
             </p>
-            <p v-if="referencesNotice">{{ referencesNotice }}</p>
+            <p v-if="referencesNotice" role="status">
+                {{ referencesNotice }}
+            </p>
             <p v-if="submitDenial">{{ submitDenial }}</p>
         </template>
     </ComposerShell>
