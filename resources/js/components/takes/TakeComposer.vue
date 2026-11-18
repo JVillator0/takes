@@ -58,6 +58,21 @@ const form = useForm({
 const remixingFrom = ref<number | null>(null);
 /** Remix of a take whose image can no longer be used as a reference (2-01). */
 const referenceUnavailable = ref(false);
+/** Remix or Try again left out earlier references that no longer resolve (2-01). */
+const referencesNotice = ref<string | null>(null);
+/**
+ * Read by the always-mounted live region (F-19): the notices above mount
+ * together with their text, and Remix / Try again move focus to the prompt,
+ * so only a region whose text changes is announced.
+ */
+const referencesAnnouncement = computed(() =>
+    [
+        referenceUnavailable.value ? t('takes.image_unavailable') : null,
+        referencesNotice.value,
+    ]
+        .filter((line): line is string => line !== null)
+        .join(' '),
+);
 
 const mintKey = (): void => {
     form.idempotency_key = crypto.randomUUID();
@@ -130,6 +145,7 @@ const submit = (): void => {
             form.parent_take_id = null;
             remixingFrom.value = null;
             referenceUnavailable.value = false;
+            referencesNotice.value = null;
             refresh();
             emit('created');
         },
@@ -145,6 +161,7 @@ const cancelRemix = (): void => {
     form.parent_take_id = null;
     remixingFrom.value = null;
     referenceUnavailable.value = false;
+    referencesNotice.value = null;
     mintKey();
 };
 
@@ -168,6 +185,7 @@ const remix = (take: TakeDetailData): void => {
     form.parent_take_id = take.id;
     remixingFrom.value = take.number;
     referenceUnavailable.value = take.remixReferenceUrl === null;
+    referencesNotice.value = take.referencesNotice;
     mintKey();
 };
 
@@ -185,6 +203,7 @@ const tryAgain = (take: TakeDetailData): void => {
     form.parent_take_id = take.parentId;
     remixingFrom.value = take.parentNumber;
     referenceUnavailable.value = false;
+    referencesNotice.value = take.referencesNotice;
     mintKey();
 };
 
@@ -216,9 +235,20 @@ defineExpose({ remix, tryAgain, refresh });
         @cancel-remix="cancelRemix"
         @expand="emit('expand')"
     >
-        <template v-if="referenceUnavailable" #disabled-reason>
-            <p>{{ t('takes.image_unavailable') }}</p>
+        <template
+            v-if="referenceUnavailable || referencesNotice"
+            #disabled-reason
+        >
+            <p v-if="referenceUnavailable">
+                {{ t('takes.image_unavailable') }}
+            </p>
+            <p v-if="referencesNotice">
+                {{ referencesNotice }}
+            </p>
             <p v-if="submitDenial">{{ submitDenial }}</p>
         </template>
     </ComposerShell>
+    <p class="sr-only" aria-live="polite" aria-atomic="true">
+        {{ referencesAnnouncement }}
+    </p>
 </template>

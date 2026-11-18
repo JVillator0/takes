@@ -94,12 +94,16 @@ it('shares updateAccount as denied for a shared demo login and allowed otherwise
         ->assertInertia(fn (Assert $page) => $page->where('auth.can.updateAccount.allowed', true));
 });
 
-it('links the disabled settings fieldset to the lock notice that explains it (F-20)', function (string $page): void {
-    $source = (string) file_get_contents(resource_path("js/pages/settings/{$page}.vue"));
-
-    // The notice is on the page from first paint, so a live region would never
-    // announce it: the fieldset is described by it instead.
-    expect($source)->toContain('id="account-locked-notice"')
-        ->toContain(":aria-describedby=\"locked ? 'account-locked-notice' : undefined\"")
-        ->not->toContain('role="status"');
-})->with(['Profile', 'Security']);
+it('shares the lock and its 2-01 notice with both settings pages', function (string $route, string $component): void {
+    $this->actingAs(sharedDemo(), 'customer')
+        ->withSession(['auth.password_confirmed_at' => time()])
+        ->get(route($route))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component($component)
+            ->where('auth.can.updateAccount.allowed', false)
+            ->where('auth.can.updateAccount.message', "Shared demo accounts can't change their name, email or password. Register your own account to do that."));
+})->with([
+    'profile' => ['profile.edit', 'settings/Profile'],
+    'security' => ['security.edit', 'settings/Security'],
+]);

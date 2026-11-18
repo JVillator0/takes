@@ -13,12 +13,13 @@ use App\Enums\Takes\TakeStatus;
 use App\Exceptions\Suggestions\BaseImageUnavailableException;
 use App\Exceptions\Suggestions\SuggestionNotProposedException;
 use App\Exceptions\Takes\TakeCreationUnavailableException;
+use App\Http\Resources\SuggestionResource;
 use App\Models\Customer;
 use App\Models\Project;
 use App\Models\Suggestion;
 use App\Models\Take;
+use App\Queries\Suggestions\GetSuggestionDetailsQuery;
 use App\Support\Suggestions\ProposalReferences;
-use App\Support\Suggestions\SuggestionDiff;
 use App\Support\Takes\TakeImageUrl;
 use App\Support\Takes\UnavailableSuggestedTakeCreator;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -82,6 +83,18 @@ beforeEach(function (): void {
     $this->creator = new RecordingTakeCreator;
     app()->instance(CreatesSuggestedTake::class, $this->creator);
 });
+
+/**
+ * The P07 panel payload, built the way the routes build it.
+ *
+ * @return array<string, mixed>
+ */
+function suggestionPanel(): array
+{
+    $details = app(GetSuggestionDetailsQuery::class)->execute(test()->suggestion->refresh(), test()->customer);
+
+    return (new SuggestionResource($details))->toArray(request());
+}
 
 function applySuggestion(?Suggestion $suggestion = null): Take
 {
@@ -265,9 +278,11 @@ describe('kept references to take images (#133)', function (): void {
     it('flags an unresolvable kept reference on the diff row and refuses apply before any take is created', function (): void {
         $this->travel(31)->minutes();
 
-        expect(ProposalReferences::referenceUnavailable($this->proposal, $this->base))->toBeTrue()
+        $panel = suggestionPanel();
+
+        expect($panel['baseImageUnavailable'])->toBeTrue()
             ->and(ProposalReferences::baseImageUnavailable($this->proposal, $this->base))->toBeFalse()
-            ->and(SuggestionDiff::build($this->proposal, $this->base)['rows'][2]['note'])->toBe('This image is no longer available');
+            ->and($panel['diff']['rows'][2]['note'])->toBe('This image is no longer available');
 
         expect(fn () => applySuggestion())->toThrow(BaseImageUnavailableException::class)
             ->and($this->suggestion->refresh()->status)->toBe(SuggestionStatus::Proposed)
@@ -275,7 +290,9 @@ describe('kept references to take images (#133)', function (): void {
     });
 
     it('does not flag kept references that still resolve', function (): void {
-        expect(ProposalReferences::referenceUnavailable($this->proposal, $this->base))->toBeFalse()
-            ->and(SuggestionDiff::build($this->proposal, $this->base)['rows'][2]['note'])->toBeNull();
+        $panel = suggestionPanel();
+
+        expect($panel['baseImageUnavailable'])->toBeFalse()
+            ->and($panel['diff']['rows'][2]['note'])->toBeNull();
     });
 });

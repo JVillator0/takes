@@ -7,7 +7,6 @@ namespace App\Support\Suggestions;
 use App\DTOs\Suggestions\TakeChangeProposalDTO;
 use App\Exceptions\Suggestions\BaseImageUnavailableException;
 use App\Models\Take;
-use App\Queries\Takes\ListReferenceImageUrlsQuery;
 use App\Support\Takes\TakeImageUrl;
 
 /**
@@ -19,8 +18,9 @@ use App\Support\Takes\TakeImageUrl;
  * spec 4's remix source order (TakeImageUrl::forReference): the persisted copy
  * as a temporary URL, else the provider URL while it is valid, else nothing.
  * Kept references that are take images (a remix or an earlier AI change
- * stored them as signed URLs) are re-signed the same way when attached, and
- * one that no longer resolves blocks apply like the base image (#133).
+ * stored them as signed URLs) are re-signed by ListReferenceImageUrlsQuery
+ * before they reach here (the caller resolves them once), and one that no
+ * longer resolves blocks apply like the base image (#133).
  */
 final class ProposalReferences
 {
@@ -34,12 +34,13 @@ final class ProposalReferences
      * A reference the new take needs has no usable URL (the base image, or a
      * kept take-image reference): the P07 references row says so and apply is
      * refused.
+     *
+     * @param  list<string>  $resolvedKept  the base take's references resolved with ReferenceResolution::Check
      */
-    public static function referenceUnavailable(TakeChangeProposalDTO $proposal, Take $base): bool
+    public static function referenceUnavailable(TakeChangeProposalDTO $proposal, Take $base, array $resolvedKept): bool
     {
         return self::baseImageUnavailable($proposal, $base)
-            || ($proposal->keepReferences
-                && count(self::keptReferences($base, dropUnavailable: true)) < count($base->reference_images));
+            || ($proposal->keepReferences && count($resolvedKept) < count($base->reference_images));
     }
 
     /** How many references the new take gets: what the estimate prices. */
@@ -50,30 +51,21 @@ final class ProposalReferences
     }
 
     /**
-     * The real URLs for the new take: kept references (re-signed), then the base image.
+     * The real URLs for the new take: kept references, then the base image.
      *
+     * @param  list<string>  $resolvedKept  the base take's references resolved with ReferenceResolution::Attach
      * @return list<string>
      *
-     * @throws BaseImageUnavailableException when the base image or a kept take-image reference has no usable URL
+     * @throws BaseImageUnavailableException when the base image was asked for and has no usable URL
      */
-    public static function urls(TakeChangeProposalDTO $proposal, Take $base): array
+    public static function urls(TakeChangeProposalDTO $proposal, Take $base, array $resolvedKept): array
     {
-        $references = $proposal->keepReferences ? self::keptReferences($base, dropUnavailable: false) : [];
+        $references = $proposal->keepReferences ? $resolvedKept : [];
 
         if ($proposal->addBaseImageAsReference) {
             $references[] = TakeImageUrl::forReference($base) ?? throw BaseImageUnavailableException::forTake($base->id);
         }
 
         return $references;
-    }
-
-    /**
-     * @return list<string>
-     *
-     * @throws BaseImageUnavailableException when one has no usable URL and is not dropped
-     */
-    private static function keptReferences(Take $base, bool $dropUnavailable): array
-    {
-        return app(ListReferenceImageUrlsQuery::class)->execute($base->customer_id, array_values($base->reference_images), $dropUnavailable);
     }
 }

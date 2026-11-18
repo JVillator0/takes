@@ -69,6 +69,8 @@ defineOptions({
                 :aria-describedby="locked ? 'account-locked-notice' : undefined"
                 class="space-y-6"
             >
+                <!-- Names the group, so its description (the lock notice) is read (F-20). -->
+                <legend class="sr-only">Update password</legend>
                 <div class="grid gap-2">
                     <Label for="current_password">Current password</Label>
                     <PasswordInput

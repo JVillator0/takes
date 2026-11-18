@@ -11,7 +11,6 @@ use App\Enums\Suggestions\SuggestionFailureReason;
 use App\Enums\Suggestions\SuggestionStatus;
 use App\Support\Money\Nanodollars;
 use App\Support\Money\RoundingMode;
-use App\Support\Suggestions\ProposalReferences;
 use App\Support\Suggestions\SuggestionDiff;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -54,11 +53,11 @@ final class SuggestionResource extends JsonResource
             'noChange' => $noChange,
             'hold' => $this->hold(),
             'charge' => $this->charge(),
-            'diff' => $proposal === null ? null : SuggestionDiff::build($proposal, $details->baseTake),
+            'diff' => $proposal === null ? null : SuggestionDiff::build($proposal, $details->baseTake, $details->referenceUnavailable),
             'newTake' => $this->newTake(),
             // A reference the new take needs (the base image, or a kept take
             // image, #133) has no usable URL: apply is refused.
-            'baseImageUnavailable' => $proposal !== null && ProposalReferences::referenceUnavailable($proposal, $details->baseTake),
+            'baseImageUnavailable' => $proposal !== null && $details->referenceUnavailable,
             'resultingTakeId' => $suggestion->resulting_take_id,
         ];
     }
