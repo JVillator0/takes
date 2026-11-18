@@ -93,7 +93,7 @@ it('turns on "Try a demo account" with DEMO_LOGIN_ENABLED and prices the example
             ->where('pricingExamples.1.range', '$0.3577 – $0.4674'));
 });
 
-it('prices the examples from the cached pricing, never from the provider', function (): void {
+it('prices the examples from the cached pricing (the cold-cache, no-provider case is in tests/Committed)', function (): void {
     Http::preventStrayRequests();
     $pricing = config()->array('pixelforge.pricing.fallback');
     $pricing['rates']['output_tokens'] = '80.00';

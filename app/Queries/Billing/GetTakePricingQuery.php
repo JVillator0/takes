@@ -19,6 +19,12 @@ use InvalidArgumentException;
  * CreateTakeAction inside its own transaction), it reads the cached pricing
  * or the config fallback instead. A public page that must never wait on
  * the provider (the landing page) asks for that same cache-or-fallback read.
+ *
+ * The check is the real transaction level (=== 0), not TransactionBaseline:
+ * this query decides whether an HTTP call may happen at all, and inside
+ * RefreshDatabase the Feature suite must keep using the cache or fallback
+ * rather than call the provider. The provider branch is covered at level 0
+ * in tests/Committed (CreateTakePricingTest, LandingPricingTest).
  */
 final class GetTakePricingQuery
 {
