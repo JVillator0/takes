@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\DTOs\Pixelforge\PricingDTO;
 use App\DTOs\Pixelforge\TokenFactsDTO;
 use App\Enums\Takes\TakeQuality;
 use App\Enums\Takes\TakeSize;
@@ -14,7 +15,7 @@ beforeEach(function (): void {
 });
 
 it('parses the documented GET /v1/pricing response into the documented defaults', function (): void {
-    $facts = TokenFactsDTO::fromPricingArray($this->pricing);
+    $facts = TokenFactsDTO::fromPricing(PricingDTO::fromArray($this->pricing));
 
     expect($facts)->toEqual(TokenFactsDTO::defaults())
         ->and($facts->charactersPerTextToken)->toBe(4)
@@ -28,7 +29,7 @@ it('parses the variance as integer basis points from a JSON number or a string',
     $pricing = $this->pricing;
     $pricing['tokens']['text_token_variance'] = $variance;
 
-    expect(TokenFactsDTO::fromPricingArray($pricing)->textTokenVarianceBps)->toBe($bps);
+    expect(TokenFactsDTO::fromPricing(PricingDTO::fromArray($pricing))->textTokenVarianceBps)->toBe($bps);
 })->with([
     'JSON number' => [0.15, 1_500],
     'string (config fallback)' => ['0.15', 1_500],
@@ -41,7 +42,7 @@ it('reads changed token tables instead of the documented copy', function (): voi
     $pricing['tokens']['per_reference_image'] = 800;
     $pricing['tokens']['output']['high']['1536x1024'] = 7_000;
 
-    $facts = TokenFactsDTO::fromPricingArray($pricing);
+    $facts = TokenFactsDTO::fromPricing(PricingDTO::fromArray($pricing));
 
     expect($facts->tokensPerReferenceImage)->toBe(800)
         ->and($facts->outputTokensFor(TakeQuality::High, TakeSize::Landscape))->toBe(7_000);
@@ -51,7 +52,7 @@ it('rejects a malformed tokens block', function (Closure $break): void {
     $pricing = $this->pricing;
     $break($pricing);
 
-    expect(fn () => TokenFactsDTO::fromPricingArray($pricing))->toThrow(InvalidArgumentException::class);
+    expect(fn () => TokenFactsDTO::fromPricing(PricingDTO::fromArray($pricing)))->toThrow(InvalidArgumentException::class);
 })->with([
     'no tokens block' => [function (array &$p): void {
         unset($p['tokens']);
@@ -121,7 +122,7 @@ it('parses the JSON number variance the same whatever the precision ini (#107)',
         $pricing = $this->pricing;
         $pricing['tokens']['text_token_variance'] = 0.15;
 
-        expect(TokenFactsDTO::fromPricingArray($pricing)->textTokenVarianceBps)->toBe(1_500);
+        expect(TokenFactsDTO::fromPricing(PricingDTO::fromArray($pricing))->textTokenVarianceBps)->toBe(1_500);
     } finally {
         foreach ($saved as $key => $value) {
             ini_set($key, (string) $value);

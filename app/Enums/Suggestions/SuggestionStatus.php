@@ -16,12 +16,13 @@ enum SuggestionStatus: string
     case Failed = 'failed';
 
     /**
-     * Whether the AI call is over and its usage must be settled or voided.
-     * Only `pending` still holds credit: CreateSuggestionAction T2 settles the
-     * usage in the transaction that moves it to `proposed` (or voids it on
-     * `failed`), and `applied`/`discarded` come after `proposed`.
+     * Whether the AI call is over, so its usage is settled or voided and no
+     * credit is held. Only `pending` still holds credit: CreateSuggestionAction
+     * T2 settles the usage in the transaction that moves it to `proposed` (or
+     * voids it on `failed`), and `applied`/`discarded` come after `proposed`.
+     * Not a "no further transitions" test: `proposed` still moves on.
      */
-    public function isTerminal(): bool
+    public function aiCallIsOver(): bool
     {
         return $this !== self::Pending;
     }

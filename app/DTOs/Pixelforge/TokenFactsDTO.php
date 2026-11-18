@@ -110,19 +110,6 @@ final readonly class TokenFactsDTO
         );
     }
 
-    /**
-     * Parses a GET /v1/pricing response (decoded JSON) through PricingDTO,
-     * the one parser of its `tokens` block.
-     *
-     * @param  array<array-key, mixed>  $pricing
-     *
-     * @throws InvalidArgumentException when the payload is malformed or out of bounds
-     */
-    public static function fromPricingArray(array $pricing): self
-    {
-        return self::fromPricing(PricingDTO::fromArray($pricing));
-    }
-
     public function outputTokensFor(TakeQuality $quality, TakeSize $size): int
     {
         return $this->outputTokens[$quality->value][$size->value];

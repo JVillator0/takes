@@ -51,7 +51,7 @@ final readonly class ListLedgerInvariantViolationsQuery
             ...$this->chargeEntries(),
             ...$this->purchaseEntries(),
             ...$this->openUsageOnTerminalTake(),
-            ...$this->openUsageOnTerminalSuggestion(),
+            ...$this->openUsageOnSettledSuggestion(),
             ...$this->settledAmounts($repriceSince),
         ];
     }
@@ -182,7 +182,7 @@ final readonly class ListLedgerInvariantViolationsQuery
      *
      * @return list<string>
      */
-    private function openUsageOnTerminalSuggestion(): array
+    private function openUsageOnSettledSuggestion(): array
     {
         return array_values(DB::table('usage_records')
             ->join('suggestions', function ($join): void {
@@ -192,7 +192,7 @@ final readonly class ListLedgerInvariantViolationsQuery
             ->where('usage_records.status', UsageStatus::Open->value)
             ->whereIn('suggestions.status', array_map(
                 fn (SuggestionStatus $status): string => $status->value,
-                array_filter(SuggestionStatus::cases(), fn (SuggestionStatus $status): bool => $status->isTerminal()),
+                array_filter(SuggestionStatus::cases(), fn (SuggestionStatus $status): bool => $status->aiCallIsOver()),
             ))
             ->orderBy('usage_records.id')
             ->select('usage_records.id', 'suggestions.id as suggestion_id', 'suggestions.status as suggestion_status')

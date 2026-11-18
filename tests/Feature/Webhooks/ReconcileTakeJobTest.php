@@ -2,11 +2,14 @@
 
 declare(strict_types=1);
 
+use App\Actions\Takes\ApplyTakeSnapshotAction;
+use App\Actions\Takes\FailTakeAction;
 use App\Actions\Takes\ReconcileTakeAction;
 use App\Enums\Billing\UsageStatus;
 use App\Enums\Takes\AttentionReason;
 use App\Enums\Takes\FailureCode;
 use App\Enums\Takes\ReconcileStatus;
+use App\Enums\Takes\SubmitErrorKind;
 use App\Enums\Takes\TakeStatus;
 use App\Events\TakeUpdated;
 use App\Exceptions\Billing\TransactionNotAllowedException;
@@ -187,6 +190,37 @@ it('does nothing for a terminal take', function (): void {
     Http::fake();
 
     runReconcile($take);
+
+    Http::assertNothingSent();
+});
+
+it('fetches the generation of an orphan that arrived without rates and records its absorbed cost (#102)', function (): void {
+    $take = Takes::pendingWithHold(['last_submit_error_kind' => SubmitErrorKind::Ambiguous]);
+    app(FailTakeAction::class)->execute($take, FailureCode::SubmitTimeout, 'Submit window expired.');
+    $generationId = Takes::generationId($take);
+    fakeGeneration($take, 'succeeded', ['id' => $generationId]);
+
+    // What the webhook handler dispatches after ApplyTakeSnapshotAction threw (ReconcileTakeJob::fetchNow).
+    Queue::fake();
+    app()->call([new ReconcileTakeJob($take->id, 0, false, $generationId), 'handle']);
+
+    $usage = Takes::usage($take);
+
+    expect($take->refresh()->status)->toBe(TakeStatus::Failed)
+        ->and($take->attention_reason)->toBe(AttentionReason::OrphanSuccess)
+        ->and($usage->status)->toBe(UsageStatus::Voided)
+        ->and($usage->absorbed_cost_nanos)->toBe(305_510_000)
+        ->and(LedgerEntry::query()->where('type', 'charge')->count())->toBe(0);
+    Http::assertSentCount(1);
+});
+
+it('does not fetch a failed take whose orphan cost is already recorded', function (): void {
+    $take = Takes::pendingWithHold(['last_submit_error_kind' => SubmitErrorKind::Ambiguous]);
+    app(FailTakeAction::class)->execute($take, FailureCode::SubmitTimeout, 'Submit window expired.');
+    app(ApplyTakeSnapshotAction::class)->execute($take, Takes::snapshot($take, 'succeeded'));
+    Http::fake();
+
+    runReconcile($take->refresh());
 
     Http::assertNothingSent();
 });

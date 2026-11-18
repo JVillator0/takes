@@ -181,6 +181,7 @@ describe('orphan success vs conflict', function (): void {
         // The docs' succeeded generation: units × its own rates = 305,510,000, completed 2026-11-04 UTC.
         expect($usage->status)->toBe(UsageStatus::Voided)
             ->and($usage->absorbed_cost_nanos)->toBe(305_510_000)
+            ->and($usage->reasoning_tokens)->toBe(3_184)
             ->and($usage->billing_date?->toDateString())->toBe('2026-11-04')
             ->and($usage->external_id)->toBe(Takes::generationId($take))
             ->and($usage->provider_cost_nanos)->toBe(0)
@@ -196,17 +197,28 @@ describe('orphan success vs conflict', function (): void {
         expect(Takes::usage($take)->absorbed_cost_nanos)->toBe(305_510_000);
     });
 
-    it('still flags an orphan that has no rates, without pricing it from cached prices', function (): void {
+    it('throws for an unpriced orphan without rates and writes nothing, so the caller fetches the generation', function (): void {
         $take = Takes::pendingWithHold(['last_submit_error_kind' => SubmitErrorKind::Ambiguous]);
         app(FailTakeAction::class)->execute($take, FailureCode::SubmitTimeout, 'Submit window expired.');
 
-        expect(applySnapshot($take, rebuildSnapshot(Takes::snapshot($take, 'succeeded'), ['rates' => null])))->toBe(TransitionOutcome::OrphanSuccess);
+        expect(fn () => applySnapshot($take, rebuildSnapshot(Takes::snapshot($take, 'succeeded'), ['rates' => null])))
+            ->toThrow(SnapshotRatesMissingException::class);
 
         $usage = Takes::usage($take);
 
-        expect($usage->flags)->toBe(['orphan'])
-            ->and($usage->absorbed_cost_nanos)->toBeNull()
-            ->and($usage->billing_date)->toBeNull();
+        expect($take->refresh()->attention_reason)->toBeNull()
+            ->and($take->pixelforge_id)->toBeNull()
+            ->and($usage->flags)->toBe([])
+            ->and($usage->absorbed_cost_nanos)->toBeNull();
+    });
+
+    it('re-flags an already priced orphan whose replay has no rates, without throwing', function (): void {
+        $take = Takes::pendingWithHold(['last_submit_error_kind' => SubmitErrorKind::Ambiguous]);
+        app(FailTakeAction::class)->execute($take, FailureCode::SubmitTimeout, 'Submit window expired.');
+        applySnapshot($take, Takes::snapshot($take, 'succeeded'));
+
+        expect(applySnapshot($take, rebuildSnapshot(Takes::snapshot($take, 'succeeded'), ['rates' => null])))->toBe(TransitionOutcome::OrphanSuccess)
+            ->and(Takes::usage($take)->absorbed_cost_nanos)->toBe(305_510_000);
     });
 
     it('records a late success after an internal failure of an accepted take as an orphan (D-077)', function (): void {
