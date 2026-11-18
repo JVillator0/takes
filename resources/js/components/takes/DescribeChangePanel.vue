@@ -259,7 +259,7 @@ const priceBox = 'rounded-md border border-dashed px-3 py-2.5 text-sm';
                     v-for="chip in chips"
                     :key="chip"
                     type="button"
-                    :disabled="step === 'thinking'"
+                    :disabled="step === 'thinking' || uncertain"
                     class="rounded-full border bg-background px-3 py-1 text-sm transition-colors outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
                     @click="fillChip(t(`suggestions.chips.${chip}`))"
                 >
@@ -367,15 +367,29 @@ const priceBox = 'rounded-md border border-dashed px-3 py-2.5 text-sm';
                             .segments"
                         :key="index"
                     >
+                        <!--
+                            del/ins are not announced at default verbosity:
+                            screen readers hear "removed: … end of change." (F-20).
+                        -->
                         <del
                             v-if="segment.type === 'removed'"
                             class="bg-red-100 text-red-900 decoration-red-700 dark:bg-red-950/60 dark:text-red-200"
-                            >{{ segment.text }}</del
+                            ><span class="sr-only"
+                                >{{ t('suggestions.diff.removed') }} </span
+                            >{{ segment.text
+                            }}<span class="sr-only">
+                                {{ t('suggestions.diff.end') }}</span
+                            ></del
                         >
                         <ins
                             v-else-if="segment.type === 'added'"
                             class="bg-emerald-100 text-emerald-900 underline decoration-emerald-700 underline-offset-2 dark:bg-emerald-950/60 dark:text-emerald-200"
-                            >{{ segment.text }}</ins
+                            ><span class="sr-only"
+                                >{{ t('suggestions.diff.added') }} </span
+                            >{{ segment.text
+                            }}<span class="sr-only">
+                                {{ t('suggestions.diff.end') }}</span
+                            ></ins
                         >
                         <span v-else>{{ segment.text }}</span>
                     </template>

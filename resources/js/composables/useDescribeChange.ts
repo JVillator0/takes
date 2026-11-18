@@ -214,6 +214,13 @@ export function useDescribeChange(takeId: Ref<string>) {
                 return;
             }
 
+            // A failed re-read of a finished proposal (after a purchase)
+            // left nothing unconfirmed: keep the proposal as it was, with no
+            // "uncertain" sentence and no Check again (spec 8 States).
+            if (suggestion.value?.status !== 'pending') {
+                return;
+            }
+
             // The suggestion id is kept: Check again resumes from it.
             stopPolling();
             pollFailed.value = true;
@@ -222,7 +229,6 @@ export function useDescribeChange(takeId: Ref<string>) {
         }
     }
 
-    /** POSTs the draft; a server sentence is final, a lost answer is null. */
     /**
      * POSTs the draft: the suggestion, a server sentence, 'invalid' for a
      * 422 (field errors show inline; nothing ran), or null for a lost answer.
