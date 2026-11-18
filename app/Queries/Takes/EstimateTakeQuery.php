@@ -25,9 +25,12 @@ final class EstimateTakeQuery
         private readonly TakeEstimator $estimator,
     ) {}
 
-    public function execute(EstimateTakeDTO $input): TakeQuoteDTO
+    /**
+     * @param  bool  $cachedPricing  never call the provider for the pricing (a public page): cache, else config fallback
+     */
+    public function execute(EstimateTakeDTO $input, bool $cachedPricing = false): TakeQuoteDTO
     {
-        $pricing = $this->pricing->execute();
+        $pricing = $this->pricing->execute($cachedPricing);
         $rates = $pricing->rates->toNanosPerMillion();
 
         return new TakeQuoteDTO(

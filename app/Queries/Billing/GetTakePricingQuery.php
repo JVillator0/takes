@@ -17,18 +17,27 @@ use InvalidArgumentException;
  * Never makes an HTTP call inside a database transaction (M-16): when a
  * caller already holds one (spec 8 applies a suggestion through
  * CreateTakeAction inside its own transaction), it reads the cached pricing
- * or the config fallback instead.
+ * or the config fallback instead. A public page that must never wait on
+ * the provider (the landing page) asks for that same cache-or-fallback read.
  */
 final class GetTakePricingQuery
 {
     public function __construct(private readonly PixelforgeClient $client) {}
 
-    public function execute(): PricingDTO
+    /**
+     * @param  bool  $cachedOnly  never call the provider: the cached pricing, else the config fallback
+     */
+    public function execute(bool $cachedOnly = false): PricingDTO
     {
-        if (DB::transactionLevel() === 0) {
+        if (! $cachedOnly && DB::transactionLevel() === 0) {
             return $this->client->getPricing();
         }
 
+        return $this->cachedOrFallback();
+    }
+
+    private function cachedOrFallback(): PricingDTO
+    {
         $cached = Cache::get(PixelforgeClient::PRICING_CACHE_KEY);
 
         if (is_array($cached)) {

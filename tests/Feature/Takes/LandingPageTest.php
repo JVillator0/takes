@@ -3,6 +3,9 @@
 declare(strict_types=1);
 
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Services\Pixelforge\PixelforgeClient;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Inertia\Testing\AssertableInertia as Assert;
 
 it('renders the landing page with the demo button off by default', function (): void {
@@ -88,4 +91,24 @@ it('turns on "Try a demo account" with DEMO_LOGIN_ENABLED and prices the example
             ->where('demo.enabled', true)
             ->where('welcomeCredit', '$2.50')
             ->where('pricingExamples.1.range', '$0.3577 – $0.4674'));
+});
+
+it('prices the examples from the cached pricing, never from the provider', function (): void {
+    Http::preventStrayRequests();
+    $pricing = config()->array('pixelforge.pricing.fallback');
+    $pricing['rates']['output_tokens'] = '80.00';
+    Cache::put(PixelforgeClient::PRICING_CACHE_KEY, $pricing, 3600);
+
+    // Twice the output rate: the range moves off the default '$0.3577 – $0.4674', so it comes from the estimator and the cached pricing.
+    $this->get(route('home'))
+        ->assertInertia(fn (Assert $page) => $page->where('pricingExamples.1.range', '$0.6802 – $0.7899'));
+});
+
+it('prices the examples from the config fallback when nothing is cached', function (): void {
+    Http::preventStrayRequests();
+    Cache::forget(PixelforgeClient::PRICING_CACHE_KEY);
+    config(['pixelforge.pricing.fallback.rates.output_tokens' => '80.00']);
+
+    $this->get(route('home'))
+        ->assertInertia(fn (Assert $page) => $page->where('pricingExamples.1.range', '$0.6802 – $0.7899'));
 });
