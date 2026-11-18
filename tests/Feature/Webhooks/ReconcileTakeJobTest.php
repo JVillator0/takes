@@ -225,6 +225,63 @@ it('does not fetch a failed take whose orphan cost is already recorded', functio
     Http::assertNothingSent();
 });
 
+it('records the orphan without its cost when the fetched generation has no rates either', function (): void {
+    Log::spy();
+    $take = Takes::pendingWithHold(['last_submit_error_kind' => SubmitErrorKind::Ambiguous]);
+    app(FailTakeAction::class)->execute($take, FailureCode::SubmitTimeout, 'Submit window expired.');
+    $generationId = Takes::generationId($take);
+    fakeGeneration($take, 'succeeded', ['id' => $generationId, 'rates' => null]);
+
+    $result = app(ReconcileTakeAction::class)->execute($take, $generationId);
+    $usage = Takes::usage($take);
+
+    expect($result->status)->toBe(ReconcileStatus::Terminal)
+        ->and($take->refresh()->status)->toBe(TakeStatus::Failed)
+        ->and($take->failure_code)->toBe(FailureCode::SubmitTimeout)
+        ->and($take->pixelforge_id)->toBe($generationId)
+        ->and($take->attention_reason)->toBe(AttentionReason::OrphanSuccess)
+        ->and($usage->status)->toBe(UsageStatus::Voided)
+        ->and($usage->flags)->toBe(['orphan'])
+        ->and($usage->absorbed_cost_nanos)->toBeNull()
+        ->and(LedgerEntry::query()->where('type', 'charge')->count())->toBe(0)
+        ->and(ReconcileStopMarker::stopped([$take->id]))->toBe([]);
+    Log::shouldHaveReceived('critical')->withArgs(fn (string $message): bool => str_contains($message, 'orphan success without its cost'))->once();
+});
+
+it('never re-polls a failed take that may hide a generation without a webhook asking', function (Closure $poll): void {
+    // internal after acceptance: it keeps its pixelforge_id, and no orphan cost is recorded.
+    $take = Takes::in('processing');
+    app(FailTakeAction::class)->execute($take, FailureCode::Internal, 'Revoked key while reconciling.');
+    Http::fake();
+
+    $poll($take->refresh());
+
+    Http::assertNothingSent();
+    expect($take->refresh()->attention_reason)->toBe(AttentionReason::InternalFailure);
+})->with([
+    'chain poll' => [fn (Take $take) => runReconcile($take)],
+    'reconcile now' => [fn (Take $take) => app(ReconcileTakeAction::class)->execute($take)],
+]);
+
+it('keeps a failed take\'s failure reason when the orphan fetch is rejected', function (int $status, string $code): void {
+    $take = Takes::in('processing');
+    app(FailTakeAction::class)->execute($take, FailureCode::Internal, 'Revoked key while reconciling.');
+    $take->refresh();
+    Http::fake(['pixelforge.test/v1/generations/*' => Http::response(PixelforgeFixture::error($code), $status)]);
+
+    $result = app(ReconcileTakeAction::class)->execute($take, (string) $take->pixelforge_id);
+
+    expect($result->status)->toBe(ReconcileStatus::Terminal)
+        ->and($take->refresh()->status)->toBe(TakeStatus::Failed)
+        ->and($take->failure_code)->toBe(FailureCode::Internal)
+        ->and($take->attention_reason)->toBe(AttentionReason::InternalFailure)
+        ->and(ReconcileStopMarker::stopped([$take->id]))->toBe([]);
+    Http::assertSentCount(1);
+})->with([
+    '404' => [404, 'not_found'],
+    '401' => [401, 'invalid_api_key'],
+]);
+
 it('does nothing without an API key', function (): void {
     config(['pixelforge.api_key' => '']);
     $take = Takes::in('processing');

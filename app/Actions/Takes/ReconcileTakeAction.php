@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace App\Actions\Takes;
 
+use App\DTOs\Pixelforge\GenerationSnapshotDTO;
 use App\DTOs\Takes\ReconcileResultDTO;
 use App\Enums\Takes\AttentionReason;
 use App\Enums\Takes\FailureCode;
 use App\Enums\Takes\ReconcileStatus;
-use App\Enums\Takes\TakeStatus;
 use App\Exceptions\Billing\TransactionNotAllowedException;
 use App\Exceptions\Pixelforge\PixelforgeBusy;
 use App\Exceptions\Pixelforge\PixelforgeRejected;
@@ -39,8 +39,9 @@ final readonly class ReconcileTakeAction
     ) {}
 
     /**
-     * @param  string|null  $generationId  for a take found by webhook metadata
-     *                                     before it stored its `pixelforge_id`
+     * @param  string|null  $generationId  the generation a webhook named (ReconcileTakeJob::fetchNow):
+     *                                     for a take found by metadata before it stored its
+     *                                     `pixelforge_id`, or an orphan success that came without rates
      */
     public function execute(Take $take, ?string $generationId = null): ReconcileResultDTO
     {
@@ -48,9 +49,14 @@ final readonly class ReconcileTakeAction
         TransactionNotAllowedException::unlessNoTransaction(self::class);
 
         $take->refresh();
+        $requested = $generationId;
         $generationId = $take->pixelforge_id ?? $generationId;
 
-        if ($take->status->isTerminal() && ! $this->mayHideUnpricedOrphan($take, $generationId)) {
+        // A terminal take is not polled. The one exception is the fetch a
+        // webhook asked for (an explicit generation id): a failed take whose
+        // late success arrived without rates. A chain poll, `takes:reconcile`
+        // or admin Reconcile now never re-polls a failed take.
+        if ($take->status->isTerminal() && ! ($requested !== null && $this->mayHideUnpricedOrphan($take))) {
             return new ReconcileResultDTO(ReconcileStatus::Terminal);
         }
 
@@ -82,6 +88,10 @@ final readonly class ReconcileTakeAction
         try {
             $outcome = $this->applySnapshot->execute($take, $snapshot);
         } catch (SnapshotRatesMissingException) {
+            if ($take->failureMayHideAGeneration()) {
+                return $this->unpricedOrphan($take, $snapshot);
+            }
+
             // Even the fetched generation has no rates: never settle from
             // cached prices (D-055). Nothing was written; flag it.
             Log::critical('Reconcile cannot settle: the generation has no rates.', ['take_id' => $take->id]);
@@ -107,23 +117,52 @@ final readonly class ReconcileTakeAction
 
     /**
      * A failed take whose local failure may have hidden a generation
-     * Pixelforge ran (ApplyTakeSnapshotAction::mayHideAGeneration(): a
-     * submit_timeout, or an internal failure after acceptance) and whose
-     * absorbed cost is not recorded. Its late success arrived without rates
-     * (the webhook path threw and asked for this fetch), so the generation is
-     * read here and applied, which records the orphan with its own rates (#102).
+     * Pixelforge ran (Take::failureMayHideAGeneration()) and whose absorbed
+     * cost is not recorded. Its late success arrived without rates (the
+     * webhook path threw and asked for this fetch), so the generation is read
+     * here and applied, which records the orphan with its own rates (#102).
      */
-    private function mayHideUnpricedOrphan(Take $take, ?string $generationId): bool
+    private function mayHideUnpricedOrphan(Take $take): bool
     {
-        return $take->status === TakeStatus::Failed
-            && $generationId !== null
-            && ($take->failure_code === FailureCode::SubmitTimeout
-                || ($take->failure_code === FailureCode::Internal && $take->pixelforge_id !== null))
+        return $take->failureMayHideAGeneration()
             && $take->usageRecord()->value('absorbed_cost_nanos') === null;
+    }
+
+    /**
+     * The fetched generation of a failed take's late success has no rates
+     * either: never price it from cached prices (D-055), but never lose the
+     * orphan. The usage gets the `orphan` flag, the take adopts the
+     * generation and gets `orphan_success`, so spec 7's orphan group lists
+     * it; the absorbed cost stays null and that day's `billing:verify
+     * --usage` stays a loud mismatch until a priced snapshot arrives.
+     */
+    private function unpricedOrphan(Take $take, GenerationSnapshotDTO $snapshot): ReconcileResultDTO
+    {
+        $outcome = $this->applySnapshot->execute($take, $snapshot, flagUnpricedOrphan: true);
+
+        Log::critical('Reconcile recorded an orphan success without its cost: the generation has no rates.', [
+            'take_id' => $take->id,
+            'generation_id' => $snapshot->id,
+            'outcome' => $outcome->value,
+        ]);
+
+        return new ReconcileResultDTO(ReconcileStatus::Terminal);
     }
 
     private function rejected(Take $take, PixelforgeRejected $exception): ReconcileResultDTO
     {
+        // Only the orphan fetch reaches here for a terminal take. Its failure
+        // reason stays: no reconcile_exhausted over it, nothing to fail again.
+        if ($take->status->isTerminal() && ($exception->status === 401 || $exception->status === 404)) {
+            Log::critical('Reconcile could not fetch the late success of a failed take.', [
+                'take_id' => $take->id,
+                'http_status' => $exception->status,
+                'error_code' => $exception->errorCode,
+            ]);
+
+            return new ReconcileResultDTO(ReconcileStatus::Terminal);
+        }
+
         if ($exception->status === 401) {
             // A revoked key never holds customer money (D-062): fail free now.
             Log::critical('Reconcile failed the take: Pixelforge rejected the API key.', ['take_id' => $take->id]);
