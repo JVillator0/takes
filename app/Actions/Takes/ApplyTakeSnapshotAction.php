@@ -46,12 +46,15 @@ final readonly class ApplyTakeSnapshotAction
     ) {}
 
     /**
+     * @param  bool  $flagUnpricedOrphan  the generation was fetched and still has no rates: record an
+     *                                    orphan without its cost instead of throwing (ReconcileTakeAction)
+     *
      * @throws SnapshotRatesMissingException when a succeeded snapshot that would settle, or price an orphan, has no rates; nothing is written
      */
-    public function execute(Take $take, GenerationSnapshotDTO $snapshot): TransitionOutcome
+    public function execute(Take $take, GenerationSnapshotDTO $snapshot, bool $flagUnpricedOrphan = false): TransitionOutcome
     {
         try {
-            return $this->apply($take, $snapshot);
+            return $this->apply($take, $snapshot, $flagUnpricedOrphan);
         } catch (Throwable $exception) {
             // The rollback undoes the database, not the caller's model: never
             // hand back a take that still carries an unsaved transition.
@@ -61,9 +64,9 @@ final readonly class ApplyTakeSnapshotAction
         }
     }
 
-    private function apply(Take $take, GenerationSnapshotDTO $snapshot): TransitionOutcome
+    private function apply(Take $take, GenerationSnapshotDTO $snapshot, bool $flagUnpricedOrphan): TransitionOutcome
     {
-        return DB::transaction(function () use ($take, $snapshot): TransitionOutcome {
+        return DB::transaction(function () use ($take, $snapshot, $flagUnpricedOrphan): TransitionOutcome {
             // Lock order: the take first; Settle/Void then lock only the
             // customer (spec 3-03 §6). Everything below decides on the row as
             // it is under this lock, never on the caller's copy.
@@ -89,15 +92,21 @@ final readonly class ApplyTakeSnapshotAction
             // neither a settlement nor an orphan's absorbed cost not yet
             // recorded (#102). Checked before any write: the caller fetches the
             // generation (GET /v1/generations/{id}, outside any transaction)
-            // and applies that.
-            if ($snapshot->status === TakeStatus::Succeeded && $snapshot->rates === null && $this->wouldPrice($take, $outcome)) {
+            // and applies that. An orphan may still be recorded without its
+            // cost: when the caller asks (the webhook's signed snapshot, or a
+            // fetched generation without rates either), and on a retry once
+            // the usage already carries the orphan flag, which is then
+            // acknowledged instead of answering 5xx again. A settlement
+            // without rates always throws.
+            if ($snapshot->status === TakeStatus::Succeeded && $snapshot->rates === null && $this->wouldPrice($take, $outcome)
+                && ! ($outcome === TransitionOutcome::OrphanSuccess && ($flagUnpricedOrphan || $this->isFlaggedOrphan($take)))) {
                 throw new SnapshotRatesMissingException($take->id, $snapshot->id);
             }
 
             $firstAccepted = $take->pixelforge_id === null;
 
             // Missing facts (spec 5 step 2). A terminal take keeps the
-            // generation id it had when it finished: mayHideAGeneration()
+            // generation id it had when it finished: failureMayHideAGeneration()
             // reads it as "Pixelforge had accepted it when we failed it", so
             // only the orphan, the one outcome that adopts the late
             // generation, may add it. Otherwise a replay could reclassify.
@@ -131,6 +140,12 @@ final readonly class ApplyTakeSnapshotAction
 
             return $outcome;
         });
+    }
+
+    /** The take's usage already carries the `orphan` flag (recorded, maybe without its cost). */
+    private function isFlaggedOrphan(Take $take): bool
+    {
+        return in_array(UsageFlag::Orphan->value, $take->usageRecord()->firstOrFail()->flags, true);
     }
 
     /**
@@ -182,31 +197,9 @@ final readonly class ApplyTakeSnapshotAction
             ! $to->isTerminal() => TransitionOutcome::IgnoredStale,
             // Terminal → the other terminal: an orphan when our local failure
             // may have hidden a generation Pixelforge really ran.
-            $to === TakeStatus::Succeeded && $this->mayHideAGeneration($take) => TransitionOutcome::OrphanSuccess,
+            $to === TakeStatus::Succeeded && $take->failureMayHideAGeneration() => TransitionOutcome::OrphanSuccess,
             default => TransitionOutcome::IgnoredConflict,
         };
-    }
-
-    /**
-     * submit_timeout: the ambiguous submit window expired (D-025, D-049).
-     * internal on a take Pixelforge had accepted: we failed it free, e.g. on
-     * a revoked key (D-062), while it kept running (D-077). "Accepted" is the
-     * pixelforge_id the take had when it failed, a fact frozen at failure
-     * time: a failed take adopts a generation id only as an orphan, so every
-     * replay of the same late success classifies the same way.
-     * internal while a submit was in doubt (D-082): an ambiguous answer, or
-     * an attempt counted but never answered, so Pixelforge may hold the
-     * generation under the idempotency key. Take::submitWasInDoubt() reads
-     * columns only a pending take's submit writes, so it is frozen too, and
-     * it is the same rule SubmitTakeJob uses for submit_timeout. Every other
-     * local code, and internal after capacity answers only or before any
-     * attempt, means nothing was created.
-     */
-    private function mayHideAGeneration(Take $take): bool
-    {
-        return $take->failure_code === FailureCode::SubmitTimeout
-            || ($take->failure_code === FailureCode::Internal
-                && ($take->pixelforge_id !== null || $take->submitWasInDoubt()));
     }
 
     /**
@@ -277,8 +270,10 @@ final readonly class ApplyTakeSnapshotAction
      * billing day) is kept on the voided usage, never in the ledger, so
      * `billing:verify --usage` can attribute that day's Pixelforge cost
      * (issue #102). Recorded once: a replay of the same late success finds it.
-     * apply() refused an unpriced orphan snapshot without rates, so the rates
-     * are here whenever the cost is still missing.
+     * apply() refused an unpriced orphan snapshot without rates unless the
+     * caller asked to flag it anyway or it is already flagged: then the flags
+     * are recorded and the cost stays null. Only a snapshot with rates prices
+     * it later (the webhook's one-off fetch, or an operator's Reconcile now).
      */
     private function recordOrphan(Take $take, GenerationSnapshotDTO $snapshot): void
     {
@@ -291,10 +286,9 @@ final readonly class ApplyTakeSnapshotAction
             $changes['flags'] = [...$usage->flags, UsageFlag::Orphan->value];
         }
 
-        if ($usage->absorbed_cost_nanos === null) {
-            // invalidReason() rejected a succeeded snapshot without usage or
-            // completion time; apply() threw before any write without rates.
-            assert($snapshot->usage !== null && $snapshot->completedAt !== null && $snapshot->rates !== null);
+        if ($usage->absorbed_cost_nanos === null && $snapshot->rates !== null) {
+            // invalidReason() rejected a succeeded snapshot without usage or completion time.
+            assert($snapshot->usage !== null && $snapshot->completedAt !== null);
 
             $units = new UsageUnitsDTO($snapshot->usage->toUnits());
             $rates = new RatesSnapshotDTO($snapshot->rates->toNanosPerMillion());

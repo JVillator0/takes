@@ -124,13 +124,38 @@ final class Take extends Model
      * RecordSubmitAttemptAction resets the kind to null before every call).
      * Both columns change only while the take is pending, so on a failed take
      * this is a fact frozen at failure time. SubmitTakeJob uses it to pick
-     * submit_timeout over provider_busy; ApplyTakeSnapshotAction to tell an
+     * submit_timeout over provider_busy; failureMayHideAGeneration() to tell an
      * orphan success from a conflict after an internal failure.
+     * A definite rejection of a counted attempt (e.g. a 401 that fails the
+     * take internal) also leaves kind null with attempts > 0 and reads as in
+     * doubt: on purpose, the conservative side (D-082), since a wrongly
+     * flagged orphan costs an admin look while a missed one hides cost.
      */
     public function submitWasInDoubt(): bool
     {
         return $this->last_submit_error_kind === SubmitErrorKind::Ambiguous
             || ($this->last_submit_error_kind === null && $this->submit_attempts > 0);
+    }
+
+    /**
+     * Whether this take's local failure may have hidden a generation
+     * Pixelforge ran, so a late success is an orphan, not a conflict
+     * (spec 5 matrix, M-14). submit_timeout: the ambiguous submit window
+     * expired (D-025, D-049). internal on a take Pixelforge had accepted: we
+     * failed it free, e.g. on a revoked key (D-062), while it kept running
+     * (D-077); "accepted" is the pixelforge_id it had when it failed, frozen
+     * because a failed take adopts a generation id only as an orphan.
+     * internal while its submit was in doubt (D-082). Every other local
+     * code, and internal after capacity answers only or before any attempt,
+     * means nothing was created. Used by ApplyTakeSnapshotAction and
+     * ReconcileTakeAction, so both classify the same way.
+     */
+    public function failureMayHideAGeneration(): bool
+    {
+        return $this->status === TakeStatus::Failed
+            && ($this->failure_code === FailureCode::SubmitTimeout
+                || ($this->failure_code === FailureCode::Internal
+                    && ($this->pixelforge_id !== null || $this->submitWasInDoubt())));
     }
 
     /**

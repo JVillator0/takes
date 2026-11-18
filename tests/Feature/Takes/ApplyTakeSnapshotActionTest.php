@@ -212,6 +212,40 @@ describe('orphan success vs conflict', function (): void {
             ->and($usage->absorbed_cost_nanos)->toBeNull();
     });
 
+    it('flags an unpriced orphan without its cost when asked to, and prices it once rates arrive', function (): void {
+        $take = Takes::pendingWithHold(['last_submit_error_kind' => SubmitErrorKind::Ambiguous]);
+        app(FailTakeAction::class)->execute($take, FailureCode::SubmitTimeout, 'Submit window expired.');
+        $unpriced = rebuildSnapshot(Takes::snapshot($take, 'succeeded'), ['rates' => null]);
+
+        // What ReconcileTakeAction does when even the fetched generation has no rates.
+        expect(app(ApplyTakeSnapshotAction::class)->execute($take, $unpriced, flagUnpricedOrphan: true))->toBe(TransitionOutcome::OrphanSuccess);
+
+        $usage = Takes::usage($take);
+
+        expect($take->refresh()->attention_reason)->toBe(AttentionReason::OrphanSuccess)
+            ->and($take->pixelforge_id)->toBe($unpriced->id)
+            ->and($usage->status)->toBe(UsageStatus::Voided)
+            ->and($usage->flags)->toBe(['orphan'])
+            ->and($usage->absorbed_cost_nanos)->toBeNull()
+            ->and($usage->billing_date)->toBeNull()
+            ->and(chargeCount())->toBe(0);
+
+        // A later snapshot with rates still prices it.
+        applySnapshot($take, Takes::snapshot($take, 'succeeded'));
+
+        expect(Takes::usage($take)->absorbed_cost_nanos)->toBe(305_510_000)
+            ->and(Takes::usage($take)->flags)->toBe(['orphan']);
+    });
+
+    it('still refuses to settle without rates when asked to flag an unpriced orphan', function (): void {
+        $take = Takes::in('processing');
+
+        expect(fn () => app(ApplyTakeSnapshotAction::class)->execute($take, rebuildSnapshot(Takes::snapshot($take, 'succeeded'), ['rates' => null]), flagUnpricedOrphan: true))
+            ->toThrow(SnapshotRatesMissingException::class)
+            ->and($take->refresh()->status)->toBe(TakeStatus::Processing)
+            ->and(Takes::usage($take)->status)->toBe(UsageStatus::Open);
+    });
+
     it('re-flags an already priced orphan whose replay has no rates, without throwing', function (): void {
         $take = Takes::pendingWithHold(['last_submit_error_kind' => SubmitErrorKind::Ambiguous]);
         app(FailTakeAction::class)->execute($take, FailureCode::SubmitTimeout, 'Submit window expired.');
