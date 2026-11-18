@@ -419,9 +419,11 @@ const renameForm = useForm({ name: props.project.name });
 
 /* Rename opens from a menu item; focus returns to the menu trigger (F-20). */
 const renameFocus = useReturnFocus();
+/* A ref, not an id: reka's DropdownMenuTrigger owns the trigger's id (aria-labelledby). */
+const projectActions = ref<{ $el: HTMLElement } | null>(null);
 
 const startRename = (): void => {
-    renameFocus.remember(document.getElementById('project-actions'));
+    renameFocus.remember(projectActions.value?.$el ?? null);
     renameForm.name = props.project.name;
     renameForm.clearErrors();
     renaming.value = true;
@@ -603,7 +605,7 @@ const canPurchase = computed(
                         <DropdownMenu v-if="canManage">
                             <DropdownMenuTrigger as-child>
                                 <Button
-                                    id="project-actions"
+                                    ref="projectActions"
                                     variant="ghost"
                                     size="icon"
                                     class="size-8 shrink-0"

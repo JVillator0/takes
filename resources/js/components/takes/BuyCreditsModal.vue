@@ -23,7 +23,7 @@ import type { CreditPack } from '@/types';
  */
 const page = usePage();
 const { t } = useCopy();
-const { isOpen, opener, close } = useBuyCredits();
+const { isOpen, opener, onCloseAutoFocus, close } = useBuyCredits();
 
 const packs = computed<CreditPack[]>(() => page.props.creditPacks ?? []);
 const selected = ref<CreditPack | null>(null);
@@ -33,9 +33,8 @@ const selected = ref<CreditPack | null>(null);
  * after a pack, the purchase dialog does that on its own close (F-20).
  */
 const onChooserCloseAutoFocus = (event: Event): void => {
-    if (selected.value === null && opener.value?.isConnected) {
-        event.preventDefault();
-        opener.value.focus();
+    if (selected.value === null) {
+        onCloseAutoFocus(event);
     }
 };
 
