@@ -57,7 +57,7 @@ const onClick = (): void => {
                     @click="onClick"
                     data-slot="balance-pill"
                     :class="[
-                        'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border bg-background px-3 text-sm whitespace-nowrap tabular-nums outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+                        'inline-flex h-8 shrink-0 items-center gap-1 rounded-full border bg-background px-2 text-sm whitespace-nowrap tabular-nums outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:gap-1.5 sm:px-3',
                         leads
                             ? 'cursor-pointer hover:bg-accent'
                             : 'cursor-help',
@@ -81,8 +81,11 @@ const onClick = (): void => {
                         <strong class="font-semibold">
                             {{ balance.available }}
                         </strong>
-                        <span class="text-muted-foreground">·</span>
-                        <span class="text-muted-foreground">
+                        <span class="text-muted-foreground" aria-hidden="true"
+                            >·</span
+                        >
+                        <!-- Phones: the words give way first; the sr-only label and the tooltip keep them. -->
+                        <span class="hidden text-muted-foreground sm:inline">
                             {{ t('billing.on_hold') }}
                         </span>
                         <span>{{ balance.onHold }}</span>

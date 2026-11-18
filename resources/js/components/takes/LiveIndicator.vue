@@ -40,7 +40,7 @@ const { t } = useCopy();
             />
             <span
                 aria-hidden="true"
-                class="min-w-0 truncate text-amber-800 sm:hidden dark:text-amber-200"
+                class="shrink-0 whitespace-nowrap text-amber-800 sm:hidden dark:text-amber-200"
             >
                 {{ t('takes.connection.reconnecting_short') }}
             </span>
