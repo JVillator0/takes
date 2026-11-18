@@ -124,7 +124,7 @@ final class Take extends Model
      * RecordSubmitAttemptAction resets the kind to null before every call).
      * Both columns change only while the take is pending, so on a failed take
      * this is a fact frozen at failure time. SubmitTakeJob uses it to pick
-     * submit_timeout over provider_busy; mayHideAGeneration() to tell an
+     * submit_timeout over provider_busy; failureMayHideAGeneration() to tell an
      * orphan success from a conflict after an internal failure.
      * A definite rejection of a counted attempt (e.g. a 401 that fails the
      * take internal) also leaves kind null with attempts > 0 and reads as in

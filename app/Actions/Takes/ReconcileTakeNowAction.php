@@ -32,7 +32,7 @@ final readonly class ReconcileTakeNowAction
     {
         $statusBefore = $take->status;
 
-        $result = $this->reconcileTake->execute($take);
+        $result = $this->reconcileTake->execute($take, operator: true);
 
         $take->refresh();
 

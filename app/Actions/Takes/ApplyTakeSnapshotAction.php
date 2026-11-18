@@ -92,11 +92,14 @@ final readonly class ApplyTakeSnapshotAction
             // neither a settlement nor an orphan's absorbed cost not yet
             // recorded (#102). Checked before any write: the caller fetches the
             // generation (GET /v1/generations/{id}, outside any transaction)
-            // and applies that. If even the fetched generation has no rates,
-            // the caller may still record the orphan, without its cost
-            // (never settled: a settlement without rates always throws).
+            // and applies that. An orphan may still be recorded without its
+            // cost: when the caller asks (the webhook's signed snapshot, or a
+            // fetched generation without rates either), and on a retry once
+            // the usage already carries the orphan flag, which is then
+            // acknowledged instead of answering 5xx again. A settlement
+            // without rates always throws.
             if ($snapshot->status === TakeStatus::Succeeded && $snapshot->rates === null && $this->wouldPrice($take, $outcome)
-                && ! ($flagUnpricedOrphan && $outcome === TransitionOutcome::OrphanSuccess)) {
+                && ! ($outcome === TransitionOutcome::OrphanSuccess && ($flagUnpricedOrphan || $this->isFlaggedOrphan($take)))) {
                 throw new SnapshotRatesMissingException($take->id, $snapshot->id);
             }
 
@@ -137,6 +140,12 @@ final readonly class ApplyTakeSnapshotAction
 
             return $outcome;
         });
+    }
+
+    /** The take's usage already carries the `orphan` flag (recorded, maybe without its cost). */
+    private function isFlaggedOrphan(Take $take): bool
+    {
+        return in_array(UsageFlag::Orphan->value, $take->usageRecord()->firstOrFail()->flags, true);
     }
 
     /**
@@ -262,9 +271,9 @@ final readonly class ApplyTakeSnapshotAction
      * `billing:verify --usage` can attribute that day's Pixelforge cost
      * (issue #102). Recorded once: a replay of the same late success finds it.
      * apply() refused an unpriced orphan snapshot without rates unless the
-     * caller asked to flag it anyway (the fetched generation had none
-     * either): then the flags are recorded and the cost stays null, so a
-     * later snapshot with rates can still price it.
+     * caller asked to flag it anyway or it is already flagged: then the flags
+     * are recorded and the cost stays null. Only a snapshot with rates prices
+     * it later (the webhook's one-off fetch, or an operator's Reconcile now).
      */
     private function recordOrphan(Take $take, GenerationSnapshotDTO $snapshot): void
     {

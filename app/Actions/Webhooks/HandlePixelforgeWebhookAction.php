@@ -34,7 +34,10 @@ use Illuminate\Support\Facades\Log;
  * No HTTP here (M-16): a `succeeded` snapshot without `rates` is never
  * settled from cached prices (D-055). ApplyTakeSnapshotAction throws before
  * any write; the delivery answers 5xx (Pixelforge retries) and a one-off
- * reconcile fetches the generation and settles it (D-077(a)).
+ * reconcile fetches the generation and settles it (D-077(a)). For a failed
+ * take that may hide that generation, the orphan is first recorded from this
+ * signed snapshot without its cost, so a rejected fetch (401/404) cannot
+ * lose it, and the retried delivery is acknowledged as `orphan_success`.
  */
 final readonly class HandlePixelforgeWebhookAction
 {
@@ -64,10 +67,30 @@ final readonly class HandlePixelforgeWebhookAction
                 'take_id' => $exception->takeId,
                 'generation_id' => $exception->generationId,
             ]);
+            $this->recordUnpricedOrphan($exception->takeId, $event);
             ReconcileTakeJob::fetchNow($exception->takeId, $exception->generationId);
 
             throw $exception;
         }
+    }
+
+    /**
+     * The late success of a failed take that may hide this generation (an
+     * orphan, M-14): record it now from the signed snapshot, in its own
+     * transaction after the delivery's rolled back, without its cost (never
+     * from cached prices, D-055). The fetch then prices it; if the fetch is
+     * rejected (a revoked key, a 404) the orphan is not lost, and the retried
+     * delivery finds the usage flagged and is acknowledged.
+     */
+    private function recordUnpricedOrphan(string $takeId, PixelforgeWebhookDTO $event): void
+    {
+        $take = Take::query()->find($takeId);
+
+        if ($take === null || $event->snapshot === null || ! $take->failureMayHideAGeneration()) {
+            return;
+        }
+
+        $this->applySnapshot->execute($take, $event->snapshot, flagUnpricedOrphan: true);
     }
 
     private function record(PixelforgeWebhookDTO $event): WebhookOutcome
