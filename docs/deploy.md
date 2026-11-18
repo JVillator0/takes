@@ -52,10 +52,12 @@ Build (the environment's build command):
 
 ```sh
 composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
-npm ci --audit false
+npm ci --include=dev --audit false
 npm run build
 if [ -d app/Filament ]; then php artisan filament:optimize; fi
 ```
+
+`npm ci --include=dev` is required: the Vite build and its plugins (`laravel-vite-plugin`, `@inertiajs/vite`) are devDependencies (D-085), so a build with `NODE_ENV=production` or `--omit=dev` would skip them and fail.
 
 `npm run build` reads the `VITE_REVERB_*` variables that Cloud injects when the WebSocket application is attached. `filament:optimize` runs only once `app/Filament` exists (redeploy 7, D-048).
 
