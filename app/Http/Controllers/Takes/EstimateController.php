@@ -9,7 +9,7 @@ use App\DTOs\Takes\EstimateTakeDTO;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Takes\EstimateTakeRequest;
 use App\Models\Take;
-use App\Queries\Takes\EstimateTakeQuery;
+use App\Queries\Takes\GetTakeEstimateQuery;
 use App\Support\Money\RoundingMode;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Gate;
@@ -24,7 +24,7 @@ use Illuminate\Support\Facades\Gate;
  */
 final class EstimateController extends Controller
 {
-    public function __invoke(EstimateTakeRequest $request, EstimateTakeQuery $estimateTake): JsonResponse
+    public function __invoke(EstimateTakeRequest $request, GetTakeEstimateQuery $estimateTake): JsonResponse
     {
         $estimate = $estimateTake->execute(EstimateTakeDTO::fromRequest($request))->estimate;
 

@@ -185,6 +185,10 @@ it('rejects usage records that break a CHECK constraint', function (array $overr
     'settled without amounts' => [['status' => 'settled', 'billing_date' => '2026-11-17'], 'usage_records_settled_check'],
     'settled without billing date' => [['status' => 'settled', 'provider_cost_nanos' => 100, 'charge_nanos' => 125], 'usage_records_settled_check'],
     'voided with a charge' => [['status' => 'voided', 'provider_cost_nanos' => 0, 'charge_nanos' => 125], 'usage_records_voided_check'],
+    'absorbed cost on an open usage' => [['absorbed_cost_nanos' => 100, 'billing_date' => '2026-11-17'], 'usage_records_absorbed_check'],
+    'absorbed cost on a settled usage' => [['status' => 'settled', 'provider_cost_nanos' => 100, 'charge_nanos' => 125, 'absorbed_cost_nanos' => 100, 'billing_date' => '2026-11-17'], 'usage_records_absorbed_check'],
+    'negative absorbed cost' => [['status' => 'voided', 'provider_cost_nanos' => 0, 'charge_nanos' => 0, 'absorbed_cost_nanos' => -1, 'billing_date' => '2026-11-17'], 'usage_records_absorbed_check'],
+    'absorbed cost without a billing date' => [['status' => 'voided', 'provider_cost_nanos' => 0, 'charge_nanos' => 0, 'absorbed_cost_nanos' => 100], 'usage_records_absorbed_check'],
 ]);
 
 it('allows one usage record per billable', function (): void {

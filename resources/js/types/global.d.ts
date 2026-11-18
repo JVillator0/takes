@@ -25,7 +25,7 @@ declare module '@inertiajs/core' {
         sharedPageProps: {
             name: string;
             auth: Auth;
-            pixelforge: { configured: boolean };
+            imageService: { configured: boolean };
             /** True when the server broadcasts over Reverb (spec 5). */
             broadcasting: { live: boolean };
             sidebarOpen: boolean;

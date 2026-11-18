@@ -38,16 +38,26 @@ No CI or compose pin had to change.
 
 **Monthly projection:** plan $5 + Reverb $5 + compute, database and queue ≈ $1 – 3 (all scale to zero) ≈ **$11 – 13**, less the $5 usage credit. The organization's spend alert is set at **$15**, notify only (`cloud usage --json -n` reports `alert.thresholdCents = 1500`); the CLI has no command to create further alerts.
 
+**Spend readings** (`cloud usage --json -n` and `cloud usage --detailed --json -n`; the Cloud API exposes the same usage payload):
+
+| Reading (UTC) | Spend this period | Breakdown | Alert |
+|---|---|---|---|
+| 2026-11-18 00:35 (day one, about 4 h after the first deploy, after the production smoke test) | **$0.10**, all covered by the $5.00 usage credit ($0.10 used) | Reverb $0.04, Serverless Postgres $0.02, application compute and queue $0.04, bucket $0.00 | $15.00 threshold, 99 % remaining |
+
+The 24 h and 48 h readings that spec 9's acceptance asks for cannot exist on day one; they are taken on 2026-11-18 and 2026-11-19 with the same command and added to this table. The CLI figure is usage only; it does not say whether the $5 plan fee is included.
+
 ## Build and deploy commands
 
 Build (the environment's build command):
 
 ```sh
 composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
-npm ci --audit false
+npm ci --include=dev --audit false
 npm run build
 if [ -d app/Filament ]; then php artisan filament:optimize; fi
 ```
+
+`npm ci --include=dev` is required: the Vite build and its plugins (`laravel-vite-plugin`, `@inertiajs/vite`) are devDependencies (D-085), so a build with `NODE_ENV=production` or `--omit=dev` would skip them and fail.
 
 `npm run build` reads the `VITE_REVERB_*` variables that Cloud injects when the WebSocket application is attached. `filament:optimize` runs only once `app/Filament` exists (redeploy 7, D-048).
 

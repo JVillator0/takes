@@ -19,7 +19,7 @@ use App\Support\Money\RoundingMode;
  */
 final class GetSmallestTakeQuery
 {
-    public function __construct(private readonly EstimateTakeQuery $estimateTake) {}
+    public function __construct(private readonly GetTakeEstimateQuery $estimateTake) {}
 
     public function execute(Nanodollars $available): SmallestTakeDTO
     {

@@ -70,8 +70,9 @@ final class HandleInertiaRequests extends Middleware
                 'can' => $this->abilities($this->customer($request)),
             ],
             // Only the boolean, never the key (spec 3-04 issue 4). Spec 4 shows the
-            // "service not configured" banner and disables submit when false.
-            'pixelforge' => [
+            // "service not configured" banner and disables submit when false. A
+            // neutral name: customer props never name the provider (M-23, #138).
+            'imageService' => [
                 'configured' => app(PixelforgeClient::class)->isConfigured(),
             ],
             // Live take status (spec 5, D-028): the client listens on the socket

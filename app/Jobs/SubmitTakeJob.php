@@ -73,8 +73,8 @@ final class SubmitTakeJob implements ShouldBeUnique, ShouldQueue
 
     /**
      * Minimum wait after a capacity answer grows by this much per API attempt
-     * (20, 40, 60 … s), so one take waiting for capacity makes at most about
-     * three calls a minute against the shared 60 rpm budget (#149).
+     * (20, 40, 60 … s), so one take waiting for capacity makes at most two
+     * calls in any minute against the shared 60 rpm budget (#149).
      */
     public const int CAPACITY_BACKOFF_STEP_SECONDS = 20;
 

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Actions\Billing\GrantWelcomeCreditAction;
 use App\Enums\Auth\CustomerRole;
 use App\Enums\Auth\DemoAccount;
 use App\Enums\Billing\LedgerEntryType;
@@ -13,6 +14,7 @@ use App\Models\Purchase;
 use App\Models\Take;
 use App\Models\UsageRecord;
 use Database\Seeders\DemoAccountsSeeder;
+use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
@@ -151,4 +153,19 @@ it('backfills the invoice of a paid purchase that has none, once, oldest payment
         ->and($older->invoice()->sole()->number)->toBe('INV-2026-000001')
         ->and($newer->invoice()->sole()->number)->toBe('INV-2026-000002')
         ->and(DB::table('invoice_counters')->where('year', 2026)->value('last_number'))->toBe(2);
+});
+
+it('fails loudly instead of adopting a demo address someone registered first (D-072, #111)', function (): void {
+    $this->seed(RolesAndPermissionsSeeder::class);
+    $squatter = Customer::factory()->create(['email' => DemoAccount::Showcase->email(), 'password' => 'squatter-secret']);
+    $squatter->assignRole(CustomerRole::Customer->value);
+    config(['takes.welcome_credit_nanos' => 1_000_000_000]);
+    app(GrantWelcomeCreditAction::class)->execute($squatter);
+
+    expect(fn () => $this->seed(DemoAccountsSeeder::class))
+        ->toThrow(RuntimeException::class, DemoAccount::Showcase->email());
+
+    // Nothing was adopted: the squatter keeps its own password and role.
+    expect(Hash::check('password', $squatter->refresh()->password))->toBeFalse()
+        ->and($squatter->getRoleNames()->all())->toBe(['customer']);
 });
