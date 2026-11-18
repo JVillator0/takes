@@ -41,7 +41,7 @@ final class TakesRelationManager extends RelationManager
 
     public function table(Table $table): Table
     {
-        return TakesTable::configure($table)
+        return TakesTable::configure($table, scopedToProject: true)
             ->modifyQueryUsing(fn ($query) => $query->with(['customer', 'project', 'usageRecord']))
             ->recordUrl(fn (Take $record): string => TakeResource::getUrl('view', ['record' => $record]));
     }

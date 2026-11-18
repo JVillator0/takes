@@ -12,6 +12,7 @@ use App\Filament\Admin\Clusters\Providers\ProvidersCluster;
 use App\Filament\Admin\Clusters\Studio\StudioCluster;
 use App\Filament\Admin\Pages\Dashboard;
 use App\Filament\Admin\Resources\Customers\CustomerResource;
+use App\Filament\Admin\Resources\Users\UserResource;
 use App\Http\Controllers\Admin\ExportBillingReportController;
 use App\Http\Middleware\EnsureAdminMultiFactorAuthentication;
 use App\Http\Middleware\SweepStaleTakes;
@@ -116,6 +117,7 @@ final class AdminPanelProvider extends PanelProvider
                     ...self::navigationItemsOf(ProvidersCluster::class),
                 ]))
                 ->group(NavigationGroup::make(__('console.groups.system'))->collapsible()->items([
+                    ...self::navigationItemsOf(UserResource::class),
                     ...self::navigationItemsOf(RoleResource::class),
                     ...self::navigationItemsOf(AdminAuditResource::class),
                 ])))
@@ -200,7 +202,8 @@ final class AdminPanelProvider extends PanelProvider
 
     /**
      * The super admin's `Gate::before`: true for every ability, except writes on a role or an audit entry and the
-     * audit's restore, which are false for everyone (the console defines roles in code and never edits its audit).
+     * audit's restore, which are false for everyone (the console defines roles in code and never edits its audit),
+     * and deleting an admin, which UserPolicy decides (D-086).
      *
      * @param  array<int, mixed>  $arguments
      */
@@ -216,6 +219,11 @@ final class AdminPanelProvider extends PanelProvider
         // The activity-log plugin authorizes its restore actions with this ability and no subject.
         if ($ability === self::AUDIT_RESTORE_ABILITY) {
             return false;
+        }
+
+        // Deleting an admin is left to UserPolicy, even for the super admin: never yourself, never the last one.
+        if ($subjectClass === User::class && in_array($ability, ['delete', 'deleteAny'], true)) {
+            return null;
         }
 
         return $user instanceof User && $user->hasRole(AdminRole::SuperAdmin->value) ? true : null;

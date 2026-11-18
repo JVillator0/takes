@@ -215,9 +215,9 @@ it('gates both tabs on the customer permission alone', function (): void {
 it('keeps the customer stats off the dashboard', function (): void {
     $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
 
-    // The panel discovers the widget (so Shield gives it a permission), but the dashboard lists none.
+    // The panel discovers the widget (so Shield gives it a permission), but the dashboard lists only its own.
     expect(Filament::getPanel('admin')->getWidgets())->toContain(CustomerStatsOverview::class)
-        ->and(Livewire::test(Dashboard::class)->instance()->getWidgets())->toBe([]);
+        ->and(Livewire::test(Dashboard::class)->instance()->getWidgets())->not->toContain(CustomerStatsOverview::class);
 });
 
 it('restricts and unrestricts a customer with a reason, audited', function (): void {

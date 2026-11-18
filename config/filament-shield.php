@@ -11,6 +11,7 @@ use App\Filament\Admin\Clusters\Studio\Resources\Takes\TakeResource;
 use App\Filament\Admin\Clusters\Studio\StudioCluster;
 use App\Filament\Admin\Pages\Dashboard;
 use App\Filament\Admin\Resources\Customers\CustomerResource;
+use App\Filament\Admin\Resources\Users\UserResource;
 use BezhanSalleh\FilamentShield\Resources\Roles\RoleResource;
 use Filament\Widgets\AccountWidget;
 use Filament\Widgets\FilamentInfoWidget;
@@ -205,6 +206,9 @@ return [
             ProjectResource::class => ['viewAny', 'view'],
             TakeResource::class => ['viewAny', 'view'],
             WebhookDeliveryResource::class => ['viewAny', 'view'],
+            // System › Admins (D-086): the write keys exist so Shield shows them, but no role holds them; only the
+            // super admin writes, through Gate::before (UserPolicy decides delete).
+            UserResource::class => ['viewAny', 'view', 'create', 'update', 'delete'],
         ],
         'exclude' => [
             //
