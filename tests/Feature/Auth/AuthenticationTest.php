@@ -56,6 +56,19 @@ it('logs a customer out', function (): void {
     $this->assertGuest('customer');
 });
 
+it('signs out straight to an allow-listed page, and home for anything else (showcase notice, D-072)', function (?string $to, string $expected): void {
+    $this->actingAs(Customer::factory()->create(), 'customer')
+        ->post(route('logout'), $to === null ? [] : ['to' => $to])
+        ->assertRedirect(route($expected));
+
+    $this->assertGuest('customer');
+})->with([
+    'demo panel' => ['login', 'login'],
+    'register' => ['register', 'register'],
+    'unknown target' => ['https://evil.example', 'home'],
+    'no target' => [null, 'home'],
+]);
+
 it('rate limits sign-in attempts', function (): void {
     $customer = Customer::factory()->create();
 

@@ -4,13 +4,15 @@ import { Info } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import { Button } from '@/components/ui/button';
 import { useCopy } from '@/composables/useCopy';
-import { login, logout, register } from '@/routes';
+import { logout } from '@/routes';
 
 /**
  * P03/P04 notice for the read-only showcase login (D-072): it browses real
  * history but cannot create, so the page says so and offers the two ways
  * to generate. Both sign the shared account out first (the demo panel and
- * registration are for guests), then open the P02 demo panel or Register.
+ * registration are for guests); the server's sign-out redirects straight
+ * to the allow-listed P02 demo panel or Register (`to`), replacing the
+ * history entry, so the landing page never flashes in between.
  */
 const page = usePage();
 const { t } = useCopy();
@@ -18,13 +20,13 @@ const { t } = useCopy();
 const readOnly = computed(() => page.props.auth.customer?.read_only === true);
 const leaving = ref(false);
 
-const signOutTo = (target: string): void => {
+const signOutTo = (to: 'login' | 'register'): void => {
     leaving.value = true;
     router.post(
         logout().url,
-        {},
+        { to },
         {
-            onSuccess: () => router.visit(target),
+            replace: true,
             onFinish: () => {
                 leaving.value = false;
             },
@@ -49,7 +51,7 @@ const signOutTo = (target: string): void => {
                 size="sm"
                 variant="outline"
                 :disabled="leaving"
-                @click="signOutTo(login().url)"
+                @click="signOutTo('login')"
             >
                 {{ t('landing.hero.demo') }}
             </Button>
@@ -57,7 +59,7 @@ const signOutTo = (target: string): void => {
                 size="sm"
                 variant="outline"
                 :disabled="leaving"
-                @click="signOutTo(register().url)"
+                @click="signOutTo('register')"
             >
                 {{ t('takes.showcase.register') }}
             </Button>
