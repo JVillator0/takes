@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Exceptions\Billing;
 
+use App\Support\Database\TransactionBaseline;
 use Illuminate\Support\Facades\DB;
 use LogicException;
 
@@ -16,16 +17,14 @@ use LogicException;
 final class TransactionNotAllowedException extends LogicException
 {
     /**
-     * Transactions opened by an outer test harness, not by the application:
-     * RefreshDatabase wraps every Feature test in one (tests/Pest.php sets
-     * this per test). Always 0 in the application.
+     * Transactions opened outside the application (TransactionBaseline: 0 in
+     * the application, RefreshDatabase's level in a Feature test) do not count.
+     *
+     * @param  class-string  $operation
      */
-    public static int $harnessLevel = 0;
-
-    /** @param  class-string  $operation */
     public static function unlessNoTransaction(string $operation): void
     {
-        if (DB::transactionLevel() > self::$harnessLevel) {
+        if (DB::transactionLevel() > app(TransactionBaseline::class)->level) {
             throw new self("{$operation} calls a provider and must run with no database transaction open.");
         }
     }

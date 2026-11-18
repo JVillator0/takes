@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use App\Exceptions\Billing\TransactionNotAllowedException;
+use App\Support\Database\TransactionBaseline;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -22,8 +22,7 @@ use Tests\TestCase;
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
     // RefreshDatabase's own transaction is not the application's (money rule M-16 guard).
-    ->beforeEach(fn () => TransactionNotAllowedException::$harnessLevel = DB::transactionLevel())
-    ->afterEach(fn () => TransactionNotAllowedException::$harnessLevel = 0)
+    ->beforeEach(fn () => app()->instance(TransactionBaseline::class, new TransactionBaseline(DB::transactionLevel())))
     ->in('Feature');
 
 pest()->extend(TestCase::class)
