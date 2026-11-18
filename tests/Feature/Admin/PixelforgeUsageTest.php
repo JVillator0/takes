@@ -8,6 +8,7 @@ use App\Enums\Takes\TakeStatus;
 use App\Events\TakeUpdated;
 use App\Exceptions\Pixelforge\AdminRequestBudgetExhaustedException;
 use App\Filament\Admin\Clusters\Providers\Pages\PixelforgeUsage;
+use App\Filament\Admin\Clusters\Providers\Widgets\PixelforgeDiscrepancies;
 use App\Filament\Admin\Clusters\Studio\Resources\Takes\TakeResource;
 use App\Models\Take;
 use App\Models\UsageRecord;
@@ -17,6 +18,7 @@ use App\Queries\Billing\ListPixelforgeDayDiscrepanciesQuery;
 use App\Support\Pixelforge\AdminRequestBudget;
 use Carbon\CarbonImmutable;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
@@ -26,6 +28,7 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
+use Spatie\Activitylog\Models\Activity;
 use Tests\Support\PixelforgeFixture;
 use Tests\Support\Takes;
 
@@ -257,18 +260,28 @@ it('renders for the auditor with 9-decimal costs, the summary and Find takes on 
     ]);
     $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
 
-    Livewire::test(PixelforgeUsage::class)
+    $page = Livewire::test(PixelforgeUsage::class)
         ->assertOk()
-        ->assertSee('0.611020000')
-        ->assertSee('-0.305510000')
+        ->assertCanSeeTableRecords(['2026-11-17', '2026-11-15', '2026-11-04'])
+        ->assertTableColumnStateSet('theirs', '0.611020000', '2026-11-15')
+        ->assertTableColumnStateSet('difference', '-0.305510000', '2026-11-15')
+        ->assertTableColumnStateSet('status', 'Mismatch', '2026-11-15')
+        ->assertTableColumnStateSet('status', 'Match', '2026-11-16')
         ->assertSee('12 of 13 closed days match')
-        ->assertSee('Mismatch')
         ->assertSee('Billing day = the UTC day the generation completed')
-        ->callAction('findTakes', arguments: ['date' => '2026-11-15'])
-        ->assertSee('Theirs, not ours (1)')
-        ->assertSee('gen_b')
-        ->callAction('refresh')
-        ->assertSet('findResult', null);
+        ->assertActionVisible(TestAction::make('findTakes')->table('2026-11-15'))
+        ->assertActionHidden(TestAction::make('findTakes')->table('2026-11-16'))
+        ->callAction(TestAction::make('findTakes')->table('2026-11-15'));
+
+    expect($page->get('findResult')['groups']['theirs_not_ours'] ?? [])->toHaveCount(1);
+
+    Livewire::test(PixelforgeDiscrepancies::class, ['findResult' => $page->get('findResult')])
+        ->assertSee('Find takes · 2026-11-15')
+        ->assertTableColumnStateSet('group_label', 'Theirs, not ours', 'theirs_not_ours-0')
+        ->assertTableColumnStateSet('generation', 'gen_b', 'theirs_not_ours-0')
+        ->assertActionHidden(TestAction::make('reconcile')->table('theirs_not_ours-0'));
+
+    $page->callAction('refresh')->assertSet('findResult', null);
 });
 
 it('runs Find takes only for a Mismatch day of the current range, and reports a provider error', function (): void {
@@ -282,11 +295,8 @@ it('runs Find takes only for a Mismatch day of the current range, and reports a 
     $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
 
     Livewire::test(PixelforgeUsage::class)
-        ->callAction('findTakes', arguments: ['date' => '2026-11-16'])
-        ->assertNotified('Find takes runs only for a Mismatch day of the current range.')
-        ->callAction('findTakes', arguments: ['date' => 'not-a-date'])
-        ->assertNotified('Find takes runs only for a Mismatch day of the current range.')
-        ->callAction('findTakes', arguments: ['date' => '2026-11-15'])
+        ->assertActionHidden(TestAction::make('findTakes')->table('2026-11-16'))
+        ->callAction(TestAction::make('findTakes')->table('2026-11-15'))
         ->assertNotified('Could not reach Pixelforge.')
         ->assertSet('findResult', null);
 
@@ -298,14 +308,15 @@ it('keeps the last valid range and shows an error for an invalid one', function 
     $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
 
     Livewire::test(PixelforgeUsage::class)
-        ->set('from', '2026-01-01')
-        ->assertHasErrors(['from'])
+        ->fillForm(['from' => '2026-01-01'])
+        ->assertHasFormErrors(['from'])
         ->assertSet('rangeFrom', '2026-11-04')
-        ->set('from', '2026-13-40')
-        ->assertHasErrors(['from'])
-        ->set('from', '2026-11-10')
-        ->assertHasNoErrors()
-        ->assertSet('rangeFrom', '2026-11-10');
+        ->fillForm(['from' => null])
+        ->assertHasFormErrors(['from'])
+        ->fillForm(['from' => '2026-11-10'])
+        ->assertHasNoFormErrors()
+        ->assertSet('rangeFrom', '2026-11-10')
+        ->assertCanNotSeeTableRecords(['2026-11-09']);
 });
 
 it('is hidden from an admin without the page permission', function (): void {
@@ -460,7 +471,7 @@ it('notifies instead of refreshing or finding when the admin budget is spent', f
     RateLimiter::increment(AdminRequestBudget::KEY, 60, AdminRequestBudget::PER_MINUTE);
 
     $page->callAction('refresh')->assertNotified()
-        ->callAction('findTakes', arguments: ['date' => '2026-11-15'])->assertNotified()
+        ->callAction(TestAction::make('findTakes')->table('2026-11-15'))->assertNotified()
         ->assertSet('findResult', null);
     Http::assertSentCount(1);
 });
@@ -473,7 +484,7 @@ it('locks the applied range and the drill-down result against client writes, and
     expect(fn () => $page->set('rangeFrom', 'not-a-date'))->toThrow(CannotUpdateLockedPropertyException::class)
         ->and(fn () => $page->set('findResult', ['date' => 'x']))->toThrow(CannotUpdateLockedPropertyException::class);
 
-    $page->set('from', '')->set('until', '2026-11-16')->assertHasErrors(['from'])->assertHasNoErrors(['until']);
+    $page->fillForm(['from' => null, 'until' => '2026-11-16'])->assertHasFormErrors(['from'])->assertHasNoFormErrors(['until']);
 });
 
 it('offers Reconcile now on drill-down rows of open takes to operators, never on orphan rows', function (): void {
@@ -496,17 +507,39 @@ it('offers Reconcile now on drill-down rows of open takes to operators, never on
     ]);
     $this->actingAs(User::factory()->admin(AdminRole::Operator)->withAppAuthentication()->create());
 
-    $page = Livewire::test(PixelforgeUsage::class)->callAction('findTakes', arguments: ['date' => '2026-11-15']);
+    $page = Livewire::test(PixelforgeUsage::class)->callAction(TestAction::make('findTakes')->table('2026-11-15'));
+    $findResult = $page->get('findResult');
+    $keyOf = function (string $group, string $generation) use ($findResult): string {
+        $index = collect($findResult['groups'][$group])->search(fn (array $row): bool => $row['generation'] === $generation);
+        expect($index)->not->toBeFalse();
 
-    expect($page->instance()->canReconcileRow('ours_not_settled', ['generation' => (string) $open->pixelforge_id, 'take' => $open->id, 'theirs' => '-', 'ours' => '-']))->toBeTrue()
-        ->and($page->instance()->canReconcileRow('orphan_success', ['generation' => 'gen_orphan_row', 'take' => $orphan->id, 'theirs' => '-', 'ours' => '-']))->toBeFalse();
+        return $group.'-'.$index;
+    };
+    $openKey = $keyOf('ours_not_settled', (string) $open->pixelforge_id);
+    $orphanKey = $keyOf('orphan_success', 'gen_orphan_row');
 
-    $page->assertSeeHtml(TakeResource::getUrl('view', ['record' => $open->id]))
-        ->callAction('reconcileRow', arguments: ['take' => $open->id])
+    Livewire::test(PixelforgeDiscrepancies::class, ['findResult' => $findResult])
+        ->assertSeeHtml(TakeResource::getUrl('view', ['record' => $open->id]))
+        ->assertActionVisible(TestAction::make('reconcile')->table($openKey))
+        ->assertActionHidden(TestAction::make('reconcile')->table($orphanKey))
+        ->callAction(TestAction::make('reconcile')->table($openKey))
         ->assertNotified();
 
-    expect($open->refresh()->status)->toBe(TakeStatus::Succeeded);
+    expect($open->refresh()->status)->toBe(TakeStatus::Succeeded)
+        ->and(Activity::query()->where('event', 'reconciled')->where('subject_id', $open->id)->exists())->toBeTrue();
 
     $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
-    Livewire::test(PixelforgeUsage::class)->assertActionHidden('reconcileRow');
+    Livewire::test(PixelforgeDiscrepancies::class, ['findResult' => $findResult])
+        ->assertActionHidden(TestAction::make('reconcile')->table($openKey));
+});
+
+it('renders the page over HTTP as native Filament components, with the outage as a callout', function (): void {
+    Http::fake(['pixelforge.test/v1/usage*' => Http::response(['error' => ['type' => 'api_error', 'code' => 'internal_error', 'message' => 'down']], 503)]);
+
+    $html = (string) $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create())
+        ->get(PixelforgeUsage::getUrl())->assertOk()->getContent();
+
+    expect($html)->toContain('fi-ta-table')
+        ->toContain('fi-callout')
+        ->toContain('Could not reach Pixelforge.');
 });

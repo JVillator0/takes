@@ -8,6 +8,8 @@ use App\Enums\Auth\AdminRole;
 use App\Enums\Billing\LedgerEntryType;
 use App\Enums\Billing\Provider;
 use App\Filament\Admin\Clusters\Billing\Pages\Reports;
+use App\Filament\Admin\Clusters\Billing\Widgets\BillingReportStats;
+use App\Filament\Admin\Clusters\Providers\Pages\PixelforgeUsage;
 use App\Models\Customer;
 use App\Models\LedgerEntry;
 use App\Models\Take;
@@ -120,20 +122,22 @@ it('totals equal the settled usage by customer and filter by customer and provid
 });
 
 it('renders the report for the auditor with the margin check and the dash on an empty day', function (): void {
-    reportDataset();
+    ['ana' => $ana] = reportDataset();
     $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
 
     Livewire::test(Reports::class)
         ->assertOk()
-        ->assertSee('20.0%')
-        ->assertSee('$0.0740375')
-        ->assertSeeHtml('data-testid="margin-2026-11-15">-</td>')
-        ->assertSeeHtml('data-testid="margin-2026-11-16">20.0%</td>')
+        ->assertCanSeeTableRecords(['2026-11-17', '2026-11-16', '2026-11-15'])
+        ->assertTableColumnStateSet('margin_bps', '-', '2026-11-15')
+        ->assertTableColumnStateSet('margin_bps', '20.0%', '2026-11-16')
+        ->assertTableColumnFormattedStateSet('spend_nanos', '$0.0740375', '2026-11-16')
+        ->assertTableColumnHidden('share_bps')
         ->assertActionHidden('exportCsv')
-        ->set('groupBy', 'customer')
-        ->assertSee('Ana López')
-        ->set('from', '2026-01-01')
-        ->set('until', '2026-01-31')
+        ->fillForm(['group_by' => 'customer'])
+        ->assertTableColumnStateSet('label', 'Ana López', (string) $ana->id)
+        ->assertTableColumnVisible('share_bps')
+        ->fillForm(['from' => '2026-01-01', 'until' => '2026-01-31'])
+        ->assertCountTableRecords(0)
         ->assertSee('No settled usage in this range');
 
     Http::assertNothingSent();
@@ -184,17 +188,18 @@ it('keeps the last valid range and reports a lang error for an invalid one, neve
     $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
 
     Livewire::test(Reports::class)
-        ->set('from', '')
-        ->assertHasErrors(['from'])
-        ->assertSet('rangeFrom', '2026-10-19')
-        ->set('from', '2025-01-01')
-        ->assertHasErrors(['from'])
-        ->set('from', '2026-11-20')
-        ->assertHasErrors(['from'])
-        ->assertSee('2026-11-16')
-        ->set('from', '2026-11-16')
-        ->assertHasNoErrors()
-        ->assertSet('rangeFrom', '2026-11-16');
+        ->fillForm(['from' => null])
+        ->assertHasFormErrors(['from'])
+        ->assertSet('filters.from', '2026-10-19')
+        ->fillForm(['from' => '2025-01-01'])
+        ->assertHasFormErrors(['from'])
+        ->fillForm(['from' => '2026-11-20'])
+        ->assertHasFormErrors(['from'])
+        ->assertCanSeeTableRecords(['2026-11-16'])
+        ->fillForm(['from' => '2026-11-16'])
+        ->assertHasNoFormErrors()
+        ->assertSet('filters.from', '2026-11-16')
+        ->assertCanNotSeeTableRecords(['2026-11-15']);
 });
 
 it('lets the operator pick a customer and go back to all customers', function (): void {
@@ -202,13 +207,13 @@ it('lets the operator pick a customer and go back to all customers', function ()
     $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
 
     Livewire::test(Reports::class)
-        ->set('groupBy', 'customer')
-        ->set('customer', (string) $ana->id)
-        ->assertSeeHtml('wire:key="row-'.$ana->id.'"')
-        ->assertDontSeeHtml('wire:key="row-'.$bob->id.'"')
-        ->set('customer', '')
+        ->fillForm(['group_by' => 'customer', 'customer' => $ana->id])
+        ->assertCanSeeTableRecords([(string) $ana->id])
+        ->assertCanNotSeeTableRecords([(string) $bob->id])
+        ->assertSet('filters.customer_id', $ana->id)
+        ->fillForm(['customer' => null])
         ->assertOk()
-        ->assertSeeHtml('wire:key="row-'.$bob->id.'"');
+        ->assertCanSeeTableRecords([(string) $ana->id, (string) $bob->id]);
 });
 
 it('flags a total margin other than 20.0%', function (): void {
@@ -217,7 +222,14 @@ it('flags a total margin other than 20.0%', function (): void {
     $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
 
     // markup 3000 bps on cost ⇒ margin 3000 / 13000 of spend = 2307 bps.
-    Livewire::test(Reports::class)->assertSeeHtml('text-danger-600 dark:text-danger-400" data-testid="margin-total">23.1%</td>');
+    Livewire::test(Reports::class)
+        ->assertTableColumnStateSet('margin_bps', '23.1%', '2026-11-16')
+        ->assertTableColumnSummarySet('margin_bps', 'total', '23.1%')
+        ->assertSeeHtml('data-invariant="broken"');
+
+    Livewire::test(BillingReportStats::class, ['pageFilters' => ['from' => '2026-10-19', 'until' => '2026-11-17']])
+        ->assertSee('23.1%')
+        ->assertSee('Invariant alert: expected 20.0%');
 });
 
 it('rejects an unordered range, a range over the maximum and an unknown grouping', function (array $data): void {
@@ -310,18 +322,23 @@ it('exports one customer for a customer_id written with a plus sign', function (
     expect(array_unique(array_map(fn (array $line): string => $line[1], array_slice($lines, 1))))->toBe([(string) $ana->id]);
 });
 
-it('finds any customer through the search box, keeping the selected one listed', function (): void {
+it('searches every customer by name or email in the customer select, at most 50 at a time', function (): void {
     Customer::factory()->count(3)->create();
     $zoe = Customer::factory()->create(['name' => 'Zoë Zimmer', 'email' => 'zoe@example.com']);
+
+    expect(array_keys(Reports::searchCustomers('zoe@')))->toBe([$zoe->id])
+        ->and(array_keys(Reports::searchCustomers('Zimmer')))->toBe([$zoe->id]);
+
+    Customer::factory()->count(Reports::CUSTOMER_OPTIONS + 5)->create();
     $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
 
-    $page = Livewire::test(Reports::class)->set('customerSearch', 'zoe@');
+    expect(Reports::searchCustomers(''))->toHaveCount(Reports::CUSTOMER_OPTIONS);
 
-    expect(array_keys($page->instance()->customers()))->toBe([$zoe->id]);
-
-    $page->set('customer', (string) $zoe->id)->set('customerSearch', 'nobody-matches');
-
-    expect(array_keys($page->instance()->customers()))->toBe([$zoe->id]);
+    // A customer beyond the first page of options is still selectable and keeps its label.
+    Livewire::test(Reports::class)
+        ->fillForm(['group_by' => 'customer', 'customer' => $zoe->id])
+        ->assertSet('filters.customer_id', $zoe->id)
+        ->assertSchemaStateSet(['customer' => $zoe->id], 'form');
 });
 
 it('shows the reconciled badge only for a day the cached Pixelforge check matches, with no provider call', function (): void {
@@ -337,8 +354,9 @@ it('shows the reconciled badge only for a day the cached Pixelforge check matche
     $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
 
     Livewire::test(Reports::class)
-        ->assertSeeHtml('data-testid="reconciled-2026-11-16"')
-        ->assertDontSeeHtml('data-testid="reconciled-2026-11-15"');
+        ->assertTableColumnStateSet('reconciled', 'Reconciled', '2026-11-16')
+        ->assertTableColumnStateNotSet('reconciled', 'Reconciled', '2026-11-15')
+        ->assertSeeHtml(PixelforgeUsage::getUrl());
 
     Http::assertNothingSent();
     expect($usage->billing_date?->toDateString())->toBe('2026-11-16');
@@ -374,5 +392,22 @@ it('allocates promo and positive adjustment credits before purchases (D-084), in
         ->and($lines[1][12])->toBe('0.750000000');
 
     $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
-    Livewire::test(Reports::class)->assertSeeHtml('data-testid="promo-total">$1.40</td>');
+    Livewire::test(Reports::class)
+        ->assertTableColumnFormattedStateSet('promo_consumed_nanos', '$0.65', '2026-11-16')
+        ->assertTableColumnSummarySet('promo_consumed_nanos', 'total', '$1.40');
+
+    Livewire::test(BillingReportStats::class, ['pageFilters' => ['from' => '2026-10-19', 'until' => '2026-11-17']])
+        ->assertSee('$1.40');
+});
+
+it('renders the page over HTTP as native Filament components: filters form, stats and table', function (): void {
+    reportDataset();
+
+    $html = (string) $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create())
+        ->get(Reports::getUrl())->assertOk()->getContent();
+
+    expect($html)->toContain('fi-ta-table')
+        ->toContain('fi-wi-stats-overview')
+        ->toContain('fi-fo-toggle-buttons')
+        ->toContain('$0.0740375');
 });

@@ -6,67 +6,96 @@ namespace App\Filament\Admin\Clusters\Billing\Pages;
 
 use App\DTOs\Billing\BillingReportDTO;
 use App\DTOs\Billing\BillingReportFilterDTO;
+use App\DTOs\Billing\BillingReportRowDTO;
 use App\Enums\Auth\AdminPermission;
 use App\Enums\Billing\Provider;
 use App\Filament\Admin\Clusters\Billing\BillingCluster;
+use App\Filament\Admin\Clusters\Billing\Widgets\BillingReportStats;
+use App\Filament\Admin\Clusters\Providers\Pages\PixelforgeUsage;
+use App\Filament\Admin\Support\Money;
 use App\Models\Customer;
 use App\Models\User;
 use App\Queries\Billing\GetBillingReportQuery;
 use App\Queries\Billing\ListReconciledDaysQuery;
+use App\Support\Money\Nanodollars;
 use BackedEnum;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Carbon\CarbonImmutable;
+use Closure;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
+use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\ToggleButtons;
 use Filament\Pages\Page;
+use Filament\Schemas\Components\EmbeddedSchema;
+use Filament\Schemas\Components\EmbeddedTable;
+use Filament\Schemas\Components\Livewire;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Schema;
+use Filament\Support\ArrayRecord;
+use Filament\Support\Enums\Alignment;
 use Filament\Support\Icons\Heroicon;
+use Filament\Tables\Columns\Summarizers\Summarizer;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Concerns\InteractsWithTable;
+use Filament\Tables\Contracts\HasTable;
+use Filament\Tables\Table;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 
 /**
  * Billing › Reports (A03, normative; D-035): customer spend vs provider cost vs profit, by UTC day or by customer,
- * with a customer and a provider filter, default last 30 days. The margin column doubles as the invariant check:
- * 25% markup on cost is 20.0% (2000 bps) of spend, "-" when nothing was spent. Reads only the database.
+ * with a customer and a provider filter, default last 30 days. Native Filament only (#163): the filters are a
+ * schema form, the totals a stats widget, the rows a Filament table. The margin column doubles as the invariant
+ * check: 25% markup on cost is 20.0% (2000 bps) of spend, "-" when nothing was spent. Reads only the database.
+ *
+ * `$data` is the form state; `$filters` is the last **valid** filter (Locked), the one source of truth for the
+ * table, the stats and the export. An invalid date edit shows a field error and leaves `$filters` unchanged.
+ *
+ * @property-read BillingReportDTO $report  memoized per request
+ * @property-read list<string> $reconciledDays
+ * @property-read Schema $form
  */
-final class Reports extends Page
+final class Reports extends Page implements HasTable
 {
     use HasPageShield;
+    use InteractsWithTable;
 
-    /** Customer options shown at once; the search box reaches the rest. */
+    /** Customer options returned per search; the search reaches every customer. */
     public const int CUSTOMER_OPTIONS = 50;
+
+    private const string ALL_PROVIDERS = 'all';
 
     protected static ?string $cluster = BillingCluster::class;
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedChartBar;
 
-    protected string $view = 'filament.admin.pages.billing-reports';
+    /** @var array<string, mixed>|null */
+    public ?array $data = [];
 
-    public string $from = '';
-
-    public string $until = '';
-
-    public string $groupBy = BillingReportFilterDTO::BY_DAY;
-
-    public string $provider = '';
-
-    /** The selected customer id as the select sends it ('' for all customers); converted in filter(). */
-    public string $customer = '';
-
-    /** Narrows the customer select by name or email (any number of customers stays reachable). */
-    public string $customerSearch = '';
-
-    /** The last valid range: an invalid date edit shows an error and leaves the report on this range. */
+    /** @var array{from: string, until: string, group_by: string, customer_id: int|null, provider: string|null} */
     #[Locked]
-    public string $rangeFrom = '';
-
-    #[Locked]
-    public string $rangeUntil = '';
+    public array $filters = ['from' => '', 'until' => '', 'group_by' => BillingReportFilterDTO::BY_DAY, 'customer_id' => null, 'provider' => null];
 
     public function mount(): void
     {
         $default = BillingReportFilterDTO::lastThirtyDays();
-        $this->from = $this->rangeFrom = $default->from->toDateString();
-        $this->until = $this->rangeUntil = $default->until->toDateString();
+        $this->filters = [
+            'from' => $default->from->toDateString(),
+            'until' => $default->until->toDateString(),
+            'group_by' => BillingReportFilterDTO::BY_DAY,
+            'customer_id' => null,
+            'provider' => null,
+        ];
+        $this->form->fill([
+            'from' => $this->filters['from'],
+            'until' => $this->filters['until'],
+            'group_by' => BillingReportFilterDTO::BY_DAY,
+            'provider' => self::ALL_PROVIDERS,
+            'customer' => null,
+        ]);
     }
 
     public function getTitle(): string
@@ -79,66 +108,120 @@ final class Reports extends Page
         return __('console.reports.title');
     }
 
-    /**
-     * Applies From/Until only when both are real dates, ordered and within MAX_DAYS (like Pixelforge usage); a
-     * cleared or invalid date is an error, never "today". Unknown grouping or provider values fall back to the
-     * defaults, so every control always matches what the table shows.
-     */
-    public function updated(string $property): void
+    public function form(Schema $schema): Schema
     {
-        if (! in_array($this->groupBy, [BillingReportFilterDTO::BY_DAY, BillingReportFilterDTO::BY_CUSTOMER], true)) {
-            $this->groupBy = BillingReportFilterDTO::BY_DAY;
-        }
+        return $schema
+            ->statePath('data')
+            ->components([
+                Section::make()
+                    ->columns(['md' => 2, 'xl' => 5])
+                    ->schema([
+                        DatePicker::make('from')->label(__('console.reports.from'))->live()
+                            ->afterStateUpdated(fn () => $this->applyFilters('from')),
+                        DatePicker::make('until')->label(__('console.reports.until'))->live()
+                            ->afterStateUpdated(fn () => $this->applyFilters('until')),
+                        ToggleButtons::make('group_by')->label(__('console.reports.group_by'))->inline()->grouped()->live()
+                            ->options([
+                                BillingReportFilterDTO::BY_DAY => __('console.reports.by_day'),
+                                BillingReportFilterDTO::BY_CUSTOMER => __('console.reports.by_customer'),
+                            ])
+                            ->afterStateUpdated(fn () => $this->applyFilters('group_by')),
+                        ToggleButtons::make('provider')->label(__('console.reports.provider'))->inline()->grouped()->live()
+                            ->options([
+                                self::ALL_PROVIDERS => __('console.reports.all_providers'),
+                                ...collect(Provider::cases())->mapWithKeys(fn (Provider $provider): array => [$provider->value => __('console.reports.providers.'.$provider->value)])->all(),
+                            ])
+                            ->afterStateUpdated(fn () => $this->applyFilters('provider')),
+                        Select::make('customer')->label(__('console.common.customer'))->live()
+                            ->placeholder(__('console.reports.all_customers'))
+                            ->searchable()
+                            ->getSearchResultsUsing(fn (string $search): array => self::searchCustomers($search))
+                            ->getOptionLabelUsing(fn (mixed $value): ?string => is_numeric($value) ? self::customerName((int) $value) : null)
+                            ->afterStateUpdated(fn () => $this->applyFilters('customer')),
+                    ]),
+            ]);
+    }
 
-        if ($this->provider !== '' && Provider::tryFrom($this->provider) === null) {
-            $this->provider = '';
-        }
-
-        if ($this->customer !== '' && ! ctype_digit($this->customer)) {
-            $this->customer = '';
-        }
-
-        if (! in_array($property, ['from', 'until'], true)) {
-            return;
-        }
-
-        $this->resetErrorBag(['from', 'until']);
-        $invalid = array_filter(['from' => $this->from, 'until' => $this->until], fn (string $value): bool => ! self::isDate($value));
-
-        foreach (array_keys($invalid) as $field) {
-            $this->addError($field, __('console.reports.invalid_date'));
-        }
-
-        if ($invalid !== []) {
-            return;
-        }
-
-        $from = CarbonImmutable::parse($this->from, 'UTC');
-        $until = CarbonImmutable::parse($this->until, 'UTC');
-
-        if ($until->lessThan($from) || $from->diffInDays($until) >= BillingReportFilterDTO::MAX_DAYS) {
-            $this->addError($property, __('console.reports.invalid_range', ['days' => BillingReportFilterDTO::MAX_DAYS]));
-
-            return;
-        }
-
-        $this->rangeFrom = $this->from;
-        $this->rangeUntil = $this->until;
-        unset($this->report);
+    public function content(Schema $schema): Schema
+    {
+        return $schema->components([
+            EmbeddedSchema::make('form'),
+            Livewire::make(BillingReportStats::class, fn (): array => ['pageFilters' => $this->filters])->key('billing-report-stats'),
+            EmbeddedTable::make(),
+        ]);
     }
 
     /**
-     * The one source of truth for the table, the controls and the export.
+     * Customers whose name or email contains the search, at most CUSTOMER_OPTIONS of them.
+     *
+     * @return array<int, string>
+     */
+    public static function searchCustomers(string $search): array
+    {
+        $search = trim($search);
+
+        /** @var array<int, string> */
+        return Customer::query()
+            ->when($search !== '', fn ($query) => $query->where(fn ($inner) => $inner
+                ->whereLike('name', '%'.$search.'%')
+                ->orWhereLike('email', '%'.$search.'%')))
+            ->orderBy('name')
+            ->limit(self::CUSTOMER_OPTIONS)
+            ->pluck('name', 'id')
+            ->all();
+    }
+
+    /**
+     * Applies the form to `$filters`. From/Until apply only when both are real dates, ordered and within MAX_DAYS
+     * (like Pixelforge usage); a cleared or invalid date is a field error, never "today". Unknown grouping, provider
+     * or customer values fall back to the defaults, so every control matches what the table shows.
+     */
+    public function applyFilters(string $field): void
+    {
+        $state = $this->data ?? [];
+        $groupBy = in_array($state['group_by'] ?? null, [BillingReportFilterDTO::BY_DAY, BillingReportFilterDTO::BY_CUSTOMER], true) ? $state['group_by'] : BillingReportFilterDTO::BY_DAY;
+        $provider = is_string($state['provider'] ?? null) ? Provider::tryFrom($state['provider']) : null;
+        $customer = $state['customer'] ?? null;
+        $customerId = is_int($customer) || (is_string($customer) && ctype_digit($customer)) ? (int) $customer : null;
+
+        $this->data['group_by'] = $groupBy;
+        $this->data['provider'] = $provider->value ?? self::ALL_PROVIDERS;
+        $this->data['customer'] = $customerId;
+
+        $filters = [...$this->filters, 'group_by' => $groupBy, 'customer_id' => $customerId, 'provider' => $provider?->value];
+
+        $this->resetErrorBag(['data.from', 'data.until']);
+        $dates = ['from' => self::date($state['from'] ?? null), 'until' => self::date($state['until'] ?? null)];
+
+        foreach (array_keys(array_filter($dates, fn (?string $date): bool => $date === null)) as $invalid) {
+            $this->addError('data.'.$invalid, __('console.reports.invalid_date'));
+        }
+
+        if ($dates['from'] !== null && $dates['until'] !== null) {
+            $from = CarbonImmutable::parse($dates['from'], 'UTC');
+            $until = CarbonImmutable::parse($dates['until'], 'UTC');
+
+            if ($until->lessThan($from) || $from->diffInDays($until) >= BillingReportFilterDTO::MAX_DAYS) {
+                $this->addError('data.'.(in_array($field, ['from', 'until'], true) ? $field : 'from'), __('console.reports.invalid_range', ['days' => BillingReportFilterDTO::MAX_DAYS]));
+            } else {
+                $filters = [...$filters, 'from' => $dates['from'], 'until' => $dates['until']];
+            }
+        }
+
+        if ($filters !== $this->filters) {
+            $this->filters = $filters;
+            unset($this->report, $this->reconciledDays);
+            $this->resetPage($this->getTablePaginationPageName());
+            $this->flushCachedTableRecords();
+        }
+    }
+
+    /**
+     * The one source of truth for the table, the stats and the export.
      */
     public function filter(): BillingReportFilterDTO
     {
-        return BillingReportFilterDTO::fromArray([
-            'from' => $this->rangeFrom,
-            'until' => $this->rangeUntil,
-            'group_by' => in_array($this->groupBy, [BillingReportFilterDTO::BY_DAY, BillingReportFilterDTO::BY_CUSTOMER], true) ? $this->groupBy : BillingReportFilterDTO::BY_DAY,
-            'customer_id' => ctype_digit($this->customer) ? (int) $this->customer : null,
-            'provider' => Provider::tryFrom($this->provider)?->value,
-        ]);
+        return BillingReportFilterDTO::fromArray($this->filters);
     }
 
     #[Computed]
@@ -157,34 +240,63 @@ final class Reports extends Page
     {
         $filter = $this->filter();
 
-        return app(ListReconciledDaysQuery::class)->execute($filter->from, $filter->until);
+        return $filter->groupBy === BillingReportFilterDTO::BY_DAY
+            ? app(ListReconciledDaysQuery::class)->execute($filter->from, $filter->until)
+            : [];
     }
 
-    /**
-     * @return array<int, string>
-     */
-    #[Computed]
-    public function customers(): array
+    public function table(Table $table): Table
     {
-        $search = trim($this->customerSearch);
+        $byDay = fn (): bool => $this->filters['group_by'] === BillingReportFilterDTO::BY_DAY;
+        $total = fn (): BillingReportRowDTO => $this->report->totals;
 
-        /** @var array<int, string> $matches */
-        $matches = Customer::query()
-            ->when($search !== '', fn ($query) => $query->where(fn ($inner) => $inner
-                ->whereLike('name', '%'.$search.'%')
-                ->orWhereLike('email', '%'.$search.'%')))
-            ->orderBy('name')
-            ->limit(self::CUSTOMER_OPTIONS)
-            ->pluck('name', 'id')
-            ->all();
-
-        // The selected customer stays an option even when the search no longer matches it.
-        if (ctype_digit($this->customer) && ! array_key_exists((int) $this->customer, $matches)) {
-            $selected = Customer::query()->whereKey((int) $this->customer)->value('name');
-            $matches = is_string($selected) ? [(int) $this->customer => $selected] + $matches : $matches;
-        }
-
-        return $matches;
+        return $table
+            ->records(fn (int $page, int $recordsPerPage): LengthAwarePaginator => $this->paginatedRows($page, $recordsPerPage))
+            ->paginated([25, 50, 100])
+            ->defaultPaginationPageOption(50)
+            ->heading(fn (): string => $byDay() ? __('console.reports.by_day') : __('console.reports.by_customer'))
+            ->description(__('console.reports.footnote'))
+            ->emptyStateIcon(Heroicon::OutlinedChartBar)
+            ->emptyStateHeading(__('console.reports.empty'))
+            ->columns([
+                TextColumn::make('label')
+                    ->label(fn (): string => $byDay() ? __('console.reports.day') : __('console.common.customer')),
+                TextColumn::make('reconciled')
+                    ->label(__('console.reports.pixelforge_check'))
+                    ->badge()
+                    ->color('success')
+                    ->state(fn (array $record): mixed => $record['reconciled'] ? __('console.reports.reconciled') : null)
+                    ->url(fn (array $record): ?string => $record['reconciled'] ? PixelforgeUsage::getUrl() : null)
+                    ->visible($byDay),
+                self::count('takes', 'console.reports.takes', fn (): int => $total()->takes),
+                self::count('failed_takes', 'console.reports.failed', fn (): int => $total()->failedTakes),
+                self::count('generations_charged', 'console.reports.generations', fn (): int => $total()->generationsCharged),
+                self::count('suggestions', 'console.reports.suggestions', fn (): int => $total()->suggestions),
+                self::money('spend_nanos', 'console.reports.spend', fn (): Nanodollars => $total()->spend),
+                self::money('cost_nanos', 'console.reports.provider_cost', fn (): Nanodollars => $total()->cost),
+                self::money('pixelforge_cost_nanos', 'console.reports.pixelforge_cost', fn (): Nanodollars => $total()->pixelforgeCost),
+                self::money('anthropic_cost_nanos', 'console.reports.anthropic_cost', fn (): Nanodollars => $total()->anthropicCost),
+                self::money('profit_nanos', 'console.reports.profit', fn (): Nanodollars => $total()->profit()),
+                self::money('promo_consumed_nanos', 'console.reports.promo_consumed', fn (): Nanodollars => $total()->promoConsumed),
+                TextColumn::make('margin_bps')
+                    ->label(__('console.reports.margin'))
+                    ->alignment(Alignment::End)
+                    ->fontFamily('mono')
+                    ->state(fn (array $record): string => Money::percentFromBps($record['margin_bps']))
+                    ->color(fn (array $record): ?string => $record['breaks_margin'] ? 'danger' : null)
+                    ->weight(fn (array $record): ?string => $record['breaks_margin'] ? 'bold' : null)
+                    ->summarize(Summarizer::make('total')->label(__('console.reports.total'))
+                        ->using(fn (): string => Money::percentFromBps($total()->marginBps()))
+                        ->extraAttributes(fn (): array => $total()->breaksMarginInvariant() ? ['class' => 'text-danger-600 dark:text-danger-400', 'data-invariant' => 'broken'] : [])),
+                TextColumn::make('share_bps')
+                    ->label(__('console.reports.share'))
+                    ->alignment(Alignment::End)
+                    ->fontFamily('mono')
+                    ->state(fn (array $record): string => Money::percentFromBps($record['share_bps']))
+                    ->visible(fn (): bool => ! $byDay())
+                    ->summarize(Summarizer::make('total')->label(__('console.reports.total'))
+                        ->using(fn (): string => $total()->spend->isZero() ? '-' : '100.0%')),
+            ]);
     }
 
     protected function getHeaderActions(): array
@@ -204,6 +316,65 @@ final class Reports extends Page
     }
 
     /**
+     * The rows of the current report as table records (keyed by day or customer id), one page of them.
+     *
+     * @return LengthAwarePaginator<int, array<string, mixed>>
+     */
+    private function paginatedRows(int $page, int $perPage): LengthAwarePaginator
+    {
+        $report = $this->report;
+        $reconciled = array_flip($this->reconciledDays);
+        $rows = array_map(fn (BillingReportRowDTO $row): array => [
+            ArrayRecord::getKeyName() => $row->key,
+            'label' => $row->label,
+            'reconciled' => isset($reconciled[$row->key]),
+            'takes' => $row->takes,
+            'failed_takes' => $row->failedTakes,
+            'generations_charged' => $row->generationsCharged,
+            'suggestions' => $row->suggestions,
+            'spend_nanos' => $row->spend->toInt(),
+            'cost_nanos' => $row->cost->toInt(),
+            'pixelforge_cost_nanos' => $row->pixelforgeCost->toInt(),
+            'anthropic_cost_nanos' => $row->anthropicCost->toInt(),
+            'profit_nanos' => $row->profit()->toInt(),
+            'promo_consumed_nanos' => $row->promoConsumed->toInt(),
+            'margin_bps' => $row->marginBps(),
+            'breaks_margin' => $row->breaksMarginInvariant(),
+            'share_bps' => $row->shareOfSpendBps($report->totals->spend),
+        ], $report->rows);
+
+        $page = max(1, $page);
+
+        /** @var LengthAwarePaginator<int, array<string, mixed>> */
+        return new LengthAwarePaginator(array_slice($rows, ($page - 1) * $perPage, $perPage), count($rows), $perPage, $page);
+    }
+
+    /**
+     * @param  Closure(): int  $total
+     */
+    private static function count(string $name, string $label, Closure $total): TextColumn
+    {
+        return TextColumn::make($name)
+            ->label(__($label))
+            ->numeric()
+            ->alignment(Alignment::End)
+            ->summarize(Summarizer::make('total')->label(__('console.reports.total'))->using(fn (): string => number_format($total())));
+    }
+
+    /**
+     * @param  Closure(): Nanodollars  $total
+     */
+    private static function money(string $name, string $label, Closure $total): TextColumn
+    {
+        return TextColumn::make($name)
+            ->label(__($label))
+            ->alignment(Alignment::End)
+            ->fontFamily('mono')
+            ->formatStateUsing(fn (int $state): string => Nanodollars::fromInt($state)->formatExact())
+            ->summarize(Summarizer::make('total')->label(__('console.reports.total'))->using(fn (): string => $total()->formatExact()));
+    }
+
+    /**
      * @return array{from: string, until: string, group_by: string, customer_id: int|null, provider: string|null}
      */
     private function exportQuery(): array
@@ -219,15 +390,21 @@ final class Reports extends Page
         ];
     }
 
-    private static function isDate(string $value): bool
+    /** A real Y-m-d date (DatePicker state), or null for a cleared or malformed one. */
+    private static function date(mixed $value): ?string
     {
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) !== 1) {
-            return false;
+        if (! is_string($value) || preg_match('/^(\d{4})-(\d{2})-(\d{2})/', $value, $parts) !== 1) {
+            return null;
         }
 
-        [$year, $month, $day] = array_map(intval(...), explode('-', $value));
+        return checkdate((int) $parts[2], (int) $parts[3], (int) $parts[1]) ? substr($value, 0, 10) : null;
+    }
 
-        return checkdate($month, $day, $year);
+    private static function customerName(int $id): ?string
+    {
+        $name = Customer::query()->whereKey($id)->value('name');
+
+        return is_string($name) ? $name : null;
     }
 
     private static function admin(): ?User
