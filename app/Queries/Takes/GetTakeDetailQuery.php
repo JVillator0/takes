@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Queries\Takes;
 
 use App\DTOs\Takes\TakeDetailDTO;
+use App\Enums\Takes\ReferenceResolution;
 use App\Models\Take;
 
 /**
@@ -12,8 +13,9 @@ use App\Models\Take;
  * for the price, the parent for "Compare with parent", the lineage for the
  * version strip, all numbered, and the reference images re-issued for
  * display: a stored take-image reference is a short-lived signed URL, so it
- * is re-signed now and left out when it no longer resolves (#140). The
- * caller has already checked ownership.
+ * is re-signed from our persisted copy and left out when there is none
+ * (#140, #167: never the provider's URL, D-023). The resource tells Remix and
+ * Try again how many were left out. The caller has already checked ownership.
  */
 final class GetTakeDetailQuery
 {
@@ -70,7 +72,7 @@ final class GetTakeDetailQuery
             $take,
             $parent,
             $versions,
-            $this->referenceImages->execute($take->customer_id, array_values($take->reference_images), dropUnavailable: true),
+            $this->referenceImages->execute($take->customer_id, array_values($take->reference_images), ReferenceResolution::Display),
         );
     }
 }

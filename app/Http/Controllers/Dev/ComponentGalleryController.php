@@ -266,6 +266,7 @@ final class ComponentGalleryController extends Controller
             ],
             'downloadUrl' => $this->image('#f59e0b', '#7c2d12', 1024, 1024),
             'referenceImages' => ['https://images.example.com/lighthouse.jpg'],
+            'referencesNotice' => null,
             'remixReferenceUrl' => $this->image('#f59e0b', '#7c2d12', 1024, 1024),
         ];
     }
@@ -295,6 +296,7 @@ final class ComponentGalleryController extends Controller
             'versions' => [],
             'downloadUrl' => null,
             'referenceImages' => [],
+            'referencesNotice' => null,
             'remixReferenceUrl' => null,
         ];
     }
@@ -321,6 +323,7 @@ final class ComponentGalleryController extends Controller
             'versions' => [],
             'downloadUrl' => null,
             'referenceImages' => [],
+            'referencesNotice' => null,
             'remixReferenceUrl' => null,
         ];
     }

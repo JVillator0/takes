@@ -120,12 +120,14 @@ function providerReference(Take $source): string
     return 'https://'.config()->string('pixelforge.image_host')."/images/{$source->pixelforge_id}.png?expires=1&signature=x";
 }
 
-it('never exposes provider data', function (string $status): void {
+it('never exposes provider data', function (string $status, bool $persisted): void {
     $take = Takes::in($status);
-    // A reference to another take image, stored as the provider's URL, and
-    // one of the customer's own: the scan reaches referenceImages (#140).
+    // A reference to another take image, stored as the provider's signed URL
+    // (still valid), and one of the customer's own. referenceImages has int
+    // keys, so the scan checks its values: with or without our persisted
+    // copy, the provider's URL never reaches the customer (#167).
     $take->forceFill(['reference_images' => [
-        providerReference(referencedTake($take, persisted: true)),
+        providerReference(referencedTake($take, $persisted)),
         'https://images.example/ref-1.png',
     ]])->save();
 
@@ -133,8 +135,10 @@ it('never exposes provider data', function (string $status): void {
         ->getJson(route('takes.show', $take))
         ->json('data');
 
-    expect(ProviderLeak::find($data))->toBe([]);
-})->with(['pending', 'queued', 'processing', 'succeeded', 'failed']);
+    expect(ProviderLeak::find($data))->toBe([])
+        ->and($data['referenceImages'])->toHaveCount($persisted ? 2 : 1)
+        ->and($data['referencesNotice'])->toBe($persisted ? null : '1 earlier reference image is no longer available and was left out.');
+})->with(['pending', 'queued', 'processing', 'succeeded', 'failed'])->with(['persisted copy' => true, 'provider URL only' => false]);
 
 it('is the same 404 for another customer and an unknown take', function (string $route): void {
     $take = Takes::in('succeeded');
@@ -211,6 +215,18 @@ it('re-issues take-image references for the drawer and drops the ones that no lo
 
     expect($data['referenceImages'])->toBe([TakeImageUrl::forReference($persisted), 'https://images.example/ref-1.png'])
         ->and($data['referenceImages'][0])->not->toBe($issued)
-        // The parameters line still counts what the take was created with.
-        ->and($data['paramsLine'])->toContain('3 references');
+        // The parameters line still counts what the take was created with,
+        // and Remix / Try again say what they leave out (2-01, #167).
+        ->and($data['paramsLine'])->toContain('3 references')
+        ->and($data['referencesNotice'])->toBe('1 earlier reference image is no longer available and was left out.');
+});
+
+it('says nothing is left out when every reference still resolves', function (): void {
+    $take = Takes::in('succeeded');
+    $take->forceFill(['reference_images' => ['https://images.example/ref-1.png']])->save();
+
+    $data = $this->actingAs($take->customer()->firstOrFail(), 'customer')->getJson(route('takes.show', $take))->json('data');
+
+    expect($data['referenceImages'])->toBe(['https://images.example/ref-1.png'])
+        ->and($data['referencesNotice'])->toBeNull();
 });

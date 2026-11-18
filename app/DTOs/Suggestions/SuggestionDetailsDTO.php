@@ -13,7 +13,8 @@ use App\Support\Money\Nanodollars;
 /**
  * Everything the P07 panel shows for one suggestion: the suggestion, its base
  * take, its usage (hold or charge), the new take's estimate when proposed,
- * and the customer's available credit (Generate take vs Buy credits).
+ * the customer's available credit (Generate take vs Buy credits), and whether
+ * a reference the new take needs no longer resolves (#133), computed once.
  */
 final readonly class SuggestionDetailsDTO
 {
@@ -23,14 +24,15 @@ final readonly class SuggestionDetailsDTO
         public ?UsageRecord $usage,
         public ?EstimateDTO $newTakeEstimate,
         public Nanodollars $available,
+        public bool $referenceUnavailable = false,
     ) {}
 
     /**
-     * @param  array{suggestion: Suggestion, base_take: Take, usage: UsageRecord|null, new_take_estimate: EstimateDTO|null, available: Nanodollars}  $data
+     * @param  array{suggestion: Suggestion, base_take: Take, usage: UsageRecord|null, new_take_estimate: EstimateDTO|null, available: Nanodollars, reference_unavailable?: bool}  $data
      */
     public static function fromArray(array $data): self
     {
-        return new self($data['suggestion'], $data['base_take'], $data['usage'], $data['new_take_estimate'], $data['available']);
+        return new self($data['suggestion'], $data['base_take'], $data['usage'], $data['new_take_estimate'], $data['available'], $data['reference_unavailable'] ?? false);
     }
 
     /** The validated proposal, when the suggestion has one. */

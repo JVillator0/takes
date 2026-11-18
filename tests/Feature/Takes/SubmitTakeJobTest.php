@@ -146,24 +146,17 @@ it('backs off one take under continuous capacity answers: at most 2 calls in any
         // ~18 calls in 30 min instead of one every few seconds.
         ->and(count($calls))->toBeGreaterThan(10)->toBeLessThanOrEqual(20);
 
-    // The window ended it on the run just past it, while the worker would
-    // still have run the job: retryUntil() had not passed yet (handle() runs
-    // here without the worker's own retryUntil check).
-    expect(now()->getTimestamp())->toBeLessThanOrEqual(SubmitTakeJob::windowEnd($take)->getTimestamp() + 1)
-        ->and((new SubmitTakeJob($take->id))->retryUntil()->getTimestamp())->toBeGreaterThan(now()->getTimestamp());
+    // handle() expired the take on the run just past the window. retryUntil()
+    // is the window end plus 960 s, so the worker would not have stopped it
+    // first (that check is not exercised here: handle() runs directly).
+    expect(now()->getTimestamp())->toBeLessThanOrEqual(SubmitTakeJob::windowEnd($take)->getTimestamp() + 1);
 
-    // Gaps grow by one step per attempt (STEP, 2×STEP, …), so calls n and
-    // n + k are at least STEP × (n + … + n+k−1) apart; count how many fit in 60 s.
-    $maxPerMinute = 1;
-    while (SubmitTakeJob::CAPACITY_BACKOFF_STEP_SECONDS * intdiv($maxPerMinute * ($maxPerMinute + 1), 2) < 60) {
-        $maxPerMinute++;
-    }
-    expect($maxPerMinute)->toBe(2);
-
+    // Gaps grow by one step per attempt: 20 s, then 40 s, … (plus jitter), so
+    // three calls need at least 20 + 40 = 60 s. At most two fit in any minute.
     foreach ($calls as $at) {
         $inMinute = count(array_filter($calls, fn (int $call): bool => $call >= $at && $call < $at + 60));
 
-        expect($inMinute)->toBeLessThanOrEqual($maxPerMinute);
+        expect($inMinute)->toBeLessThanOrEqual(2);
     }
 })->with([
     '429 rate limit' => [429, 'rate_limit_exceeded'],

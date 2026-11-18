@@ -40,6 +40,25 @@ final class TakeImageUrl
         return self::resolve($take, self::REFERENCE_MINUTES, fallbackToRoute: false);
     }
 
+    /**
+     * A reference URL the customer may see: the persisted copy as a temporary
+     * URL, never the provider's signed URL (D-023, M-23); null without one.
+     */
+    public static function forPersistedReference(Take $take): ?string
+    {
+        if ($take->image_path === null) {
+            return null;
+        }
+
+        try {
+            return Storage::temporaryUrl($take->image_path, CarbonImmutable::now()->addMinutes(self::REFERENCE_MINUTES));
+        } catch (Throwable $exception) {
+            Log::debug('No temporary URL for a take image.', ['take_id' => $take->id, 'reason' => $exception->getMessage()]);
+
+            return null;
+        }
+    }
+
     private static function resolve(Take $take, int $minutes, bool $fallbackToRoute): ?string
     {
         if ($take->image_path !== null) {

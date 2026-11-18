@@ -143,6 +143,7 @@ return [
         'add_reference' => 'Add reference URL',
         'remove_reference' => 'Remove reference image :number',
         'reference_invalid' => 'Reference images must be http(s) URLs.',
+        'references_left_out' => '1 earlier reference image is no longer available and was left out.|:count earlier reference images are no longer available and were left out.',
         'remixing' => 'Remixing #:id',
         'cancel_remix' => 'Stop remixing #:id',
         'submit' => 'Generate take',

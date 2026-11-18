@@ -8,6 +8,7 @@ use App\Contracts\Takes\CreatesSuggestedTake;
 use App\DTOs\Suggestions\SuggestedTakeDTO;
 use App\DTOs\Suggestions\TakeChangeProposalDTO;
 use App\Enums\Suggestions\SuggestionStatus;
+use App\Enums\Takes\ReferenceResolution;
 use App\Exceptions\Projects\ProjectArchivedException;
 use App\Exceptions\Suggestions\BaseImageUnavailableException;
 use App\Exceptions\Suggestions\SuggestionDeniedException;
@@ -16,6 +17,7 @@ use App\Exceptions\Takes\TakeCreationUnavailableException;
 use App\Models\Customer;
 use App\Models\Suggestion;
 use App\Models\Take;
+use App\Queries\Takes\ListReferenceImageUrlsQuery;
 use App\Support\Suggestions\ProposalReferences;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -40,12 +42,15 @@ final readonly class ApplySuggestionAction
     /** uuid v5 namespace of the apply idempotency keys. Never change it: replays depend on it. */
     public const string IDEMPOTENCY_NAMESPACE = 'd015a16c-fb9d-4fd1-9709-1d8e6abd554f';
 
-    public function __construct(private CreatesSuggestedTake $takes) {}
+    public function __construct(
+        private CreatesSuggestedTake $takes,
+        private ListReferenceImageUrlsQuery $references,
+    ) {}
 
     /**
      * @throws AuthorizationException when the suggestion belongs to another customer
      * @throws SuggestionNotProposedException when it is not `proposed` (nor already `applied`)
-     * @throws BaseImageUnavailableException when the base image was asked for and has no usable URL
+     * @throws BaseImageUnavailableException when the base image was asked for, or a kept take-image reference is needed, and it has no usable URL
      * @throws SuggestionDeniedException when the new take is denied (credits, caps)
      * @throws TakeCreationUnavailableException until spec 4 binds the take creator
      * @throws ProjectArchivedException when the project was archived meanwhile
@@ -71,12 +76,16 @@ final readonly class ApplySuggestionAction
             $stored = $suggestion->proposal;
             $proposal = TakeChangeProposalDTO::fromArray($stored);
             $base = $suggestion->baseTake()->firstOrFail();
+            // Kept take-image references are re-signed now, or apply is refused (#133).
+            $resolvedKept = $proposal->keepReferences
+                ? $this->references->execute($base->customer_id, array_values($base->reference_images), ReferenceResolution::Attach)
+                : [];
 
             $take = $this->takes->create($customer, $suggestion->project()->firstOrFail(), new SuggestedTakeDTO(
                 prompt: $proposal->prompt,
                 size: $proposal->size,
                 quality: $proposal->quality,
-                referenceImages: ProposalReferences::urls($proposal, $base),
+                referenceImages: ProposalReferences::urls($proposal, $base, $resolvedKept),
                 idempotencyKey: self::idempotencyKey($suggestion->id),
                 parentTakeId: $base->id,
                 suggestionId: $suggestion->id,
