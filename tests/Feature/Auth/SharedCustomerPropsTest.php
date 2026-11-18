@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Enums\Auth\CustomerRole;
 use App\Enums\Auth\DemoAccount;
 use App\Models\Customer;
 use Database\Seeders\DemoAccountsSeeder;
@@ -14,7 +15,8 @@ beforeEach(function (): void {
 });
 
 it('shares the customer with money as server-formatted strings only (D-023, D-024)', function (): void {
-    // Demo dataset at 12:02: balance $10.64754375, on hold $0.3139625, available $10.3336.
+    // Demo dataset at 12:02: balance $10.64754375, on hold $0.3139625, available $10.33358125:
+    // available rounds down and on hold up, as on the pill (D-021).
     $customer = Customer::factory()->withRole()->withCachedBalance(10_647_543_750, 313_962_500)->create();
 
     $this->actingAs($customer, 'customer')
@@ -23,12 +25,25 @@ it('shares the customer with money as server-formatted strings only (D-023, D-02
             'id' => $customer->id,
             'name' => $customer->name,
             'email' => $customer->email,
-            'available' => '$10.3336',
+            'available' => '$10.3335',
             'available_exact' => '$10.33358125',
             'on_hold' => '$0.3140',
             'on_hold_exact' => '$0.3139625',
+            'read_only' => false,
         ]));
 });
+
+it('flags the read-only showcase login, and only it (D-072, QA #162)', function (CustomerRole $role, bool $readOnly): void {
+    $customer = Customer::factory()->withRole($role)->create();
+
+    $this->actingAs($customer, 'customer')
+        ->get(route('projects.index'))
+        ->assertInertia(fn (Assert $page) => $page->where('auth.customer.read_only', $readOnly));
+})->with([
+    'showcase' => [CustomerRole::Showcase, true],
+    'customer' => [CustomerRole::Customer, false],
+    'restricted' => [CustomerRole::Restricted, false],
+]);
 
 it('shares allowed abilities under auth.can', function (): void {
     $customer = Customer::factory()->restricted()->create();

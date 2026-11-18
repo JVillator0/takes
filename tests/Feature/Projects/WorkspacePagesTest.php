@@ -98,7 +98,7 @@ it('renders the workspace with the props live updates reload', function (): void
             ->where('takes.0.number', 1)
             ->where('takes.0.phase', 'processing')
             ->where('counts', ['all' => 1, 'in_progress' => 1, 'done' => 0, 'failed' => 0])
-            ->where('balance.onHold', '$0.4673')
+            ->where('balance.onHold', '$0.4674')
             ->where('balance.onHoldExact', '$0.46734375')
             ->where('take', null)
             ->where('hasMoreTakes', false)
@@ -122,6 +122,26 @@ it('keeps creation order newest first and filters by status group', function ():
 
     $this->actingAs($customer, 'customer')->get(route('projects.show', [$project, 'status' => 'in_progress']))
         ->assertInertia(fn (Assert $page) => $page->has('takes', 1)->where('filter', 'in_progress')->where('counts.all', 3));
+});
+
+it('returns only the filter props, with the In progress takes, on a partial reload of ?status=in_progress', function (): void {
+    $customer = TakeFlow::customer();
+    $project = TakeFlow::project($customer);
+    Take::factory()->succeeded()->create(['customer_id' => $customer->id, 'project_id' => $project->id, 'created_at' => now()->subMinute()]);
+    $running = Take::factory()->create(['customer_id' => $customer->id, 'project_id' => $project->id]);
+
+    // The backend contract behind the in-place filter (tabs and the pill's On hold): the client side lives in Show.vue.
+    $this->actingAs($customer, 'customer')->get(route('projects.show', [$project, 'status' => 'in_progress']))
+        ->assertInertia(fn (Assert $page) => $page
+            ->reloadOnly(['takes', 'counts', 'filter', 'hasMoreTakes', 'pages'], fn (Assert $reload) => $reload
+                ->where('filter', 'in_progress')
+                ->has('takes', 1)
+                ->where('takes.0.id', $running->id)
+                ->where('counts.in_progress', 1)
+                // Nothing that would reset the page: the composer config, the balance and the drawer stay as they are.
+                ->missing('composer')
+                ->missing('balance')
+                ->missing('take')));
 });
 
 it('opens the drawer at ?take= with the exact price and lineage', function (): void {

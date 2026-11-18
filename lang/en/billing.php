@@ -35,6 +35,8 @@ return [
     'on_hold' => 'on hold',
     'balance_label' => 'Available :available, on hold :on_hold',
     'balance_exact' => 'Exact: available :available, on hold :on_hold',
+    'on_hold_link' => 'Show the takes in progress.',
+    'on_hold_link_projects' => 'Open your projects to see their takes in progress.',
 
     /* Billing page (P08), purchase flow and invoices (P09), spec 6. */
     'page_title' => 'Billing',

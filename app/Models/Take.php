@@ -118,6 +118,22 @@ final class Take extends Model
     }
 
     /**
+     * Whether a submit attempt may have reached Pixelforge without a definite
+     * answer (D-025, D-082): an ambiguous outcome, or an attempt that was
+     * counted but never recorded (the worker died during the call;
+     * RecordSubmitAttemptAction resets the kind to null before every call).
+     * Both columns change only while the take is pending, so on a failed take
+     * this is a fact frozen at failure time. SubmitTakeJob uses it to pick
+     * submit_timeout over provider_busy; ApplyTakeSnapshotAction to tell an
+     * orphan success from a conflict after an internal failure.
+     */
+    public function submitWasInDoubt(): bool
+    {
+        return $this->last_submit_error_kind === SubmitErrorKind::Ambiguous
+            || ($this->last_submit_error_kind === null && $this->submit_attempts > 0);
+    }
+
+    /**
      * @return array<string, string>
      */
     protected function casts(): array

@@ -8,6 +8,7 @@ use App\Actions\Billing\OpenUsageAction;
 use App\Actions\Billing\SettleUsageAction;
 use App\Actions\Billing\VoidUsageAction;
 use App\Ai\Agents\TakeChangeAgent;
+use App\DTOs\Billing\AbsorbedUsageDTO;
 use App\DTOs\Billing\EstimateDTO;
 use App\DTOs\Billing\RatesSnapshotDTO;
 use App\DTOs\Suggestions\CreateSuggestionDTO;
@@ -52,8 +53,10 @@ use Illuminate\Support\Facades\Log;
  * Call ProposeTakeChangeAction: never throws for a provider problem.
  * T2  lock the suggestion, then (through the money actions) the customer:
  *     proposal ⇒ settle the exact usage + 25%, status `proposed`; anything
- *     else ⇒ void (failed = free, M-13), status `failed`. A suggestion the
- *     sweeper already expired (spec 5) is left alone: its usage is voided.
+ *     else ⇒ void (failed = free, M-13), status `failed`, keeping the tokens
+ *     the provider billed as absorbed cost for the daily AI budget (spec 8).
+ *     A suggestion the sweeper already expired (spec 5) stays failed: its
+ *     usage is voided and only records the absorbed cost.
  *
  * Settle and void happen only here and in the sweeper's expiry (M-12).
  */
@@ -214,14 +217,21 @@ final readonly class CreateSuggestionAction
         return DB::transaction(function () use ($suggestion, $result, $rates): Suggestion {
             $suggestion = Suggestion::query()->lockForUpdate()->findOrFail($suggestion->id);
 
+            $usage = $suggestion->usageRecord()->firstOrFail();
+            $absorbed = $this->absorbed($result, $rates);
+
             if ($suggestion->status !== SuggestionStatus::Pending) {
-                // Expired by the sweeper while the call ran: already failed and voided.
+                // Expired by the sweeper while the call ran: already failed and
+                // voided. The provider still billed the call: its cost counts
+                // toward the daily AI budget (spec 8), never toward the customer.
                 Log::warning('suggestions.closed_before_result', ['suggestion_id' => $suggestion->id, 'suggestion_status' => $suggestion->status->value]);
+
+                if ($absorbed !== null) {
+                    $this->voidUsage->execute($usage, $absorbed);
+                }
 
                 return $suggestion;
             }
-
-            $usage = $suggestion->usageRecord()->firstOrFail();
 
             if ($result->proposal !== null && $result->units !== null) {
                 $suggestion->forceFill([
@@ -240,9 +250,19 @@ final readonly class CreateSuggestionAction
                 'failure_reason' => $result->failure,
             ])->save();
 
-            $this->voidUsage->execute($usage);
+            // Free for the customer (M-13); tokens the provider billed count
+            // toward the daily AI budget (spec 8 Guardrails).
+            $this->voidUsage->execute($usage, $absorbed);
 
             return $suggestion;
         });
+    }
+
+    /** What the provider billed for this call, or null when no usage block came back (e.g. a connection error). */
+    private function absorbed(TakeChangeResultDTO $result, RatesSnapshotDTO $rates): ?AbsorbedUsageDTO
+    {
+        return $result->units === null
+            ? null
+            : new AbsorbedUsageDTO($result->units, $rates, CarbonImmutable::now(), $result->externalId);
     }
 }

@@ -193,13 +193,20 @@ final readonly class ApplyTakeSnapshotAction
      * a revoked key (D-062), while it kept running (D-077). "Accepted" is the
      * pixelforge_id the take had when it failed, a fact frozen at failure
      * time: a failed take adopts a generation id only as an orphan, so every
-     * replay of the same late success classifies the same way. Every other
-     * local code means nothing was created.
+     * replay of the same late success classifies the same way.
+     * internal while a submit was in doubt (D-082): an ambiguous answer, or
+     * an attempt counted but never answered, so Pixelforge may hold the
+     * generation under the idempotency key. Take::submitWasInDoubt() reads
+     * columns only a pending take's submit writes, so it is frozen too, and
+     * it is the same rule SubmitTakeJob uses for submit_timeout. Every other
+     * local code, and internal after capacity answers only or before any
+     * attempt, means nothing was created.
      */
     private function mayHideAGeneration(Take $take): bool
     {
         return $take->failure_code === FailureCode::SubmitTimeout
-            || ($take->failure_code === FailureCode::Internal && $take->pixelforge_id !== null);
+            || ($take->failure_code === FailureCode::Internal
+                && ($take->pixelforge_id !== null || $take->submitWasInDoubt()));
     }
 
     /**
@@ -261,9 +268,10 @@ final readonly class ApplyTakeSnapshotAction
     /**
      * Pixelforge ran a generation we had already failed, free: after the
      * ambiguous submit window (D-025), or after an internal failure of a take
-     * it had accepted (D-077). The customer keeps "failed, not charged": the
-     * usage stays voided and the cost is absorbed. Both rows
-     * carry a durable flag for Needs attention and reconciliation (D-054, D-058).
+     * it had accepted (D-077) or whose submit was in doubt (D-082). The
+     * customer keeps "failed, not charged": the usage stays voided and the
+     * cost is absorbed. Both rows carry a durable flag for Needs attention
+     * and reconciliation (D-054, D-058).
      *
      * The absorbed cost (units × the generation's own rates, on its UTC
      * billing day) is kept on the voided usage, never in the ledger, so

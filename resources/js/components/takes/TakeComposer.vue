@@ -29,12 +29,16 @@ type Props = {
     availableDisplay: string | null;
     /** Exact available credits; a change re-checks the estimate's policy answer. */
     availableExact?: string | null;
+    /** The collapsed phone sheet: prompt and Generate only (P10). */
+    compact?: boolean;
 };
 
 const props = defineProps<Props>();
 
 const emit = defineEmits<{
     created: [];
+    /** The collapsed phone sheet must open to show what blocks Generate. */
+    expand: [];
 }>();
 
 const page = usePage();
@@ -225,9 +229,11 @@ defineExpose({ remix, tryAgain, refresh });
         :errors="errors"
         :max-prompt-chars="config.maxPromptChars"
         :max-references="config.maxReferences"
+        :compact="compact"
         @submit="submit"
         @buy-credits="buyCredits.open()"
         @cancel-remix="cancelRemix"
+        @expand="emit('expand')"
     >
         <template
             v-if="referenceUnavailable || referencesNotice"

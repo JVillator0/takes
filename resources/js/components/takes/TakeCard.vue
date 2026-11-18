@@ -55,7 +55,10 @@ const moneyClass = computed(() => {
         :data-phase="take.phase"
         :class="
             cn(
-                'group relative flex h-full flex-col overflow-hidden rounded-xl border bg-card text-card-foreground shadow-xs transition-shadow has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 motion-safe:hover:shadow-md',
+                // The open button covers the card; its keyboard focus outlines the
+                // whole card (an outline, not a ring, so the running ring and the
+                // shadow cannot hide it; F-20).
+                'group relative flex h-full flex-col overflow-hidden rounded-xl border bg-card text-card-foreground shadow-xs transition-shadow has-[[data-card-open]:focus-visible]:outline-2 has-[[data-card-open]:focus-visible]:outline-offset-2 has-[[data-card-open]:focus-visible]:outline-primary motion-safe:hover:shadow-md',
                 running && 'ring-1 ring-primary/15',
             )
         "
@@ -83,6 +86,7 @@ const moneyClass = computed(() => {
             <h3 :id="titleId" class="text-sm leading-snug font-medium">
                 <button
                     type="button"
+                    data-card-open
                     class="block w-full cursor-pointer text-left outline-none after:absolute after:inset-0 after:content-['']"
                     @click="emit('open', take.id)"
                 >

@@ -50,11 +50,12 @@ Pixelforge max: `text_max = ceil(ceil(chars/4) × 115/100)`, refs × 765, output
 | min_cost_nanos, min_charge_nanos | from the estimate (spec 7 uses them for the estimate range) |
 | flags | jsonb array default `[]`: `over_estimate`, `cost_mismatch`, `orphan`; durable backing of Needs attention (D-054) |
 | provider_cost_nanos, charge_nanos | null while open; 0 when voided |
+| absorbed_cost_nanos | null unless a voided usage's work was still billed by the provider: an orphan success (units × the generation's rates, #102) or an unusable AI response (units × the open rates, spec 8). Stored with its units, tokens, `completed_at` and `billing_date`. Never in the ledger. Read by `billing:verify --usage` (Pixelforge) and the daily AI budget (Anthropic). Admin-only (D-023, D-087) |
 | markup_bps | snapshot (2500) |
 | external_id | `gen_…` / Anthropic message id |
 | completed_at, billing_date | provider completion time; `billing_date` = its UTC date |
 | timestamps | |
-CHECKs: token columns ≥ 0; open ⇒ cost/charge null; settled ⇒ not null; voided ⇒ both 0; all amounts ≥ 0. Index `(provider, billing_date)`, `(customer_id, billing_date)`, partial `(customer_id) where status = 'open'`.
+CHECKs: token columns ≥ 0; open ⇒ cost/charge null; settled ⇒ not null; voided ⇒ both 0; `absorbed_cost_nanos` null unless voided, then ≥ 0 with a `billing_date` (D-087); all amounts ≥ 0. Index `(provider, billing_date)`, `(customer_id, billing_date)`, partial `(customer_id) where status = 'open'`.
 
 ### `ledger_entries` (append-only, real money only; **no hold rows**, D-024)
 `id` bigint · `customer_id` · `type` (`purchase`, `promo_grant`, `charge`, `adjustment`) · `amount_nanos` (signed) · `usage_record_id` null · `purchase_id` null (ulid FK `purchases`) · `admin_id` null · `reason` null · `created_at`.
@@ -74,7 +75,7 @@ Each action starts with `assert(DB::transactionLevel() > 0)` (the caller's trans
 |---|---|---|
 | `OpenUsageAction` | before calling a provider | lock customer → `available ≥ maxCharge` else `InsufficientCreditsException` → create usage `open` (rates, max cost/charge) → `held += maxCharge` |
 | `SettleUsageAction` | provider work succeeded | lock customer → re-read usage, must be `open` → compute cost from units × rates → charge → ledger `charge (−charge)` → `balance −= charge`, `held −= maxCharge` → usage `settled`, billing_date |
-| `VoidUsageAction` | provider work failed / rejected | lock customer → re-read usage, must be `open` → `held −= maxCharge` → usage `voided`, cost 0, charge 0 |
+| `VoidUsageAction` | provider work failed / rejected | lock customer → re-read usage, must be `open` → `held −= maxCharge` → usage `voided`, cost 0, charge 0; with units the provider still billed: units, tokens, `absorbed_cost_nanos` and `billing_date` (also on an already voided usage without one, e.g. an AI result after expiry) |
 
 `RecordLedgerEntryAction` is the only writer of `ledger_entries` and `balance_nanos` (purchase, promo_grant, adjustment, and the charge inside Settle).
 
