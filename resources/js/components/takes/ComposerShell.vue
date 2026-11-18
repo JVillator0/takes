@@ -47,6 +47,12 @@ type Props = {
     errors?: ComposerErrors;
     maxPromptChars?: number;
     maxReferences?: number;
+    /**
+     * The collapsed phone sheet (P10): only the prompt and Generate · up to
+     * $x stay; size, quality, references and the estimate details are
+     * hidden (not focusable) until the sheet is expanded.
+     */
+    compact?: boolean;
 };
 
 const props = withDefaults(defineProps<Props>(), {
@@ -62,6 +68,7 @@ const props = withDefaults(defineProps<Props>(), {
     errors: () => ({}),
     maxPromptChars: 4000,
     maxReferences: 4,
+    compact: false,
 });
 
 const prompt = defineModel<string>('prompt', { default: '' });
@@ -263,7 +270,8 @@ const segmentClass =
     -->
     <form class="flex flex-col gap-4" novalidate @submit.prevent>
         <div class="flex items-center justify-between gap-2">
-            <h2 class="text-base font-semibold">
+            <!-- On phones the sheet's toggle shows the title; keep it for screen readers only. -->
+            <h2 class="text-base font-semibold max-lg:sr-only">
                 {{ t('takes.composer.title') }}
             </h2>
             <span
@@ -285,7 +293,7 @@ const segmentClass =
         </div>
 
         <ServiceNotConfiguredBanner
-            v-if="!serviceConfigured"
+            v-if="!serviceConfigured && !compact"
             :id="ids.banner"
         />
 
@@ -300,7 +308,7 @@ const segmentClass =
                 :id="ids.prompt"
                 v-model="prompt"
                 name="prompt"
-                rows="4"
+                :rows="compact ? 2 : 4"
                 :placeholder="t('takes.composer.prompt_placeholder')"
                 :aria-invalid="promptError ? true : undefined"
                 :aria-describedby="
@@ -308,10 +316,14 @@ const segmentClass =
                         .filter(Boolean)
                         .join(' ')
                 "
-                class="min-h-24 w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 md:text-sm dark:bg-input/30"
+                :class="compact ? 'min-h-16' : 'min-h-24'"
+                class="w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 md:text-sm dark:bg-input/30"
                 @keydown="onPromptKeydown"
             />
-            <div class="flex items-center justify-between gap-2 text-xs">
+            <div
+                v-show="!compact"
+                class="flex items-center justify-between gap-2 text-xs"
+            >
                 <span :id="ids.tip" class="text-muted-foreground">
                     {{ t('takes.composer.prompt_tip') }}
                 </span>
@@ -339,10 +351,14 @@ const segmentClass =
             >
                 {{ promptError }}
             </p>
-            <ScenarioChips :disabled="processing" @add="addScenario" />
+            <ScenarioChips
+                v-show="!compact"
+                :disabled="processing"
+                @add="addScenario"
+            />
         </div>
 
-        <fieldset class="flex flex-col gap-1.5">
+        <fieldset v-show="!compact" class="flex flex-col gap-1.5">
             <legend
                 class="mb-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase"
             >
@@ -387,7 +403,7 @@ const segmentClass =
             </p>
         </fieldset>
 
-        <fieldset class="flex flex-col gap-1.5">
+        <fieldset v-show="!compact" class="flex flex-col gap-1.5">
             <legend
                 class="mb-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase"
             >
@@ -422,7 +438,7 @@ const segmentClass =
             </p>
         </fieldset>
 
-        <fieldset class="flex flex-col gap-2">
+        <fieldset v-show="!compact" class="flex flex-col gap-2">
             <legend
                 class="mb-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase"
             >
@@ -502,7 +518,9 @@ const segmentClass =
             </Button>
         </fieldset>
 
+        <!-- Collapsed, the panel shows only to say why Generate is blocked. -->
         <EstimatePanel
+            v-show="!compact || estimateState === 'denied'"
             :estimate="estimate"
             :state="estimateState"
             :available-display="availableDisplay"
@@ -511,7 +529,10 @@ const segmentClass =
             :message-id="ids.estimateMessage"
         />
 
-        <div class="flex flex-col gap-2">
+        <!-- In the phone sheet Generate stays in view while the form scrolls (P10). -->
+        <div
+            class="flex flex-col gap-2 max-lg:sticky max-lg:bottom-0 max-lg:-mx-4 max-lg:border-t max-lg:bg-background max-lg:px-4 max-lg:py-3"
+        >
             <div class="flex flex-wrap gap-2">
                 <Button
                     type="button"

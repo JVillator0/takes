@@ -136,6 +136,12 @@ const filter = computed({
     },
 });
 
+/** The pill's On hold opens this project's In progress filter (2-02). */
+const holdsHref = computed(
+    () =>
+        showProject(props.project.id, { query: { status: 'in_progress' } }).url,
+);
+
 const loadMore = (): void => {
     router.reload({
         data: { pages: props.pages + 1 },
@@ -244,9 +250,10 @@ const composerRef = ref<InstanceType<typeof TakeComposer> | null>(null);
 const composerPanel = ref<HTMLElement | null>(null);
 const sheetExpanded = ref(false);
 /*
- * Below lg (64rem, Tailwind's breakpoint) the collapsed sheet only clips
- * the composer; inert takes its controls out of the tab order, so a hidden
- * Cmd/Ctrl+Enter can never start a paid take (F-20).
+ * Below lg (64rem, Tailwind's breakpoint) the collapsed sheet keeps the
+ * prompt and Generate · up to $x in view (P10); the rest of the composer is
+ * hidden, so nothing out of view stays focusable (F-20). A created take
+ * collapses the sheet so its new card is visible.
  */
 const isDesktop = useMediaQuery('(min-width: 64rem)');
 const composerCollapsed = computed(
@@ -417,7 +424,7 @@ const canPurchase = computed(
 <template>
     <Head :title="project.name" />
 
-    <StudioLayout :balance="balance" fluid>
+    <StudioLayout :balance="balance" :holds-href="holdsHref" fluid>
         <template #switcher>
             <nav
                 class="flex min-w-0 items-center gap-1.5 text-sm"
@@ -450,9 +457,8 @@ const canPurchase = computed(
                 :class="[
                     'z-20 border-t bg-background lg:static lg:w-[400px] lg:shrink-0 lg:border-t-0 lg:border-r',
                     'max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:rounded-t-2xl max-lg:shadow-[0_-8px_24px_-12px_rgb(0_0_0/0.25)]',
-                    sheetExpanded
-                        ? 'max-lg:max-h-[85svh] max-lg:overflow-y-auto'
-                        : 'max-lg:max-h-16 max-lg:overflow-hidden',
+                    sheetExpanded &&
+                        'max-lg:max-h-[85svh] max-lg:overflow-y-auto',
                 ]"
             >
                 <button
@@ -473,7 +479,6 @@ const canPurchase = computed(
                 </button>
                 <div
                     id="composer-sheet"
-                    :inert="composerCollapsed"
                     class="p-4 pt-0 lg:sticky lg:top-14 lg:max-h-[calc(100svh-3.5rem)] lg:overflow-y-auto lg:p-6"
                 >
                     <TakeComposer
@@ -482,12 +487,14 @@ const canPurchase = computed(
                         :config="composer"
                         :available-display="balance.available"
                         :available-exact="balance.availableExact"
+                        :compact="composerCollapsed"
+                        @created="sheetExpanded = false"
                     />
                 </div>
             </aside>
 
             <section
-                class="flex min-w-0 flex-1 flex-col gap-4 p-4 pb-24 sm:p-6 lg:pb-6"
+                class="flex min-w-0 flex-1 flex-col gap-4 p-4 pb-64 sm:p-6 sm:pb-64 lg:pb-6"
                 aria-labelledby="workspace-title"
             >
                 <div

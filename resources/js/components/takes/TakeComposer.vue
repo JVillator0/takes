@@ -29,6 +29,8 @@ type Props = {
     availableDisplay: string | null;
     /** Exact available credits; a change re-checks the estimate's policy answer. */
     availableExact?: string | null;
+    /** The collapsed phone sheet: prompt and Generate only (P10). */
+    compact?: boolean;
 };
 
 const props = defineProps<Props>();
@@ -206,6 +208,7 @@ defineExpose({ remix, tryAgain, refresh });
         :errors="errors"
         :max-prompt-chars="config.maxPromptChars"
         :max-references="config.maxReferences"
+        :compact="compact"
         @submit="submit"
         @buy-credits="buyCredits.open()"
         @cancel-remix="cancelRemix"
