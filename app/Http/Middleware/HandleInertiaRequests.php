@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Middleware;
 
 use App\DTOs\Auth\AbilityDTO;
+use App\DTOs\Billing\BalanceSummaryDTO;
 use App\Http\Resources\Billing\CreditPackResource;
 use App\Models\Customer;
 use App\Models\Project;
@@ -155,14 +156,17 @@ final class HandleInertiaRequests extends Middleware
             return null;
         }
 
+        // The pill's strings, rounded as BalanceSummaryDTO rounds them (D-021).
+        $balance = BalanceSummaryDTO::fromCustomer($customer)->toArray();
+
         return [
             'id' => $customer->id,
             'name' => $customer->name,
             'email' => $customer->email,
-            'available' => $customer->available()->format(),
-            'available_exact' => $customer->available()->formatExact(),
-            'on_hold' => $customer->held()->format(),
-            'on_hold_exact' => $customer->held()->formatExact(),
+            'available' => $balance['available'],
+            'available_exact' => $balance['availableExact'],
+            'on_hold' => $balance['onHold'],
+            'on_hold_exact' => $balance['onHoldExact'],
         ];
     }
 

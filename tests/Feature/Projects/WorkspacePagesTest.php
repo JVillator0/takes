@@ -84,7 +84,7 @@ it('renders the workspace with the props live updates reload', function (): void
             ->where('takes.0.number', 1)
             ->where('takes.0.phase', 'processing')
             ->where('counts', ['all' => 1, 'in_progress' => 1, 'done' => 0, 'failed' => 0])
-            ->where('balance.onHold', '$0.4673')
+            ->where('balance.onHold', '$0.4674')
             ->where('balance.onHoldExact', '$0.46734375')
             ->where('take', null)
             ->where('hasMoreTakes', false)

@@ -14,7 +14,8 @@ beforeEach(function (): void {
 });
 
 it('shares the customer with money as server-formatted strings only (D-023, D-024)', function (): void {
-    // Demo dataset at 12:02: balance $10.64754375, on hold $0.3139625, available $10.3336.
+    // Demo dataset at 12:02: balance $10.64754375, on hold $0.3139625, available $10.33358125:
+    // available rounds down and on hold up, as on the pill (D-021).
     $customer = Customer::factory()->withRole()->withCachedBalance(10_647_543_750, 313_962_500)->create();
 
     $this->actingAs($customer, 'customer')
@@ -23,7 +24,7 @@ it('shares the customer with money as server-formatted strings only (D-023, D-02
             'id' => $customer->id,
             'name' => $customer->name,
             'email' => $customer->email,
-            'available' => '$10.3336',
+            'available' => '$10.3335',
             'available_exact' => '$10.33358125',
             'on_hold' => '$0.3140',
             'on_hold_exact' => '$0.3139625',

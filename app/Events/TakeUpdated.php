@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Events;
 
+use App\DTOs\Billing\BalanceSummaryDTO;
 use App\DTOs\Takes\TakeLiveUpdateDTO;
 use App\Models\Customer;
 use App\Models\Take;
@@ -59,8 +60,8 @@ final class TakeUpdated implements ShouldBroadcast, ShouldDispatchAfterCommit, S
     public function broadcastWith(): array
     {
         $customer = Customer::query()->findOrFail($this->take->customer_id);
-        $available = $customer->available();
-        $held = $customer->held();
+        // The pill's strings, rounded as BalanceSummaryDTO rounds them (D-021).
+        $balance = BalanceSummaryDTO::fromCustomer($customer)->toArray();
 
         return (new TakeLiveUpdateDTO(
             takeId: $this->take->id,
@@ -68,10 +69,10 @@ final class TakeUpdated implements ShouldBroadcast, ShouldDispatchAfterCommit, S
             status: $this->take->status->value,
             failureCode: $this->take->failure_code?->value,
             updatedAt: $this->take->updated_at?->toIso8601ZuluString(),
-            available: $available->format(4),
-            availableExact: $available->formatExact(),
-            onHold: $held->format(4),
-            onHoldExact: $held->formatExact(),
+            available: $balance['available'],
+            availableExact: $balance['availableExact'],
+            onHold: $balance['onHold'],
+            onHoldExact: $balance['onHoldExact'],
             // When the balance was read, to the microsecond: the client keeps
             // the newest balance whichever take's update carried it.
             balanceAt: now()->utc()->format('Y-m-d\\TH:i:s.u\\Z'),

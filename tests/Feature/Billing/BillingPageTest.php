@@ -58,7 +58,7 @@ it('shows the demo dataset cards exactly (D-037, D-042)', function (): void {
     $this->actingAs($ana, 'customer')
         ->get(route('billing.show'))
         ->assertInertia(fn (Assert $page) => $page
-            // Exact on the page: the pill's $10.3336 rounding never shows here.
+            // Exact on the page: the pill's $10.3335 rounding (down, D-021) never shows here.
             ->where('summary.available', '$10.33358125')
             ->where('summary.balance', '$10.64754375')
             ->where('summary.onHold', '$0.3139625')
@@ -71,7 +71,7 @@ it('shows the demo dataset cards exactly (D-037, D-042)', function (): void {
                 ['id' => '10', 'amount' => '$10.00', 'tax' => '$0.00', 'total' => '$10.00'],
                 ['id' => '25', 'amount' => '$25.00', 'tax' => '$0.00', 'total' => '$25.00'],
             ])
-            ->where('auth.customer.available', '$10.3336'));
+            ->where('auth.customer.available', '$10.3335'));
 });
 
 it('lists one line per usage and the non-charge ledger entries, newest first, with the running balance', function (): void {

@@ -53,10 +53,10 @@ it('carries the take status and the balance pill as server strings', function ()
             'updatedAt' => $take->updated_at?->toIso8601ZuluString(),
         ],
         'balance' => [
-            // $10.00 funded, 467,343,750 on hold.
-            'available' => '$9.5327',
+            // $10.00 funded, 467,343,750 on hold: available rounds down, on hold up (D-021).
+            'available' => '$9.5326',
             'availableExact' => '$9.53265625',
-            'onHold' => '$0.4673',
+            'onHold' => '$0.4674',
             'onHoldExact' => '$0.46734375',
         ],
         'balanceAt' => '2026-11-17T12:00:00.123456Z',
