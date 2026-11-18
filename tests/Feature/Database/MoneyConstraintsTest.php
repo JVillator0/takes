@@ -191,6 +191,12 @@ it('rejects usage records that break a CHECK constraint', function (array $overr
     'absorbed cost without a billing date' => [['status' => 'voided', 'provider_cost_nanos' => 0, 'charge_nanos' => 0, 'absorbed_cost_nanos' => 100], 'usage_records_absorbed_check'],
 ]);
 
+it('lets a voided usage carry absorbed provider cost on a billing day (D-087)', function (): void {
+    DB::table('usage_records')->insert(usageRow($this->customer, ['status' => 'voided', 'provider_cost_nanos' => 0, 'charge_nanos' => 0, 'absorbed_cost_nanos' => 254_000, 'billing_date' => '2026-11-17']));
+
+    expect(DB::table('usage_records')->value('absorbed_cost_nanos'))->toBe(254_000);
+});
+
 it('allows one usage record per billable', function (): void {
     $row = usageRow($this->customer);
     DB::table('usage_records')->insert($row);

@@ -7,6 +7,7 @@ use App\Enums\Billing\LedgerEntryType;
 use App\Enums\Billing\Provider;
 use App\Enums\Billing\PurchaseStatus;
 use App\Enums\Billing\UsageStatus;
+use App\Enums\Suggestions\SuggestionFailureReason;
 use App\Enums\Suggestions\SuggestionStatus;
 use App\Enums\Takes\AttentionReason;
 use App\Enums\Takes\FailureCode;
@@ -56,6 +57,7 @@ it('keeps each CHECK list identical to its enum', function (string $constraint, 
     ['takes_last_submit_error_kind_check', SubmitErrorKind::class],
     ['takes_attention_reason_check', AttentionReason::class],
     ['suggestions_status_check', SuggestionStatus::class],
+    ['suggestions_failure_reason_check', SuggestionFailureReason::class],
     ['webhook_deliveries_outcome_check', WebhookOutcome::class],
     ['purchases_status_check', PurchaseStatus::class],
     ['invoices_status_check', InvoiceStatus::class],
