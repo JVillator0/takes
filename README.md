@@ -81,7 +81,7 @@ Scenario prompts ran at `low` quality, the others at `medium`, all 1024×1024. T
 
 Pixelforge key label: `Takes production (Laravel Cloud)` (production key). The Pixelforge account email is in the submission form, not here: contact emails stay out of the public repository (D-081).
 
-**Final data check** (2026-11-18 02:17-02:18 UTC, main `e2ebaf9`, after the last QA fix deployed): `billing:verify` holds; `billing:verify --usage` matches Pixelforge for 2026-11-11 to 2026-11-17 and for 2026-11-17 to 2026-11-18; no open usage record, no non-terminal take, no balance or hold drift. Details in [`docs/deploy.md`](docs/deploy.md#final-verification-2026-11-18-main-e2ebaf9-after-164-to-174).
+**Final data check** (2026-11-18 02:52-02:53 UTC, main `135ac67`, after QA's last re-verification and the deploy of its fixes): `billing:verify` holds; `billing:verify --usage` matches Pixelforge for 2026-11-11 to 2026-11-17 and for 2026-11-17 to 2026-11-18 (today included); no open usage record, no non-terminal take, no balance or hold drift (36 takes, 6 customers, 44 ledger rows). Details in [`docs/deploy.md`](docs/deploy.md#final-verification-2026-11-18-main-135ac67-after-the-last-qa-fixes).
 
 ## Admin console
 
@@ -330,7 +330,7 @@ Resources, build and deploy commands, environment variables and key rotation are
 
 I built Takes with AI agents (Claude Code, Opus 5.5) under a harness that keeps the money correct and the process visible:
 
-1. **Specs first.** Eleven milestone specs in [`.claude/specs/`](.claude/specs/README.md), each with a product and a technical review ([example](.claude/specs/3-domain-foundation/REVIEW.md)), wireframes for every screen ([`wireframes/`](.claude/specs/2-product-design/wireframes/); the volumes on them are illustrative, every amount comes from one [demo dataset](.claude/specs/2-product-design/demo-dataset.md)), and a [decision log](.claude/specs/DECISIONS.md) with the reason for each choice (D-001 … D-087).
+1. **Specs first.** Eleven milestone specs in [`.claude/specs/`](.claude/specs/README.md), each with a product and a technical review ([example](.claude/specs/3-domain-foundation/REVIEW.md)), wireframes for every screen ([`wireframes/`](.claude/specs/2-product-design/wireframes/); the volumes on them are illustrative, every amount comes from one [demo dataset](.claude/specs/2-product-design/demo-dataset.md)), and a [decision log](.claude/specs/DECISIONS.md) with the reason for each choice (D-001 … D-088).
 2. **Project board.** `scripts/plan-to-github.sh` turned each approved spec into a milestone and issues in the public [GitHub Project](https://github.com/users/JVillator0/projects/4). Each issue quotes its spec item and acceptance criteria.
 3. **Parallel agents.** After the domain foundation merged (Gate B), five agents worked at once in a fixed pool of worktrees (`takes-a` … `takes-e`, D-070), each with its own databases and ports ([`.claude/worktree-pool.md`](.claude/worktree-pool.md)). They never call the real Pixelforge API; tests use signed fixtures.
 4. **Pull requests with three reviewers and a judge.** Every change lands through a PR. The [`pr-review` workflow](.claude/workflows/pr-review.js) runs three specialist reviewers ([Laravel backend](.claude/agents/laravel-backend-reviewer.md), [Inertia + Vue](.claude/agents/inertia-vue-reviewer.md), [Filament](.claude/agents/filament-reviewer.md)) against the checklists in [`.claude/rules/`](.claude/rules/), and a [judge](.claude/agents/pr-judge.md) scores the PR and decides whether it merges. Representative threads:
@@ -339,9 +339,9 @@ I built Takes with AI agents (Claude Code, Opus 5.5) under a harness that keeps 
    - [#99](https://github.com/JVillator0/takes/pull/99) UI foundation: four rounds, 65 inline comments on copy and money display (the exact amount hidden under a card's click target, a raw lang key in a denial).
    - [#109](https://github.com/JVillator0/takes/pull/109) take transitions: three rounds, 21 inline comments; the reviewers found cases the spec had not decided, recorded as D-077.
 5. **Escalation without blocking** (D-075). Reviews stop at round 3. The lead may authorise one extra full round after the important and critical findings are fixed; minors left after that become follow-up issues. No round 5, and nobody waits for me during the day.
-6. **QA against the specs** (D-071). Before `v1.0.0`, a dedicated [QA agent](.claude/agents/qa-tester.md) drives a real browser through the production site with a [test plan derived from the specs](.claude/qa/plan.md) and files one issue per defect. The [QA report](https://github.com/JVillator0/takes/issues/96#issuecomment-6965234745) (2026-11-17 23:59 to 2026-11-18 00:36 UTC, Playwright at 1440 px and 390 px) ran 160 checks: 140 passed, 10 failed, 2 skipped, 4 blocked by spec ambiguity, 4 not applicable, using 23 of its 25 generations. It filed nine issues (#152 to #158, #162, #163); every one was fixed through the normal PR and review flow and is closed.
+6. **QA against the specs** (D-071). Before `v1.0.0`, a dedicated [QA agent](.claude/agents/qa-tester.md) drives a real browser through the production site with a [test plan derived from the specs](.claude/qa/plan.md) and files one issue per defect. It ran three times on production, recorded on [#96](https://github.com/JVillator0/takes/issues/96). The [first full pass](https://github.com/JVillator0/takes/issues/96#issuecomment-6965234745) (2026-11-17 23:59 to 2026-11-18 00:36 UTC, Playwright at 1440 px and 390 px) ran 160 checks: 140 passed, 10 failed, 2 skipped, 4 blocked by spec ambiguity and 4 not applicable. [Re-verification 1](https://github.com/JVillator0/takes/issues/96#issuecomment-6967133982) and the [final report](https://github.com/JVillator0/takes/issues/96#issuecomment-6967481341) followed. In all, QA filed eleven issues (#152 to #158, #162, #163, #176, #177), each fixed through the normal PR and review flow and re-verified. The exit criteria were met at 02:47 UTC on 2026-11-18 on `135ac67`, with no `qa` issue open.
 
-**Decisions made during the build.** The log grew from the planning decisions to [D-087](.claude/specs/DECISIONS.md); the last ones, one line each:
+**Decisions made during the build.** The log grew from the planning decisions to [D-088](.claude/specs/DECISIONS.md); the last ones, one line each:
 
 - **D-080**: cut part of the admin console to protect the deadline (see trade-offs).
 - **D-081**: contact emails go only in the private submission form, never in the public repository.
@@ -351,11 +351,18 @@ I built Takes with AI agents (Claude Code, Opus 5.5) under a harness that keeps 
 - **D-085**: accept the build-only picomatch advisory; the two Vite plugins move to devDependencies and the audit gates on `--omit=dev`.
 - **D-086**: bring back the dashboard charts and the System › Admins resource (partly reverses D-080).
 - **D-087**: provider cost of a voided AI call is kept in `absorbed_cost_nanos` and counts toward the daily AI budget, never charged to the customer.
+- **D-088**: the $15 spend alert, the latest spend reading and a monthly projection replace spec 9's 24 h and 48 h spend readings.
 
 **A lesson from the process.** With five agents opening PRs at the same time, the description of [#112](https://github.com/JVillator0/takes/pull/112) was briefly replaced by the description of #119 (visible in #112's edit history): two agents had written their bodies through the same temporary file path. It was restored within a minute, and the rule is now in the [`agent-worktrees` skill](.claude/skills/agent-worktrees/SKILL.md): each agent writes its body to a fresh `mktemp` file, passes it with `--body-file`, and confirms with `gh pr view <n> --json body,closingIssuesReferences` that the body and the closing issues are its own. Parallel agents need the same isolation for their scratch files as for their checkouts.
 
-**Time.**
-<!-- TIME: filled by Javier -->
+**Time.** All of it on one day, 2026-11-17 (US Central time):
+
+- First commit (the approved specs) at 10:52 CST; `v1.0.0` tagged around 21:00 CST the same day.
+- The first production deploy was live at 14:47 CST. The last piece of the required path (takes with holds and settlement, webhooks, live status, the workspace) merged at 17:08 CST, and the production smoke test ran from 17:10 to 17:41 CST. The rest of the day went to the stretch goals, QA and hardening.
+- 52 pull requests merged before this README, each reviewed by three specialist reviewers and a judge; 115 issues closed (112 completed, 3 not planned).
+- Built with parallel Claude Code agents in five git worktrees, with Javier approving the specs and making the product calls.
+
+Javier's personal hours are in the submission form.
 
 ## Trade-offs and what I'd do next
 
