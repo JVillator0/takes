@@ -45,12 +45,14 @@ final readonly class BalanceSummaryDTO
 
     /**
      * The 2-01 negative-balance banner ("below zero by $X", 4 decimals), or
-     * null while available credits are zero or more (spec 3-03 §6).
+     * null while available credits are zero or more (spec 3-03 §6). The debt
+     * rounds up, the same magnitude the pill shows for a floored negative
+     * available, so the banner and the pill agree.
      */
     public function negativeBy(): ?string
     {
         return $this->available->isNegative()
-            ? Nanodollars::zero()->minus($this->available)->format(4, RoundingMode::HalfUp)
+            ? Nanodollars::zero()->minus($this->available)->format(4, RoundingMode::Ceil)
             : null;
     }
 
