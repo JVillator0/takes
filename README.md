@@ -4,7 +4,7 @@
 
 **Takes** is an image-generation studio built on the Pixelforge API for the PromptEdit take-home ([brief](https://pixelforge.promptedit.dev/assessment)). The role's mission is to *"create the most intuitive video editing tool UIs in the world"*, so Takes borrows the vocabulary of video editing: every generation is a **take**, takes live in **projects**, any take can be **remixed**, and **Describe a change** turns a sentence ("warmer, portrait") into a reviewed parameter diff with a new price. Customers pay the provider's cost plus 25% from prepaid (simulated) credits. Every provider call, Pixelforge images and Anthropic suggestions alike, goes through one ledger in integer nanodollars, so each charge is exact, recorded once and explainable.
 
-Live app: **https://takes-production-aodrsk.laravel.cloud** · Plan and execution: [GitHub Project](https://github.com/users/JVillator0/projects/4) · Specs: [`.claude/specs/`](.claude/specs/README.md) · Decisions: [`DECISIONS.md`](.claude/specs/DECISIONS.md)
+Live app: **https://takes-production-aodrsk.laravel.cloud** · [Admin console](#admin-console): `/admin`, auditor login in the submission form · Plan and execution: [GitHub Project](https://github.com/users/JVillator0/projects/4) · Specs: [`.claude/specs/`](.claude/specs/README.md) · Decisions: [`DECISIONS.md`](.claude/specs/DECISIONS.md)
 
 ## Brief coverage
 
@@ -54,7 +54,7 @@ Every requirement, tip and stretch goal of the brief, plus what was added. Paths
 4. **Open a done take.** The drawer shows the exact charge, the parameters, Remix and Describe a change.
 5. **Billing.** `/billing` shows balance, on hold, available, the activity with a running balance, and an invoice per purchase.
 6. **Showcase customer** (read-only, real history from the production smoke test): sign in as `showcase@example.com` with password `x1zDSVr4FQmqh35+IailUmdhhiD06I1P`. It can look but not create, buy or edit (D-072).
-7. **Admin** at `https://takes-production-aodrsk.laravel.cloud/admin` with the **auditor** login from the submission form (read-only, no MFA prompt). Look at:
+7. **Admin** at `https://takes-production-aodrsk.laravel.cloud/admin` with the **auditor** login from the submission form (read-only, no MFA prompt); the full tour is in [Admin console](#admin-console). Start with:
    - Billing › Reports: spend, provider cost and profit by day or by customer; every day with spend shows a 20.0% margin.
    - Providers › Pixelforge usage: our cost per day next to `GET /v1/usage`, one "match" per day with data.
    - Studio › Takes › any take: estimate, units, rates, cost, charge, the ledger row and every webhook delivery with its outcome.
@@ -81,7 +81,26 @@ Scenario prompts ran at `low` quality, the others at `medium`, all 1024×1024. T
 
 Pixelforge key label: `Takes production (Laravel Cloud)` (production key). The Pixelforge account email is in the submission form, not here: contact emails stay out of the public repository (D-081).
 
-<!-- DATA CHECK: `php artisan billing:verify --usage` result and UTC timestamp, filled after the last QA re-verification (spec 10 § Final checks). -->
+**Final data check** (2026-11-18 02:52-02:53 UTC, main `135ac67`, after QA's last re-verification and the deploy of its fixes): `billing:verify` holds; `billing:verify --usage` matches Pixelforge for 2026-11-11 to 2026-11-17 and for 2026-11-17 to 2026-11-18 (today included); no open usage record, no non-terminal take, no balance or hold drift (36 takes, 6 customers, 44 ledger rows). Details in [`docs/deploy.md`](docs/deploy.md#final-verification-2026-11-18-main-135ac67-after-the-last-qa-fixes).
+
+## Admin console
+
+**<https://takes-production-aodrsk.laravel.cloud/admin>** · credentials in the submission form (D-081), never in this repository.
+
+| Role | Can do | MFA |
+|---|---|---|
+| **Auditor** (the evaluator login) | Read everything; sees no write action | No (exempt, D-013) |
+| Operator | Read everything, run the audited write actions (Adjust credits, Restrict, Reconcile now, Export CSV) | Required |
+| Super admin | Everything, plus create, edit and delete admins | Required |
+
+What to look at:
+
+- **Dashboard**: today's spend, provider cost and profit with margin, active holds, charts over the last 14 or 30 UTC days (spend by provider, cost and profit, cost split, takes by status) and Needs attention for takes (D-086).
+- **Billing › Reports**: spend, provider cost, profit and margin by day or by customer; every day with spend shows 20.0%.
+- **Providers › Pixelforge usage**: our cost per day next to `GET /v1/usage`, Match for each closed day, "N in flight" today.
+- **Studio › Takes › a take**: estimate, units, rates, provider cost, charge (cost × 1.25), the ledger row and every webhook delivery with its outcome.
+- **Providers › Webhook deliveries**: every verified delivery with its outcome (`applied`, `duplicate`, `ping`, …) and a readable JSON view.
+- **System › Admins**: every console user and role (list and view for every role; changes by the super admin only, audited).
 
 ## Money rules
 
@@ -145,7 +164,7 @@ app/
   Exceptions/{Domain}/  domain exceptions; controllers translate them to HTTP
   Support/Money/        Nanodollars, TokenCost
   Services/Pixelforge/  PixelforgeClient: the only service, thin and typed, no retries inside
-  Filament/Admin/       the admin console (clusters Studio, Billing, Providers)
+  Filament/Admin/       the admin console: dashboard widgets, Customers and Admins resources, clusters Studio, Billing, Providers
 ```
 
 Controllers stay around ten lines: authorize, validate, call one Action or Query, render. Jobs are thin and own the retry policy. The rules are in [`.claude/rules/architecture.md`](.claude/rules/architecture.md) and enforced by `tests/Arch/ArchitectureTest.php` (status writes only in the two transition actions, ledger writes only in `RecordLedgerEntryAction`, no `lockForUpdate` on usage records, no floats in money code).
@@ -303,6 +322,7 @@ Live at **<https://takes-production-aodrsk.laravel.cloud>** on Laravel Cloud (US
 | `/` after 12 min idle (app and database asleep) | 2.98 s and 2.73 s to first byte (two runs) |
 | `/` warm | 0.29 – 0.33 s |
 | Signed webhook ping after idle (target < 10 s) | not captured: the dashboard test ping was answered 200 (recorded as `ping`), but its latency after idle was not measured |
+| Final check, 2026-11-18 02:30 and 02:43 | 0.60 s and 0.48 s, not cold: review traffic kept the app awake, so the two figures above stand |
 
 Resources, build and deploy commands, environment variables and key rotation are in [`docs/deploy.md`](docs/deploy.md).
 
@@ -310,7 +330,7 @@ Resources, build and deploy commands, environment variables and key rotation are
 
 I built Takes with AI agents (Claude Code, Opus 5.5) under a harness that keeps the money correct and the process visible:
 
-1. **Specs first.** Eleven milestone specs in [`.claude/specs/`](.claude/specs/README.md), each with a product and a technical review ([example](.claude/specs/3-domain-foundation/REVIEW.md)), wireframes for every screen ([`wireframes/`](.claude/specs/2-product-design/wireframes/); the volumes on them are illustrative, every amount comes from one [demo dataset](.claude/specs/2-product-design/demo-dataset.md)), and a [decision log](.claude/specs/DECISIONS.md) with the reason for each choice (D-001 … D-081).
+1. **Specs first.** Eleven milestone specs in [`.claude/specs/`](.claude/specs/README.md), each with a product and a technical review ([example](.claude/specs/3-domain-foundation/REVIEW.md)), wireframes for every screen ([`wireframes/`](.claude/specs/2-product-design/wireframes/); the volumes on them are illustrative, every amount comes from one [demo dataset](.claude/specs/2-product-design/demo-dataset.md)), and a [decision log](.claude/specs/DECISIONS.md) with the reason for each choice (D-001 … D-088).
 2. **Project board.** `scripts/plan-to-github.sh` turned each approved spec into a milestone and issues in the public [GitHub Project](https://github.com/users/JVillator0/projects/4). Each issue quotes its spec item and acceptance criteria.
 3. **Parallel agents.** After the domain foundation merged (Gate B), five agents worked at once in a fixed pool of worktrees (`takes-a` … `takes-e`, D-070), each with its own databases and ports ([`.claude/worktree-pool.md`](.claude/worktree-pool.md)). They never call the real Pixelforge API; tests use signed fixtures.
 4. **Pull requests with three reviewers and a judge.** Every change lands through a PR. The [`pr-review` workflow](.claude/workflows/pr-review.js) runs three specialist reviewers ([Laravel backend](.claude/agents/laravel-backend-reviewer.md), [Inertia + Vue](.claude/agents/inertia-vue-reviewer.md), [Filament](.claude/agents/filament-reviewer.md)) against the checklists in [`.claude/rules/`](.claude/rules/), and a [judge](.claude/agents/pr-judge.md) scores the PR and decides whether it merges. Representative threads:
@@ -319,16 +339,34 @@ I built Takes with AI agents (Claude Code, Opus 5.5) under a harness that keeps 
    - [#99](https://github.com/JVillator0/takes/pull/99) UI foundation: four rounds, 65 inline comments on copy and money display (the exact amount hidden under a card's click target, a raw lang key in a denial).
    - [#109](https://github.com/JVillator0/takes/pull/109) take transitions: three rounds, 21 inline comments; the reviewers found cases the spec had not decided, recorded as D-077.
 5. **Escalation without blocking** (D-075). Reviews stop at round 3. The lead may authorise one extra full round after the important and critical findings are fixed; minors left after that become follow-up issues. No round 5, and nobody waits for me during the day.
-6. **QA against the specs** (D-071). Before `v1.0.0`, a dedicated [QA agent](.claude/agents/qa-tester.md) drives a real browser through the production site with a [test plan derived from the specs](.claude/qa/plan.md) and files one issue per defect. <!-- QA REPORT: link to the final QA report -->
+6. **QA against the specs** (D-071). Before `v1.0.0`, a dedicated [QA agent](.claude/agents/qa-tester.md) drives a real browser through the production site with a [test plan derived from the specs](.claude/qa/plan.md) and files one issue per defect. It ran three times on production, recorded on [#96](https://github.com/JVillator0/takes/issues/96). The [first full pass](https://github.com/JVillator0/takes/issues/96#issuecomment-6965234745) (2026-11-17 23:59 to 2026-11-18 00:36 UTC, Playwright at 1440 px and 390 px) ran 160 checks: 140 passed, 10 failed, 2 skipped, 4 blocked by spec ambiguity and 4 not applicable. [Re-verification 1](https://github.com/JVillator0/takes/issues/96#issuecomment-6967133982) and the [final report](https://github.com/JVillator0/takes/issues/96#issuecomment-6967481341) followed. In all, QA filed eleven issues (#152 to #158, #162, #163, #176, #177), each fixed through the normal PR and review flow and re-verified. The exit criteria were met at 02:47 UTC on 2026-11-18 on `135ac67`, with no `qa` issue open.
+
+**Decisions made during the build.** The log grew from the planning decisions to [D-088](.claude/specs/DECISIONS.md); the last ones, one line each:
+
+- **D-080**: cut part of the admin console to protect the deadline (see trade-offs).
+- **D-081**: contact emails go only in the private submission form, never in the public repository.
+- **D-082**: a late success after an internal failure of an ambiguous submit is `orphan_success` too (usage stays voided, flagged).
+- **D-083**: Dependabot ignores major updates until `v1.0.0`.
+- **D-084**: Reports' promo credits consumed: promo and positive adjustment credits are spent before purchased credits, in grant order.
+- **D-085**: accept the build-only picomatch advisory; the two Vite plugins move to devDependencies and the audit gates on `--omit=dev`.
+- **D-086**: bring back the dashboard charts and the System › Admins resource (partly reverses D-080).
+- **D-087**: provider cost of a voided AI call is kept in `absorbed_cost_nanos` and counts toward the daily AI budget, never charged to the customer.
+- **D-088**: the $15 spend alert, the latest spend reading and a monthly projection replace spec 9's 24 h and 48 h spend readings.
 
 **A lesson from the process.** With five agents opening PRs at the same time, the description of [#112](https://github.com/JVillator0/takes/pull/112) was briefly replaced by the description of #119 (visible in #112's edit history): two agents had written their bodies through the same temporary file path. It was restored within a minute, and the rule is now in the [`agent-worktrees` skill](.claude/skills/agent-worktrees/SKILL.md): each agent writes its body to a fresh `mktemp` file, passes it with `--body-file`, and confirms with `gh pr view <n> --json body,closingIssuesReferences` that the body and the closing issues are its own. Parallel agents need the same isolation for their scratch files as for their checkouts.
 
-**Time.**
-<!-- TIME: filled by Javier -->
+**Time.** All of it on one day, 2026-11-17 (US Central time):
+
+- First commit (the approved specs) at 10:52 CST; `v1.0.0` tagged around 21:00 CST the same day.
+- The first production deploy was live at 14:47 CST. The last piece of the required path (takes with holds and settlement, webhooks, live status, the workspace) merged at 17:08 CST, and the production smoke test ran from 17:10 to 17:41 CST. The rest of the day went to the stretch goals, QA and hardening.
+- 52 pull requests merged before this README, each reviewed by three specialist reviewers and a judge; 115 issues closed (112 completed, 3 not planned).
+- Built with parallel Claude Code agents in five git worktrees, with Javier approving the specs and making the product calls.
+
+Javier's personal hours are in the submission form.
 
 ## Trade-offs and what I'd do next
 
-- **Admin scope cut** (D-080, partly reversed by D-086). The console ships the foundation, the dashboard with charts and Needs attention for takes, Studio, Billing › Reports, Providers › Pixelforge usage, Customers with Adjust credits and System › Admins, which cover the brief's stretch goal. Not planned (D-080): admin Purchases and Invoices resources, since the customer billing page and its invoices cover them. Deferred: the ledger invariant widget and Ledger entries ([#63](https://github.com/JVillator0/takes/issues/63)), the Anthropic usage and Pricing pages ([#71](https://github.com/JVillator0/takes/issues/71)), and from spec 8 the admin AI suggestions resource and *Edit in composer* ([#76](https://github.com/JVillator0/takes/issues/76)). `billing:verify` still checks the ledger invariant from the command line.
+- **Admin scope cut** (D-080, partly reversed by D-086). The console covers the brief's stretch goal with the dashboard (charts and Needs attention for takes), Studio, Billing › Reports, Providers › Pixelforge usage and Webhook deliveries, Customers with Adjust credits and each customer's ledger, and System › Admins. D-080 cut the admin Purchases and Invoices resources (customers see every purchase and invoice on `/billing`), the standalone Ledger entries page and ledger invariant widget (`billing:verify` checks the invariant from the command line), the Anthropic usage and Pricing pages ([#71](https://github.com/JVillator0/takes/issues/71), closed as not planned), and from spec 8 the admin AI suggestions resource and *Edit in composer* ([#76](https://github.com/JVillator0/takes/issues/76), closed as not planned). D-086 brought back the dashboard charts and the Admins resource.
 - **Simulated payments.** "Buy credits" credits the account instantly and issues an invoice; there is no payment provider. A real one would add a pending purchase confirmed by its own signed webhook, through the same `PurchaseCreditsAction`.
 - **Shared Pixelforge quotas.** Limits are per account (3 in flight, 60 rpm, 500 per day) and every evaluator shares them. Takes queues politely ("Waiting for capacity"), caps takes per customer and globally per day (D-050), and throttles the demo button per IP, but a busy review window can still mean waiting.
 - **Anthropic cost is not reconcilable by API.** Each AI charge comes from the exact usage block of the response, but there is no per-key usage endpoint to compare with, so the AI side has no "match" column. A $5 workspace limit and a $1 daily AI budget bound the exposure.
@@ -337,10 +375,4 @@ I built Takes with AI agents (Claude Code, Opus 5.5) under a harness that keeps 
 - **Cold starts** (D-038). App and database scale to zero to fit the $15/month limit; the first request after idle is slower. Measurements are in [`docs/deploy.md`](docs/deploy.md).
 - **Rate-card assumptions.** Estimates use the token tables and variance from `GET /v1/pricing`; charges use each generation's own rates. If Pixelforge changed its pricing model, the estimator would need a new table, not a new money path.
 - **Demo access after the review.** The auditor and the demo logins are rotated or disabled after the review window; the seeded demo data stays separate from real registrations.
-- **Follow-ups still open** (minor findings deferred by the review rule):
-  - [#98](https://github.com/JVillator0/takes/issues/98) Pixelforge client hardening (mostly done in #126)
-  - [#102](https://github.com/JVillator0/takes/issues/102) `billing:verify`: orphan cost, suggestion holds, bounded widget variant
-  - [#107](https://github.com/JVillator0/takes/issues/107) bound token facts; catch `/` in money source scans (partly done in #125)
-  - [#111](https://github.com/JVillator0/takes/issues/111) reserve demo emails; demo seeder through `RecordLedgerEntryAction`
-  - [#118](https://github.com/JVillator0/takes/issues/118) off-markup holds and `billing:verify` ranges (done in #125, issue to close)
-  - Harness housekeeping: [#12](https://github.com/JVillator0/takes/issues/12), [#14](https://github.com/JVillator0/takes/issues/14), [#27](https://github.com/JVillator0/takes/issues/27)
+- **No open follow-ups.** Every minor finding deferred by the review rule (D-075) was fixed and closed before `v1.0.0` (#98, #102, #107, #111, #118, #122, #123, #124, #141, #142).

@@ -43,8 +43,9 @@ No CI or compose pin had to change.
 | Reading (UTC) | Spend this period | Breakdown | Alert |
 |---|---|---|---|
 | 2026-11-18 00:35 (day one, about 4 h after the first deploy, after the production smoke test) | **$0.10**, all covered by the $5.00 usage credit ($0.10 used) | Reverb $0.04, Serverless Postgres $0.02, application compute and queue $0.04, bucket $0.00 | $15.00 threshold, 99 % remaining |
+| 2026-11-18 02:35 (end of the build day: all deploys, the production smoke test and the QA passes) | **$0.19**, all covered by the $5.00 usage credit ($0.19 used) | Serverless Postgres $0.06, Reverb $0.05, application compute and queue $0.08, bucket $0.00 | $15.00 threshold, 99 % remaining |
 
-The 24 h and 48 h readings that spec 9's acceptance asks for cannot exist on day one; they are taken on 2026-11-18 and 2026-11-19 with the same command and added to this table. The CLI figure is usage only; it does not say whether the $5 plan fee is included.
+Per **D-088**, these readings, the $15 alert and the projection below replace the 24 h and 48 h readings of spec 9's acceptance. **Projection** from the latest reading: the resources have existed for about 7.3 h (since 2026-11-17 19:16 UTC), on a build day with continuous deploys, a smoke test and QA. Reverb accrues its flat rate, about $5/month. Compute, database and queue scale to zero, so their cost follows traffic. At this build-day rate, all day every day, they would reach about $13/month. At review traffic (a few sessions a day) the estimate of $1-3 holds. That gives a projected total of about $11-13/month (plan $5 + Reverb $5 + usage $1-3), under the $15 alert. The CLI reports usage; whether the $5 plan fee is included is not stated.
 
 ## Build and deploy commands
 
@@ -57,7 +58,7 @@ npm run build
 if [ -d app/Filament ]; then php artisan filament:optimize; fi
 ```
 
-`npm ci --include=dev` is required: the Vite build and its plugins (`laravel-vite-plugin`, `@inertiajs/vite`) are devDependencies (D-085), so a build with `NODE_ENV=production` or `--omit=dev` would skip them and fail.
+`npm ci --include=dev` is required: the build has always needed devDependencies (the Vite toolchain: `vite`/vite-plus, `@vitejs/plugin-vue`, `@tailwindcss/vite`, `typescript`), and D-085 added the two build-only plugins (`laravel-vite-plugin`, `@inertiajs/vite`) to that set. A build with `NODE_ENV=production` or `--omit=dev` would skip them and fail.
 
 `npm run build` reads the `VITE_REVERB_*` variables that Cloud injects when the WebSocket application is attached. `filament:optimize` runs only once `app/Filament` exists (redeploy 7, D-048).
 
@@ -202,6 +203,29 @@ curl -s -o /dev/null -w 'status=%{http_code} connect=%{time_connect}s ttfb=%{tim
 | `/` warm, right after | 200, TTFB 0.29 s |
 | Webhook endpoint right after the cold page (invalid signature) | 401 in 0.31 s, nothing written |
 | Signed webhook ping after idle (target < 10 s) | the dashboard test event was answered 200 (row `ping`); its latency after idle was not captured, Pixelforge's Recent deliveries shows it |
+
+## Final verification (2026-11-18, main `135ac67`, after the last QA fixes)
+
+Run after the last QA re-verification and its fixes, as spec 10 § QA validation requires. QA re-verification 1 (02:17-02:27 UTC) made 4 generations and filed #176 and #177. Their fixes, #178 and #179, deployed as `4c23b35` (02:44:38) and `135ac67`, which succeeded at 02:45:44 UTC (`depl-a34065cd-fd09-40c2-afee-2113f3020596`). Re-verification 2 passed at 02:47 UTC (QA exit criteria met).
+
+Before that, `e2ebaf9` (#170) had deployed at 02:16:49 after #166, #169, #165, #164, #172, #174 and #168. All 24 migrations ran and none is pending. The ones added since the smoke test: `add_absorbed_cost_nanos_to_usage_records_table` (#166, D-087), `add_customer_id_id_index_to_ledger_entries_table` (#169), `add_failure_reason_check_to_suggestions_table` (#164), `add_demo_seeded_at_to_customers_table` (#172) and `add_settled_billing_date_index_to_usage_records_table` (#170). No takes were generated for this check.
+
+| Check (UTC) | Result |
+|---|---|
+| `php artisan billing:verify` (02:52:46) | Billing invariants hold. |
+| `php artisan billing:verify --usage` (02:52:52, default range) | Pixelforge usage matches from 2026-11-11 to 2026-11-17; invariants hold. |
+| `php artisan billing:verify --usage --from=2026-11-17 --to=2026-11-18` (02:52:57, includes today) | Pixelforge usage matches from 2026-11-17 to 2026-11-18; invariants hold. |
+| SQL (02:53:13): open usage records | 0 |
+| SQL: takes `pending`/`queued`/`processing` older than 30 min (and in total) | 0 (0) |
+| SQL: customers whose `balance_nanos` ≠ Σ ledger | 0 |
+| SQL: customers whose `held_nanos` ≠ Σ open `max_charge_nanos` | 0 |
+| SQL: `charge` ledger rows whose usage is not `settled` | 0 |
+| Data at that moment | 36 takes, 6 customers, 44 ledger rows, 24 migrations |
+| Spend (`cloud usage`, updated 02:35) | $0.19 of the $5.00 usage credit; $15 alert at 99 % remaining (D-088) |
+| `/` after waiting 12 min (02:30:30) | 200, TTFB 0.60 s: **not a cold start**. QA re-checks hit the app every minute until 02:25, so it never scaled to zero (environment metrics) |
+| `/` after a second 12 min wait (02:43:48) | 200, TTFB 0.48 s: **not a cold start** either (requests at 02:32, 02:36 and 02:41, and a deploy at 02:43) |
+| Cold start figures that stand | 2.98 s (2026-11-17 21:01) and 2.73 s (23:54) to first byte after 12 min of real idle, see [Smoke and cold start](#smoke-and-cold-start) |
+| Signed webhook ping after idle | not captured: a Pixelforge test event can only be sent from the dashboard, and its delivery latency was not read there |
 
 ## Rotating keys
 
