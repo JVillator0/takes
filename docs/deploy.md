@@ -44,7 +44,7 @@ No CI or compose pin had to change.
 |---|---|---|---|
 | 2026-11-18 00:35 (day one, about 4 h after the first deploy, after the production smoke test) | **$0.10**, all covered by the $5.00 usage credit ($0.10 used) | Reverb $0.04, Serverless Postgres $0.02, application compute and queue $0.04, bucket $0.00 | $15.00 threshold, 99 % remaining |
 
-The 24 h and 48 h readings that spec 9's acceptance asks for cannot exist on day one; they are taken on 2026-11-18 and 2026-11-19 with the same command and added to this table. The plan fee is billed separately from this usage figure.
+The 24 h and 48 h readings that spec 9's acceptance asks for cannot exist on day one; they are taken on 2026-11-18 and 2026-11-19 with the same command and added to this table. The CLI figure is usage only; it does not say whether the $5 plan fee is included.
 
 ## Build and deploy commands
 
