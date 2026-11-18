@@ -53,3 +53,20 @@ it('keeps the email when it is unchanged', function (): void {
 
     expect($customer->refresh()->name)->toBe('Renamed');
 });
+
+it('refuses to move a customer onto a demo account address (D-072, #111)', function (string $email): void {
+    $customer = Customer::factory()->create();
+
+    $this->actingAs($customer, 'customer')
+        ->from(route('profile.edit'))
+        ->patch(route('profile.update'), [
+            'name' => $customer->name,
+            'email' => $email,
+        ])
+        ->assertSessionHasErrors('email');
+
+    expect($customer->refresh()->email)->not->toBe(strtolower($email));
+})->with([
+    'showcase' => ['showcase@example.com'],
+    'demo customer, upper case' => ['DEMO@example.com'],
+]);

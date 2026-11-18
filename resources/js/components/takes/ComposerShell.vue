@@ -32,7 +32,7 @@ type Props = {
     deniedReason?: DenialReason | null;
     /** Server denial sentence (`denials.*`) when `estimateState` is `denied`. */
     deniedMessage?: string | null;
-    /** From the shared `pixelforge.configured` prop; false shows the banner and blocks submit. */
+    /** From the shared `imageService.configured` prop; false shows the banner and blocks submit. */
     serviceConfigured?: boolean;
     /** Inertia `form.processing`: the create request is in flight. */
     processing?: boolean;

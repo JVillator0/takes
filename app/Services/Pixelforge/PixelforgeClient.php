@@ -43,7 +43,7 @@ final class PixelforgeClient
 
     private const array LIST_STATUSES = ['queued', 'processing', 'succeeded', 'failed'];
 
-    /** True when an API key is set. Shared as the `pixelforge.configured` prop. */
+    /** True when an API key is set. Shared as the `imageService.configured` prop. */
     public function isConfigured(): bool
     {
         return $this->apiKey() !== null;
@@ -201,13 +201,9 @@ final class PixelforgeClient
             $chunkStart = $chunkEnd->addDay();
         }
 
-        // The chunks were checked one by one, so merging cannot fail; if it
-        // ever did, it is still a Pixelforge failure, not a raw exception.
-        try {
-            return UsageReportDTO::merge($reports);
-        } catch (InvalidArgumentException $exception) {
-            throw new PixelforgeUnavailable("Pixelforge usage chunks could not be merged: {$exception->getMessage()}", previous: $exception);
-        }
+        // Each chunk was pinned to [chunkStart, chunkEnd] and the next starts
+        // the day after, so the merge always receives consecutive reports.
+        return UsageReportDTO::merge($reports);
     }
 
     /**

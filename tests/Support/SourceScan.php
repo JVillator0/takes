@@ -269,13 +269,18 @@ final class SourceScan
      * Writes to the given columns: `->col = …` / `->col += …`, an array key
      * `'col' =>` (update, forceFill, create), and `increment('col')` /
      * `decrement('col')`. Files under `$except` (relative prefixes) are skipped.
+     * Files under `$modelPaths` declare the columns as array keys in their
+     * `$attributes` defaults and `casts()` body: only those two declarations
+     * are set aside, so any other write in a model (a method or hook that
+     * assigns, increments or `forceFill`s the column) is still caught.
      *
      * @param  list<string>  $paths
      * @param  list<string>  $columns
      * @param  list<string>  $except
+     * @param  list<string>  $modelPaths  project-relative prefixes of model files
      * @return list<string>
      */
-    public static function columnWrites(array $paths, array $columns, array $except = []): array
+    public static function columnWrites(array $paths, array $columns, array $except = [], array $modelPaths = []): array
     {
         $assignments = ['=', '+=', '-=', '*=', '/=', '??='];
         $violations = [];
@@ -289,7 +294,9 @@ final class SourceScan
                 }
             }
 
+            $isModel = array_filter($modelPaths, fn (string $prefix): bool => str_starts_with($relative, $prefix)) !== [];
             $tokens = self::significantTokens($file);
+            $declarations = $isModel ? self::modelColumnDeclarations($tokens) : [];
 
             foreach ($tokens as $index => [$id, $text, $line]) {
                 $next = $tokens[$index + 1][1] ?? '';
@@ -313,13 +320,65 @@ final class SourceScan
 
                 $callee = strtolower($tokens[$index - 2][1] ?? '');
 
-                if ($next === '=>' || (($tokens[$index - 1][1] ?? '') === '(' && in_array($callee, ['increment', 'decrement', 'incrementquietly', 'decrementquietly'], true))) {
+                $declared = array_filter($declarations, fn (array $range): bool => $index >= $range[0] && $index <= $range[1]) !== [];
+
+                if ((! $declared && $next === '=>') || (($tokens[$index - 1][1] ?? '') === '(' && in_array($callee, ['increment', 'decrement', 'incrementquietly', 'decrementquietly'], true))) {
                     $violations[] = "{$relative}:{$line} writes {$literal}";
                 }
             }
         }
 
         return $violations;
+    }
+
+    /**
+     * Token index ranges of a model's column declarations: the `$attributes`
+     * property initializer (up to its `;`) and the body of `casts()`.
+     *
+     * @param  list<array{0: int, 1: string, 2: int}>  $tokens
+     * @return list<array{0: int, 1: int}>
+     */
+    private static function modelColumnDeclarations(array $tokens): array
+    {
+        $ranges = [];
+
+        foreach ($tokens as $index => [$id, $text]) {
+            if ($id === T_VARIABLE && $text === '$attributes' && ($tokens[$index + 1][1] ?? '') === '=' && in_array($tokens[$index - 1][0] ?? null, [T_ARRAY, T_STRING, T_PROTECTED, T_PUBLIC, T_PRIVATE], true)) {
+                $end = $index;
+
+                while (isset($tokens[$end]) && $tokens[$end][1] !== ';') {
+                    $end++;
+                }
+
+                $ranges[] = [$index, $end];
+            }
+
+            if ($id === T_STRING && $text === 'casts' && ($tokens[$index - 1][0] ?? null) === T_FUNCTION) {
+                $start = $index;
+
+                while (isset($tokens[$start]) && $tokens[$start][1] !== '{') {
+                    $start++;
+                }
+
+                $depth = 0;
+
+                for ($end = $start; isset($tokens[$end]); $end++) {
+                    $depth += match (true) {
+                        $tokens[$end][1] === '{', in_array($tokens[$end][0], [T_CURLY_OPEN, T_DOLLAR_OPEN_CURLY_BRACES], true) => 1,
+                        $tokens[$end][1] === '}' => -1,
+                        default => 0,
+                    };
+
+                    if ($depth === 0) {
+                        break;
+                    }
+                }
+
+                $ranges[] = [$start, $end];
+            }
+        }
+
+        return $ranges;
     }
 
     /**

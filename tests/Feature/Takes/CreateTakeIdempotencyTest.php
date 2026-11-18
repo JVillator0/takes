@@ -264,6 +264,26 @@ it('refuses a project archived after the request was authorized, under the custo
     Queue::assertNothingPushed();
 });
 
+it('answers 422 project_archived for an archived project, after replaying a key whose take exists (D-033, #140)', function (): void {
+    $customer = TakeFlow::customer();
+    $project = TakeFlow::project($customer);
+    $payload = TakeFlow::payload();
+
+    createTake($customer, $project, $payload)->assertSessionHasNoErrors();
+    app(ArchiveProjectAction::class)->execute($project);
+
+    // The replay returns its take, even though the project was archived since.
+    test()->actingAs($customer, 'customer')->postJson(route('takes.store', $project), $payload)->assertRedirect();
+
+    // A new key is refused under the lock with the 2-01 reason, not a bare 403.
+    test()->actingAs($customer, 'customer')->postJson(route('takes.store', $project), TakeFlow::payload())
+        ->assertUnprocessable()
+        ->assertExactJson(['code' => ProjectArchivedException::CODE, 'message' => __('takes.projects.archived')]);
+
+    expect(Take::query()->count())->toBe(1)
+        ->and(UsageRecord::query()->count())->toBe(1);
+});
+
 it('re-issues a remix reference to an earlier take image, and refuses one that expired', function (): void {
     Storage::fake();
     $customer = TakeFlow::customer();

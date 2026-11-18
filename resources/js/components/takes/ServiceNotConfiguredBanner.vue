@@ -2,7 +2,7 @@
 import { PlugZap } from '@lucide/vue';
 import { useCopy } from '@/composables/useCopy';
 
-/** Driven by the shared `pixelforge.configured` prop (spec 3-04); names no provider (D-023). */
+/** Driven by the shared `imageService.configured` prop (spec 3-04); names no provider (D-023). */
 const { t } = useCopy();
 </script>
 

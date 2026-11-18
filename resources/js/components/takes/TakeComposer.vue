@@ -202,7 +202,7 @@ defineExpose({ remix, tryAgain, refresh });
         :available-display="availableDisplay"
         :denied-reason="state === 'denied' ? deniedReason : null"
         :denied-message="deniedMessage"
-        :service-configured="page.props.pixelforge.configured"
+        :service-configured="page.props.imageService.configured"
         :processing="form.processing"
         :disabled-reason="submitDenial"
         :show-buy-credits="showBuyCredits"

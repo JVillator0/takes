@@ -40,6 +40,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
  * @property list<string> $flags
  * @property int|null $provider_cost_nanos
  * @property int|null $charge_nanos
+ * @property int|null $absorbed_cost_nanos Provider cost of an orphan success (voided usage, never in the ledger)
  * @property int $markup_bps
  * @property string|null $external_id
  * @property CarbonImmutable|null $completed_at
@@ -105,6 +106,7 @@ final class UsageRecord extends Model
             'flags' => 'array',
             'provider_cost_nanos' => 'integer',
             'charge_nanos' => 'integer',
+            'absorbed_cost_nanos' => 'integer',
             'markup_bps' => 'integer',
             'completed_at' => 'immutable_datetime',
             'billing_date' => 'immutable_date',

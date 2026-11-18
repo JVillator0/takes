@@ -20,9 +20,12 @@ use Illuminate\Validation\Rule;
  * it will reject with 422 (P05-B), plus the composer's idempotency key
  * (D-033) and an optional parent take.
  *
- * Ownership failures are 403 here (the project, the parent take). The
- * credit, cap and restriction checks are CreateTakeAction's, under the
- * customer lock, with their DenialReason codes.
+ * Ownership failures are 403 here (the project, the parent take), and only
+ * those. An archived project, the credits, caps and restriction are
+ * CreateTakeAction's, under the customer lock and after the replay check,
+ * with their reason codes: a replayed key returns its take even if the
+ * project was archived since (D-033), and a new one gets 422
+ * `project_archived` with its 2-01 copy, not a bare 403 (#140).
  */
 final class StoreTakeRequest extends CustomerFormRequest
 {
@@ -30,7 +33,7 @@ final class StoreTakeRequest extends CustomerFormRequest
     {
         $project = $this->route('project');
 
-        if (! $project instanceof Project || $project->customer_id !== $this->customer()->id || $project->archived_at !== null) {
+        if (! $project instanceof Project || $project->customer_id !== $this->customer()->id) {
             return false;
         }
 
