@@ -18,6 +18,14 @@ it('returns trunc(part × 10,000 ÷ whole) exactly, null without a whole', funct
     'over one' => [3, 2, 15000],
 ]);
 
-it('refuses a ratio that does not fit in basis points', function (): void {
-    expect(fn () => BasisPoints::ratio(PHP_INT_MAX, 1))->toThrow(OverflowException::class);
+it('refuses a ratio that does not fit in basis points, at the exact boundary too', function (int $part, int $whole): void {
+    expect(fn () => BasisPoints::ratio($part, $whole))->toThrow(OverflowException::class);
+})->with([
+    'far over' => [PHP_INT_MAX, 1],
+    'quotient fits, digits do not' => [2_767_011_611_056_433, 3],
+    'negative at the boundary' => [-2_767_011_611_056_433, 3],
+]);
+
+it('accepts the largest ratio that still fits', function (): void {
+    expect(BasisPoints::ratio(intdiv(PHP_INT_MAX - 9_999, 10_000), 1))->toBe(intdiv(PHP_INT_MAX - 9_999, 10_000) * 10_000);
 });

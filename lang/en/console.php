@@ -319,6 +319,8 @@ return [
             'anthropic' => 'Anthropic',
         ],
         'all_customers' => 'All customers',
+        'customer_search' => 'Find customer',
+        'customer_search_placeholder' => 'Name or email',
         'day' => 'Day (UTC)',
         'takes' => 'Takes',
         'failed' => 'Failed',
@@ -328,6 +330,8 @@ return [
         'pixelforge_cost' => 'Pixelforge cost',
         'anthropic_cost' => 'Anthropic cost',
         'profit' => 'Profit',
+        'promo_consumed' => 'Promo/adjustment credits consumed',
+        'reconciled' => 'Reconciled',
         'margin' => 'Margin',
         'share' => 'Share of spend',
         'total' => 'Total',
@@ -336,7 +340,7 @@ return [
         'invalid_date' => 'Enter a date as YYYY-MM-DD.',
         'invalid_range' => 'Pick an ordered range of at most :days days.',
         'provider_cost' => 'Provider cost',
-        'footnote' => 'Profit = customer spend − provider cost, from settled usage only (purchases are prepaid cash, never spend). With an exact 25% markup on cost the margin on spend is always 20.0%; any other value, totals included, is highlighted as an invariant alert.',
+        'footnote' => 'Profit = customer spend − provider cost, from settled usage only (purchases are prepaid cash, never spend). With an exact 25% markup on cost the margin on spend is always 20.0%; any other value, totals included, is highlighted as an invariant alert. Promo/adjustment credits consumed: the part of the spend paid from promo grants and positive adjustments, which are spent before purchases (D-084); it counts as spend with no cash received.',
     ],
 
     'audit' => [

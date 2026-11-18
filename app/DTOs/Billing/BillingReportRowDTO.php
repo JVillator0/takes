@@ -28,10 +28,11 @@ final readonly class BillingReportRowDTO
         public int $suggestions,
         public int $takes,
         public int $failedTakes,
+        public Nanodollars $promoConsumed,
     ) {}
 
     /**
-     * @param  array{key: string, label: string, spend_nanos: int|string|null, cost_nanos: int|string|null, pixelforge_cost_nanos: int|string|null, anthropic_cost_nanos: int|string|null, generations_charged: int|string|null, suggestions: int|string|null, takes: int, failed_takes: int}  $data
+     * @param  array{key: string, label: string, spend_nanos: int|string|null, cost_nanos: int|string|null, pixelforge_cost_nanos: int|string|null, anthropic_cost_nanos: int|string|null, generations_charged: int|string|null, suggestions: int|string|null, takes: int, failed_takes: int, promo_consumed_nanos?: int}  $data
      */
     public static function fromArray(array $data): self
     {
@@ -46,6 +47,7 @@ final readonly class BillingReportRowDTO
             (int) ($data['suggestions'] ?? 0),
             $data['takes'],
             $data['failed_takes'],
+            Nanodollars::fromInt($data['promo_consumed_nanos'] ?? 0),
         );
     }
 

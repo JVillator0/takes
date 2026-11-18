@@ -9,6 +9,7 @@
     $selectedProvider = $filter->provider?->value ?? '';
     $total = $report->totals;
     $totalMargin = $total->marginBps();
+    $reconciledDays = $byDay ? $this->reconciledDays : [];
 @endphp
 
 <x-filament-panels::page>
@@ -49,6 +50,13 @@
         </x-filament::tabs>
 
         <label class="flex flex-col gap-1 text-sm">
+            <span class="font-medium text-gray-700 dark:text-gray-200">{{ __('console.reports.customer_search') }}</span>
+            <x-filament::input.wrapper>
+                <x-filament::input type="search" wire:model.live.debounce.300ms="customerSearch" :placeholder="__('console.reports.customer_search_placeholder')" />
+            </x-filament::input.wrapper>
+        </label>
+
+        <label class="flex flex-col gap-1 text-sm">
             <span class="font-medium text-gray-700 dark:text-gray-200">{{ __('console.common.customer') }}</span>
             <x-filament::input.wrapper>
                 <x-filament::input.select wire:model.live="customer">
@@ -81,6 +89,7 @@
                             <th class="px-2 py-2 text-end">{{ __('console.reports.pixelforge_cost') }}</th>
                             <th class="px-2 py-2 text-end">{{ __('console.reports.anthropic_cost') }}</th>
                             <th class="px-2 py-2 text-end">{{ __('console.reports.profit') }}</th>
+                            <th class="px-2 py-2 text-end">{{ __('console.reports.promo_consumed') }}</th>
                             <th class="px-2 py-2 text-end">{{ __('console.reports.margin') }}</th>
                             @unless ($byDay)
                                 <th class="px-2 py-2 text-end">{{ __('console.reports.share') }}</th>
@@ -91,7 +100,14 @@
                         @foreach ($report->rows as $row)
                             @php($margin = $row->marginBps())
                             <tr class="border-b border-gray-100 dark:border-white/5" wire:key="row-{{ $row->key }}">
-                                <td class="px-2 py-2">{{ $row->label }}</td>
+                                <td class="px-2 py-2">
+                                    {{ $row->label }}
+                                    @if (in_array($row->key, $reconciledDays, true))
+                                        <x-filament::badge color="success" size="sm" class="ms-2 inline-flex" :href="\App\Filament\Admin\Clusters\Providers\Pages\PixelforgeUsage::getUrl()" tag="a" data-testid="reconciled-{{ $row->key }}">
+                                            {{ __('console.reports.reconciled') }}
+                                        </x-filament::badge>
+                                    @endif
+                                </td>
                                 <td class="px-2 py-2 text-end tabular-nums">{{ number_format($row->takes) }}</td>
                                 <td class="px-2 py-2 text-end tabular-nums">{{ number_format($row->failedTakes) }}</td>
                                 <td class="px-2 py-2 text-end tabular-nums">{{ number_format($row->generationsCharged) }}</td>
@@ -101,6 +117,7 @@
                                 <td class="px-2 py-2 text-end tabular-nums">{{ $row->pixelforgeCost->formatExact() }}</td>
                                 <td class="px-2 py-2 text-end tabular-nums">{{ $row->anthropicCost->formatExact() }}</td>
                                 <td class="px-2 py-2 text-end tabular-nums">{{ $row->profit()->formatExact() }}</td>
+                                <td class="px-2 py-2 text-end tabular-nums" data-testid="promo-{{ $row->key }}">{{ $row->promoConsumed->formatExact() }}</td>
                                 <td @class(['px-2 py-2 text-end tabular-nums', 'font-semibold text-danger-600 dark:text-danger-400' => $row->breaksMarginInvariant()]) data-testid="margin-{{ $row->key }}">{{ Money::percentFromBps($margin) }}</td>
                                 @unless ($byDay)
                                     <td class="px-2 py-2 text-end tabular-nums">{{ Money::percentFromBps($row->shareOfSpendBps($total->spend)) }}</td>
@@ -120,6 +137,7 @@
                             <td class="px-2 py-2 text-end tabular-nums">{{ $total->pixelforgeCost->formatExact() }}</td>
                             <td class="px-2 py-2 text-end tabular-nums">{{ $total->anthropicCost->formatExact() }}</td>
                             <td class="px-2 py-2 text-end tabular-nums">{{ $total->profit()->formatExact() }}</td>
+                            <td class="px-2 py-2 text-end tabular-nums" data-testid="promo-total">{{ $total->promoConsumed->formatExact() }}</td>
                             <td @class(['px-2 py-2 text-end tabular-nums', 'text-danger-600 dark:text-danger-400' => $total->breaksMarginInvariant()]) data-testid="margin-total">{{ Money::percentFromBps($totalMargin) }}</td>
                             @unless ($byDay)
                                 <td class="px-2 py-2 text-end tabular-nums">{{ $total->spend->isZero() ? '-' : '100.0%' }}</td>

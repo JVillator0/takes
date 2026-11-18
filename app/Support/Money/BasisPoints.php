@@ -33,7 +33,8 @@ final class BasisPoints
         $quotient = intdiv($numerator, $denominator);
         $remainder = $numerator % $denominator;
 
-        if ($quotient > intdiv(PHP_INT_MAX, 10_000)) {
+        // The four digits are appended after the quotient: q × 10,000 + 9,999 must fit.
+        if ($quotient > intdiv(PHP_INT_MAX - 9_999, 10_000)) {
             throw new OverflowException('The ratio does not fit in basis points.');
         }
 

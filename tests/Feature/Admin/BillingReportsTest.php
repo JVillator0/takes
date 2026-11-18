@@ -5,16 +5,20 @@ declare(strict_types=1);
 use App\Actions\Billing\ExportBillingReportCsvAction;
 use App\DTOs\Billing\BillingReportFilterDTO;
 use App\Enums\Auth\AdminRole;
+use App\Enums\Billing\LedgerEntryType;
 use App\Enums\Billing\Provider;
 use App\Filament\Admin\Clusters\Billing\Pages\Reports;
 use App\Models\Customer;
+use App\Models\LedgerEntry;
 use App\Models\Take;
 use App\Models\UsageRecord;
 use App\Models\User;
 use App\Queries\Billing\GetBillingReportQuery;
+use App\Queries\Billing\GetPixelforgeReconciliationQuery;
 use Carbon\CarbonImmutable;
 use Database\Seeders\AdminRolesSeeder;
 use Filament\Facades\Filament;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
 use Spatie\Activitylog\Models\Activity;
@@ -155,7 +159,7 @@ it('exports day × customer × provider rows with exact decimals, a formula guar
         ->and(array_sum(array_map(fn (array $line): int => (int) $line[4], array_slice($lines, 1))))
         ->toBe(app(GetBillingReportQuery::class)->execute(BillingReportFilterDTO::lastThirtyDays())->totals->generationsCharged)
         ->and(count($lines))->toBe(5)
-        ->and($lines[1])->toBe(['2026-11-16', (string) Customer::query()->where('name', 'Ana López')->value('id'), 'Ana López', 'pixelforge', '1', '0.074037500', '0.059230000', '0.014807500', '2000', '74037500', '59230000', '14807500'])
+        ->and($lines[1])->toBe(['2026-11-16', (string) Customer::query()->where('name', 'Ana López')->value('id'), 'Ana López', 'pixelforge', '1', '0.074037500', '0.059230000', '0.014807500', '2000', '74037500', '59230000', '14807500', '0.000000000', '0'])
         ->and(collect($lines)->firstWhere(2, "'=HYPERLINK(\"http://evil\")"))->not->toBeNull()
         ->and(array_sum(array_map(fn (array $line): int => (int) $line[9], array_slice($lines, 1))))
         ->toBe(app(GetBillingReportQuery::class)->execute(BillingReportFilterDTO::lastThirtyDays())->totals->spend->toInt())
@@ -288,4 +292,87 @@ it('renders Export CSV as a real download link, never an SPA navigation', functi
 
     expect($link[0] ?? '')->toContain('download')
         ->not->toContain('wire:navigate');
+});
+
+it('accepts a range of exactly 366 inclusive days', function (): void {
+    $filter = BillingReportFilterDTO::fromArray(['from' => '2025-11-17', 'until' => '2026-11-17']);
+
+    expect($filter->from->toDateString())->toBe('2025-11-17');
+});
+
+it('exports one customer for a customer_id written with a plus sign', function (): void {
+    ['ana' => $ana] = reportDataset();
+    $url = route('filament.admin.billing.reports.export', ['from' => '2026-10-19', 'until' => '2026-11-17', 'customer_id' => '+'.$ana->id]);
+
+    $response = $this->actingAs(User::factory()->admin(AdminRole::Operator)->withAppAuthentication()->create())->get($url)->assertOk();
+    $lines = array_values(array_map(fn (string $line): array => str_getcsv($line, escape: ''), array_filter(explode("\n", $response->streamedContent()))));
+
+    expect(array_unique(array_map(fn (array $line): string => $line[1], array_slice($lines, 1))))->toBe([(string) $ana->id]);
+});
+
+it('finds any customer through the search box, keeping the selected one listed', function (): void {
+    Customer::factory()->count(3)->create();
+    $zoe = Customer::factory()->create(['name' => 'Zoë Zimmer', 'email' => 'zoe@example.com']);
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
+
+    $page = Livewire::test(Reports::class)->set('customerSearch', 'zoe@');
+
+    expect(array_keys($page->instance()->customers()))->toBe([$zoe->id]);
+
+    $page->set('customer', (string) $zoe->id)->set('customerSearch', 'nobody-matches');
+
+    expect(array_keys($page->instance()->customers()))->toBe([$zoe->id]);
+});
+
+it('shows the reconciled badge only for a day the cached Pixelforge check matches, with no provider call', function (): void {
+    $customer = Customer::factory()->create();
+    $usage = UsageRecord::factory()->settled(59_230_000)->create(['customer_id' => $customer->id, 'billing_date' => '2026-11-16', 'input_text_tokens' => 1, 'input_image_tokens' => 2, 'output_tokens' => 3, 'reasoning_tokens' => 4]);
+    UsageRecord::factory()->settled(10_000_000)->create(['customer_id' => $customer->id, 'billing_date' => '2026-11-15', 'input_text_tokens' => 1, 'input_image_tokens' => 0, 'output_tokens' => 0, 'reasoning_tokens' => 0]);
+    $entry = fn (int $generations, int $cost, array $tokens): array => ['fetched_at' => '2026-11-17T08:00:00+00:00', 'totals' => [
+        'generations' => $generations, 'input_text_tokens' => $tokens[0], 'input_image_tokens' => $tokens[1],
+        'output_tokens' => $tokens[2], 'reasoning_tokens' => $tokens[3], 'cost_nanos' => $cost,
+    ]];
+    Cache::put(GetPixelforgeReconciliationQuery::dayKey('2026-11-16'), $entry(1, 59_230_000, [1, 2, 3, 4]), 300);
+    Cache::put(GetPixelforgeReconciliationQuery::dayKey('2026-11-15'), $entry(1, 9_000_000, [1, 0, 0, 0]), 300);
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
+
+    Livewire::test(Reports::class)
+        ->assertSeeHtml('data-testid="reconciled-2026-11-16"')
+        ->assertDontSeeHtml('data-testid="reconciled-2026-11-15"');
+
+    Http::assertNothingSent();
+    expect($usage->billing_date?->toDateString())->toBe('2026-11-16');
+});
+
+it('allocates promo and positive adjustment credits before purchases (D-084), in the report and the CSV', function (): void {
+    $customer = Customer::factory()->create(['name' => 'Promo user']);
+    $charge = function (string $day, int $costNanos) use ($customer): void {
+        $usage = UsageRecord::factory()->settled($costNanos)->create(['customer_id' => $customer->id, 'billing_date' => $day]);
+        LedgerEntry::factory()->create(['customer_id' => $customer->id, 'type' => LedgerEntryType::Charge, 'amount_nanos' => -$usage->charge_nanos, 'usage_record_id' => $usage->id]);
+    };
+    // Ledger order: $1.00 promo, $10.00 purchase, $0.75 charge, +$0.50 adjustment, −$0.10 adjustment, $0.75 charge, $0.75 charge.
+    LedgerEntry::factory()->create(['customer_id' => $customer->id, 'type' => LedgerEntryType::PromoGrant, 'amount_nanos' => 1_000_000_000]);
+    LedgerEntry::factory()->purchase()->create(['customer_id' => $customer->id, 'amount_nanos' => 10_000_000_000]);
+    $charge('2026-11-15', 600_000_000);
+    LedgerEntry::factory()->create(['customer_id' => $customer->id, 'type' => LedgerEntryType::Adjustment, 'amount_nanos' => 500_000_000, 'reason' => 'goodwill']);
+    LedgerEntry::factory()->create(['customer_id' => $customer->id, 'type' => LedgerEntryType::Adjustment, 'amount_nanos' => -100_000_000, 'reason' => 'correction']);
+    $charge('2026-11-16', 600_000_000);
+    $charge('2026-11-17', 600_000_000);
+
+    // Promo pool: 1.00 → 0.25 after the first charge → 0.75 → 0.65 → 0 (0.65 used) → 0.
+    $report = app(GetBillingReportQuery::class)->execute(BillingReportFilterDTO::lastThirtyDays());
+    $byDay = collect($report->rows)->mapWithKeys(fn ($row): array => [$row->key => $row->promoConsumed->toInt()])->all();
+
+    expect($byDay)->toBe(['2026-11-17' => 0, '2026-11-16' => 650_000_000, '2026-11-15' => 750_000_000])
+        ->and($report->totals->promoConsumed->toInt())->toBe(1_400_000_000);
+
+    $lines = exportLines(User::factory()->admin(AdminRole::Operator)->create(), BillingReportFilterDTO::lastThirtyDays());
+    $promoNanos = array_map(fn (array $line): string => $line[13], array_slice($lines, 1));
+
+    expect(array_slice($lines[0], -2))->toBe(['promo_consumed', 'promo_consumed_nanos'])
+        ->and($promoNanos)->toBe(['750000000', '650000000', '0'])
+        ->and($lines[1][12])->toBe('0.750000000');
+
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
+    Livewire::test(Reports::class)->assertSeeHtml('data-testid="promo-total">$1.40</td>');
 });

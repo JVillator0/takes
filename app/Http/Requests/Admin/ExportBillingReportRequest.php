@@ -60,7 +60,6 @@ final class ExportBillingReportRequest extends FormRequest
 
     public function filter(): BillingReportFilterDTO
     {
-        $customerId = $this->query('customer_id');
         $provider = $this->query('provider');
         $groupBy = $this->query('group_by');
 
@@ -68,7 +67,8 @@ final class ExportBillingReportRequest extends FormRequest
             'from' => (string) $this->query('from'),
             'until' => (string) $this->query('until'),
             'group_by' => is_string($groupBy) && $groupBy !== '' ? $groupBy : BillingReportFilterDTO::BY_DAY,
-            'customer_id' => is_string($customerId) && ctype_digit($customerId) ? (int) $customerId : null,
+            // The validated integer (`+5` is 5), never a silent widening to all customers.
+            'customer_id' => $this->filled('customer_id') ? $this->integer('customer_id') : null,
             'provider' => is_string($provider) && $provider !== '' ? $provider : null,
         ]);
     }

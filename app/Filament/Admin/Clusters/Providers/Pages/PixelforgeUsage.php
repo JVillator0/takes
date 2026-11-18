@@ -6,11 +6,15 @@ namespace App\Filament\Admin\Clusters\Providers\Pages;
 
 use App\DTOs\Billing\PixelforgeReconciliationDTO;
 use App\DTOs\Billing\ReconciliationGenerationDTO;
+use App\Enums\Auth\AdminPermission;
 use App\Enums\Billing\ReconciliationStatus;
+use App\Enums\Takes\TakeStatus;
 use App\Exceptions\Pixelforge\AdminRequestBudgetExhaustedException;
 use App\Exceptions\Pixelforge\PixelforgeException;
 use App\Exceptions\Pixelforge\PixelforgeNotConfigured;
 use App\Filament\Admin\Clusters\Providers\ProvidersCluster;
+use App\Filament\Admin\Clusters\Studio\Resources\Takes\Actions\ReconcileTakeAction;
+use App\Models\Take;
 use App\Queries\Billing\GetPixelforgeReconciliationQuery;
 use App\Queries\Billing\ListPixelforgeDayDiscrepanciesQuery;
 use App\Support\Pixelforge\AdminRequestBudget;
@@ -18,6 +22,7 @@ use BackedEnum;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Carbon\CarbonImmutable;
 use Filament\Actions\Action;
+use Filament\Facades\Filament;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
@@ -172,6 +177,45 @@ final class PixelforgeUsage extends Page
                     ],
                 ];
             });
+    }
+
+    /**
+     * **Reconcile now** on one drill-down row (D-058, the same action as A06): only for a take that is still
+     * open, never for an orphan success (its take failed free; nothing to reconcile).
+     */
+    public function reconcileRowAction(): Action
+    {
+        return Action::make('reconcileRow')
+            ->label(__('console.takes.reconcile.label'))
+            ->size('xs')
+            ->color('gray')
+            ->requiresConfirmation()
+            ->modalHeading(__('console.takes.reconcile.heading'))
+            ->modalDescription(__('console.takes.reconcile.description'))
+            ->authorize(fn (): bool => Filament::auth()->user()?->can(AdminPermission::ReconcileTake->value) === true)
+            ->action(function (array $arguments): void {
+                $take = is_string($arguments['take'] ?? null) ? Take::query()->find($arguments['take']) : null;
+
+                if ($take !== null) {
+                    ReconcileTakeAction::reconcile($take);
+                }
+            });
+    }
+
+    /**
+     * Whether a drill-down row offers Reconcile now: a known take, not final, outside the orphan group.
+     *
+     * @param  array{generation: string, take: string|null, theirs: string, ours: string}  $row
+     */
+    public function canReconcileRow(string $group, array $row): bool
+    {
+        if ($group === 'orphan_success' || $row['take'] === null) {
+            return false;
+        }
+
+        $status = Take::query()->whereKey($row['take'])->value('status');
+
+        return $status !== null && ! TakeStatus::from($status instanceof TakeStatus ? $status->value : (string) $status)->isTerminal();
     }
 
     protected function getHeaderActions(): array

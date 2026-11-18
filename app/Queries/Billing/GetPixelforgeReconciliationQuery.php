@@ -49,7 +49,11 @@ final readonly class GetPixelforgeReconciliationQuery
 
     public function __construct(private PixelforgeClient $client) {}
 
-    public function execute(CarbonImmutable $from, CarbonImmutable $until, bool $refresh = false): PixelforgeReconciliationDTO
+    /**
+     * @param  bool  $cachedOnly  judge only from the cached figures and never call Pixelforge (Billing › Reports
+     *                            reconciled badge); a day with no cached final figures is Unavailable
+     */
+    public function execute(CarbonImmutable $from, CarbonImmutable $until, bool $refresh = false, bool $cachedOnly = false): PixelforgeReconciliationDTO
     {
         $from = $from->utc()->startOfDay();
         $until = $until->utc()->startOfDay();
@@ -60,7 +64,7 @@ final readonly class GetPixelforgeReconciliationQuery
 
         $ours = $this->ours($from, $until);
         $inFlight = $this->inFlight($from, $until);
-        [$theirs, $fetchedAt, $unavailable, $throttled] = $this->theirs($from, $until, $refresh);
+        [$theirs, $fetchedAt, $unavailable, $throttled] = $this->theirs($from, $until, $refresh && ! $cachedOnly, $cachedOnly);
         $today = CarbonImmutable::now('UTC')->toDateString();
 
         $days = [];
@@ -157,7 +161,7 @@ final readonly class GetPixelforgeReconciliationQuery
      *
      * @return array{0: array<string, UsageTotalsDTO>, 1: CarbonImmutable|null, 2: bool, 3: bool} figures, fetched at, unavailable, throttled
      */
-    private function theirs(CarbonImmutable $from, CarbonImmutable $until, bool $refresh): array
+    private function theirs(CarbonImmutable $from, CarbonImmutable $until, bool $refresh, bool $cachedOnly = false): array
     {
         $dates = [];
 
@@ -184,7 +188,7 @@ final readonly class GetPixelforgeReconciliationQuery
         };
 
         // A failed fetch is remembered for a minute, so an outage is not retried on every round-trip.
-        if (Cache::has(self::DOWN_KEY)) {
+        if ($cachedOnly || Cache::has(self::DOWN_KEY)) {
             return [...$fallback(), true, false];
         }
 

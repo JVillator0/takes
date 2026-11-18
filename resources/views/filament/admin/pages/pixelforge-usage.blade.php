@@ -117,15 +117,27 @@
                                 <th class="px-2 py-1 text-start">{{ __('console.pixelforge.take') }}</th>
                                 <th class="px-2 py-1 text-end">{{ __('console.pixelforge.their_cost') }}</th>
                                 <th class="px-2 py-1 text-end">{{ __('console.pixelforge.our_cost') }}</th>
+                                <th class="px-2 py-1"></th>
                             </tr>
                         </thead>
                         <tbody>
                             @foreach ($rows as $row)
                                 <tr class="border-t border-gray-100 dark:border-white/5">
                                     <td class="px-2 py-1 font-mono text-xs">{{ $row['generation'] }}</td>
-                                    <td class="px-2 py-1 font-mono text-xs">{{ $row['take'] ?? '-' }}</td>
+                                    <td class="px-2 py-1 font-mono text-xs">
+                                        @if ($row['take'])
+                                            <a href="{{ \App\Filament\Admin\Clusters\Studio\Resources\Takes\TakeResource::getUrl('view', ['record' => $row['take']]) }}" class="text-primary-600 hover:underline dark:text-primary-400">{{ $row['take'] }}</a>
+                                        @else
+                                            -
+                                        @endif
+                                    </td>
                                     <td class="px-2 py-1 text-end font-mono">{{ $row['theirs'] }}</td>
                                     <td class="px-2 py-1 text-end font-mono">{{ $row['ours'] }}</td>
+                                    <td class="px-2 py-1 text-end">
+                                        @if ($this->canReconcileRow($group, $row))
+                                            {{ ($this->reconcileRowAction)(['take' => $row['take']]) }}
+                                        @endif
+                                    </td>
                                 </tr>
                             @endforeach
                         </tbody>

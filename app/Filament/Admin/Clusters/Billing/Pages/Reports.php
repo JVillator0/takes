@@ -12,6 +12,7 @@ use App\Filament\Admin\Clusters\Billing\BillingCluster;
 use App\Models\Customer;
 use App\Models\User;
 use App\Queries\Billing\GetBillingReportQuery;
+use App\Queries\Billing\ListReconciledDaysQuery;
 use BackedEnum;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Carbon\CarbonImmutable;
@@ -31,6 +32,9 @@ final class Reports extends Page
 {
     use HasPageShield;
 
+    /** Customer options shown at once; the search box reaches the rest. */
+    public const int CUSTOMER_OPTIONS = 50;
+
     protected static ?string $cluster = BillingCluster::class;
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedChartBar;
@@ -47,6 +51,9 @@ final class Reports extends Page
 
     /** The selected customer id as the select sends it ('' for all customers); converted in filter(). */
     public string $customer = '';
+
+    /** Narrows the customer select by name or email (any number of customers stays reachable). */
+    public string $customerSearch = '';
 
     /** The last valid range: an invalid date edit shows an error and leaves the report on this range. */
     #[Locked]
@@ -141,13 +148,43 @@ final class Reports extends Page
     }
 
     /**
+     * By-day rows matched by the last cached Pixelforge usage check (#141); no provider call.
+     *
+     * @return list<string>
+     */
+    #[Computed]
+    public function reconciledDays(): array
+    {
+        $filter = $this->filter();
+
+        return app(ListReconciledDaysQuery::class)->execute($filter->from, $filter->until);
+    }
+
+    /**
      * @return array<int, string>
      */
     #[Computed]
     public function customers(): array
     {
-        /** @var array<int, string> */
-        return Customer::query()->orderBy('name')->limit(500)->pluck('name', 'id')->all();
+        $search = trim($this->customerSearch);
+
+        /** @var array<int, string> $matches */
+        $matches = Customer::query()
+            ->when($search !== '', fn ($query) => $query->where(fn ($inner) => $inner
+                ->whereLike('name', '%'.$search.'%')
+                ->orWhereLike('email', '%'.$search.'%')))
+            ->orderBy('name')
+            ->limit(self::CUSTOMER_OPTIONS)
+            ->pluck('name', 'id')
+            ->all();
+
+        // The selected customer stays an option even when the search no longer matches it.
+        if (ctype_digit($this->customer) && ! array_key_exists((int) $this->customer, $matches)) {
+            $selected = Customer::query()->whereKey((int) $this->customer)->value('name');
+            $matches = is_string($selected) ? [(int) $this->customer => $selected] + $matches : $matches;
+        }
+
+        return $matches;
     }
 
     protected function getHeaderActions(): array

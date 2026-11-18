@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 use App\Enums\Auth\AdminRole;
 use App\Enums\Billing\ReconciliationStatus;
+use App\Enums\Takes\TakeStatus;
+use App\Events\TakeUpdated;
 use App\Exceptions\Pixelforge\AdminRequestBudgetExhaustedException;
 use App\Filament\Admin\Clusters\Providers\Pages\PixelforgeUsage;
+use App\Filament\Admin\Clusters\Studio\Resources\Takes\TakeResource;
 use App\Models\Take;
 use App\Models\UsageRecord;
 use App\Models\User;
@@ -17,11 +20,14 @@ use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 use Tests\Support\PixelforgeFixture;
+use Tests\Support\Takes;
 
 // Spec 7 issue 4 (#64), A04 (D-034, D-058): settled usage vs GET /v1/usage per UTC day, "in flight" today, and the
 // Find takes drill-down with its four groups. Pixelforge is faked; the fixture generation costs 305,510,000 nanos.
@@ -468,4 +474,39 @@ it('locks the applied range and the drill-down result against client writes, and
         ->and(fn () => $page->set('findResult', ['date' => 'x']))->toThrow(CannotUpdateLockedPropertyException::class);
 
     $page->set('from', '')->set('until', '2026-11-16')->assertHasErrors(['from'])->assertHasNoErrors(['until']);
+});
+
+it('offers Reconcile now on drill-down rows of open takes to operators, never on orphan rows', function (): void {
+    Queue::fake();
+    Event::fake([TakeUpdated::class]);
+    $open = Takes::in('processing');
+    $orphan = Take::factory()->failed()->create(['pixelforge_id' => 'gen_orphan_row']);
+    settledFixtureTake('2026-11-15', 'gen_a');
+    Http::fake([
+        'pixelforge.test/v1/usage*' => Http::response(usagePayload('2026-11-04', '2026-11-17', [
+            '2026-11-15' => [3, 36, 2295, 19350, 9552, '0.916530000'],
+        ])),
+        'pixelforge.test/v1/generations?*' => Http::response(['object' => 'list', 'data' => [
+            PixelforgeFixture::generation('succeeded', ['id' => $open->pixelforge_id, 'created_at' => '2026-11-15T10:00:00Z', 'completed_at' => '2026-11-15T10:00:00Z']),
+            PixelforgeFixture::generation('succeeded', ['id' => 'gen_orphan_row', 'created_at' => '2026-11-15T10:00:00Z', 'completed_at' => '2026-11-15T10:00:00Z']),
+        ], 'has_more' => false, 'next_cursor' => null]),
+        'pixelforge.test/v1/generations/*' => Http::response(PixelforgeFixture::generation('succeeded', [
+            'id' => $open->pixelforge_id, 'metadata' => ['app_take_id' => $open->id],
+        ])),
+    ]);
+    $this->actingAs(User::factory()->admin(AdminRole::Operator)->withAppAuthentication()->create());
+
+    $page = Livewire::test(PixelforgeUsage::class)->callAction('findTakes', arguments: ['date' => '2026-11-15']);
+
+    expect($page->instance()->canReconcileRow('ours_not_settled', ['generation' => (string) $open->pixelforge_id, 'take' => $open->id, 'theirs' => '-', 'ours' => '-']))->toBeTrue()
+        ->and($page->instance()->canReconcileRow('orphan_success', ['generation' => 'gen_orphan_row', 'take' => $orphan->id, 'theirs' => '-', 'ours' => '-']))->toBeFalse();
+
+    $page->assertSeeHtml(TakeResource::getUrl('view', ['record' => $open->id]))
+        ->callAction('reconcileRow', arguments: ['take' => $open->id])
+        ->assertNotified();
+
+    expect($open->refresh()->status)->toBe(TakeStatus::Succeeded);
+
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
+    Livewire::test(PixelforgeUsage::class)->assertActionHidden('reconcileRow');
 });
