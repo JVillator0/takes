@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace App\Filament\Admin\Clusters\Providers\Pages;
 
 use App\DTOs\Billing\PixelforgeReconciliationDTO;
+use App\DTOs\Billing\ReconciliationDayDTO;
 use App\DTOs\Billing\ReconciliationGenerationDTO;
 use App\Enums\Billing\ReconciliationStatus;
 use App\Exceptions\Pixelforge\AdminRequestBudgetExhaustedException;
 use App\Exceptions\Pixelforge\PixelforgeException;
 use App\Exceptions\Pixelforge\PixelforgeNotConfigured;
 use App\Filament\Admin\Clusters\Providers\ProvidersCluster;
+use App\Filament\Admin\Clusters\Providers\Widgets\PixelforgeDiscrepancies;
 use App\Queries\Billing\GetPixelforgeReconciliationQuery;
 use App\Queries\Billing\ListPixelforgeDayDiscrepanciesQuery;
 use App\Support\Pixelforge\AdminRequestBudget;
@@ -18,9 +20,23 @@ use BackedEnum;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Carbon\CarbonImmutable;
 use Filament\Actions\Action;
+use Filament\Forms\Components\DatePicker;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Schemas\Components\Callout;
+use Filament\Schemas\Components\EmbeddedSchema;
+use Filament\Schemas\Components\EmbeddedTable;
+use Filament\Schemas\Components\Livewire;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Schema;
+use Filament\Support\ArrayRecord;
+use Filament\Support\Enums\Alignment;
 use Filament\Support\Icons\Heroicon;
+use Filament\Tables\Columns\Summarizers\Summarizer;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Concerns\InteractsWithTable;
+use Filament\Tables\Contracts\HasTable;
+use Filament\Tables\Table;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 
@@ -33,11 +49,16 @@ use Livewire\Attributes\Locked;
  * invalid shows an error and changes nothing. A valid intermediate range (while typing) may fetch uncached days,
  * and every such call is charged to the admin request budget (AdminRequestBudget).
  *
+ * Native Filament only (#163): the dates are a schema form, the days a Filament table (one row per day, totals as
+ * summaries), Find takes a row action, and its result a nested table widget (PixelforgeDiscrepancies).
+ *
  * @property-read PixelforgeReconciliationDTO $report  the #[Computed] report, memoized per request
+ * @property-read Schema $form
  */
-final class PixelforgeUsage extends Page
+final class PixelforgeUsage extends Page implements HasTable
 {
     use HasPageShield;
+    use InteractsWithTable;
 
     public const int DEFAULT_DAYS = 14;
 
@@ -49,11 +70,8 @@ final class PixelforgeUsage extends Page
 
     protected static ?string $slug = 'pixelforge-usage';
 
-    protected string $view = 'filament.admin.pages.pixelforge-usage';
-
-    public string $from = '';
-
-    public string $until = '';
+    /** @var array<string, mixed>|null */
+    public ?array $data = [];
 
     #[Locked]
     public string $rangeFrom = '';
@@ -71,8 +89,133 @@ final class PixelforgeUsage extends Page
     public function mount(): void
     {
         $today = CarbonImmutable::now('UTC')->startOfDay();
-        $this->from = $this->rangeFrom = $today->subDays(self::DEFAULT_DAYS - 1)->toDateString();
-        $this->until = $this->rangeUntil = $today->toDateString();
+        $this->rangeFrom = $today->subDays(self::DEFAULT_DAYS - 1)->toDateString();
+        $this->rangeUntil = $today->toDateString();
+
+        // Optional ?from=&until= (e.g. the Reports reconciled badge links to its day): used only when both are real
+        // dates, ordered and within MAX_DAYS; anything else keeps the default window.
+        $from = self::date(request()->query('from'));
+        $until = self::date(request()->query('until'));
+
+        if ($from !== null && $until !== null && $from <= $until
+            && CarbonImmutable::parse($from, 'UTC')->diffInDays(CarbonImmutable::parse($until, 'UTC')) < GetPixelforgeReconciliationQuery::MAX_DAYS) {
+            $this->rangeFrom = $from;
+            $this->rangeUntil = $until;
+        }
+
+        $this->form->fill(['from' => $this->rangeFrom, 'until' => $this->rangeUntil]);
+    }
+
+    public function form(Schema $schema): Schema
+    {
+        return $schema
+            ->statePath('data')
+            ->components([
+                Section::make()
+                    ->columns(['md' => 2])
+                    ->schema([
+                        DatePicker::make('from')->label(__('console.pixelforge.from'))->live()
+                            ->afterStateUpdated(fn () => $this->applyRange('from')),
+                        DatePicker::make('until')->label(__('console.pixelforge.until'))->live()
+                            ->afterStateUpdated(fn () => $this->applyRange('until')),
+                    ]),
+            ]);
+    }
+
+    public function content(Schema $schema): Schema
+    {
+        return $schema->components([
+            EmbeddedSchema::make('form'),
+            Callout::make(__('console.pixelforge.throttled_banner'))
+                ->warning()
+                ->visible(fn (): bool => $this->report->throttled),
+            Callout::make(fn (): string => $this->unavailableMessage())
+                ->warning()
+                ->visible(fn (): bool => $this->report->unavailable),
+            EmbeddedTable::make(),
+            Livewire::make(PixelforgeDiscrepancies::class, fn (): array => ['findResult' => $this->findResult])
+                ->key('pixelforge-discrepancies')
+                ->visible(fn (): bool => $this->findResult !== null),
+        ]);
+    }
+
+    public function table(Table $table): Table
+    {
+        $report = fn (): PixelforgeReconciliationDTO => $this->report;
+
+        return $table
+            ->records(fn (): array => $this->dayRecords())
+            ->paginated(false)
+            ->heading(fn (): string => __('console.pixelforge.summary', ['matched' => $report()->matchedDays, 'judged' => $report()->judgedDays]))
+            ->description(fn (): string => trim(($report()->fetchedAt && ! $report()->unavailable ? __('console.pixelforge.fetched', ['time' => $report()->fetchedAt->utc()->format('Y-m-d H:i')]).' ' : '').__('console.pixelforge.footnote')))
+            ->columns([
+                TextColumn::make('day')->label(__('console.pixelforge.day')),
+                TextColumn::make('generations')->label(__('console.pixelforge.generations'))->alignment(Alignment::End)
+                    ->summarize(Summarizer::make('total')->label(__('console.pixelforge.total'))
+                        ->using(fn (): string => $report()->oursTotal->generations.' / '.($report()->theirsTotal->generations ?? '-'))),
+                TextColumn::make('ours')->label(__('console.pixelforge.our_cost_column'))->alignment(Alignment::End)->fontFamily('mono')
+                    ->summarize(Summarizer::make('total')->label(__('console.pixelforge.total'))
+                        ->using(fn (): string => $report()->oursTotal->cost->toDecimalString())),
+                TextColumn::make('theirs')->label(__('console.pixelforge.their_cost_column'))->alignment(Alignment::End)->fontFamily('mono')
+                    ->summarize(Summarizer::make('total')->label(__('console.pixelforge.total'))
+                        ->using(fn (): string => $report()->theirsTotal?->cost->toDecimalString() ?? '-')),
+                TextColumn::make('difference')->label(__('console.pixelforge.difference'))->alignment(Alignment::End)->fontFamily('mono')
+                    ->color(fn (array $record): ?string => $record['differs'] ? 'danger' : null)
+                    ->summarize(Summarizer::make('total')->label(__('console.pixelforge.total'))
+                        ->using(fn (): string => $report()->theirsTotal ? $report()->oursTotal->cost->minus($report()->theirsTotal->cost)->toDecimalString() : '-')),
+                TextColumn::make('tokens')->label(__('console.pixelforge.tokens'))->fontFamily('mono')->listWithLineBreaks()->placeholder(''),
+                TextColumn::make('status')->label(__('console.pixelforge.status_column'))->badge()
+                    ->color(fn (array $record): string => $record['status_color']),
+            ])
+            ->recordActions([
+                $this->findTakesAction(),
+            ]);
+    }
+
+    /**
+     * One table record per day of the report, keyed by its date.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function dayRecords(): array
+    {
+        $fields = (array) __('console.pixelforge.token_kinds');
+        $today = CarbonImmutable::now('UTC')->toDateString();
+
+        return array_map(function (ReconciliationDayDTO $day) use ($fields, $today): array {
+            $difference = $day->theirs !== null ? $day->ours->cost->minus($day->theirs->cost) : null;
+            $tokens = [];
+
+            foreach ($day->theirs !== null ? array_intersect_key($day->ours->differences($day->theirs), $fields) : [] as $field => $delta) {
+                $tokens[] = $fields[$field].' '.($delta > 0 ? '+' : '').number_format($delta);
+            }
+
+            return [
+                ArrayRecord::getKeyName() => $day->date,
+                'date' => $day->date,
+                'day' => $day->date === $today ? __('console.pixelforge.today', ['date' => $day->date]) : $day->date,
+                'generations' => $day->ours->generations.' / '.($day->theirs->generations ?? '-'),
+                'ours' => $day->ours->cost->toDecimalString(),
+                'theirs' => $day->theirs?->cost->toDecimalString() ?? '-',
+                'difference' => $difference?->toDecimalString() ?? '-',
+                'differs' => $difference !== null && ! $difference->isZero(),
+                'tokens' => $tokens,
+                'status' => $day->status === ReconciliationStatus::Pending && $day->inFlight > 0
+                    ? __('console.pixelforge.in_flight', ['count' => $day->inFlight])
+                    : $day->status->getLabel(),
+                'status_value' => $day->status->value,
+                'status_color' => $day->status->getColor(),
+            ];
+        }, $this->report->days);
+    }
+
+    private function unavailableMessage(): string
+    {
+        $fetchedAt = $this->report->fetchedAt?->utc();
+
+        return $fetchedAt !== null
+            ? __('console.pixelforge.unavailable', ['time' => $fetchedAt->format($fetchedAt->isToday() ? 'H:i' : 'Y-m-d H:i')])
+            : __('console.pixelforge.unavailable_never');
     }
 
     public function getTitle(): string
@@ -96,52 +239,53 @@ final class PixelforgeUsage extends Page
     }
 
     /**
-     * Applies From/Until only when both are real dates, ordered and at most 92 days apart (inclusive).
+     * Applies From/Until only when both are real dates, ordered and at most 92 days apart (inclusive); otherwise a
+     * field error and the report stays on the last valid range.
      */
-    public function updated(string $property): void
+    public function applyRange(string $field): void
     {
-        if (! in_array($property, ['from', 'until'], true)) {
+        $this->resetErrorBag(['data.from', 'data.until']);
+        $dates = ['from' => self::date($this->data['from'] ?? null), 'until' => self::date($this->data['until'] ?? null)];
+        $invalid = array_keys(array_filter($dates, fn (?string $date): bool => $date === null));
+
+        foreach ($invalid as $name) {
+            $this->addError('data.'.$name, __('console.pixelforge.invalid_date'));
+        }
+
+        if ($dates['from'] === null || $dates['until'] === null) {
             return;
         }
 
-        $this->resetErrorBag(['from', 'until']);
-        $invalid = array_filter(['from' => $this->from, 'until' => $this->until], fn (string $value): bool => ! self::isDate($value));
-
-        foreach (array_keys($invalid) as $field) {
-            $this->addError($field, __('console.pixelforge.invalid_date'));
-        }
-
-        if ($invalid !== []) {
-            return;
-        }
-
-        $from = CarbonImmutable::parse($this->from, 'UTC');
-        $until = CarbonImmutable::parse($this->until, 'UTC');
+        $from = CarbonImmutable::parse($dates['from'], 'UTC');
+        $until = CarbonImmutable::parse($dates['until'], 'UTC');
 
         if ($until->lessThan($from) || $from->diffInDays($until) >= GetPixelforgeReconciliationQuery::MAX_DAYS) {
-            $this->addError($property, __('console.pixelforge.invalid_range', ['days' => GetPixelforgeReconciliationQuery::MAX_DAYS]));
+            $this->addError('data.'.$field, __('console.pixelforge.invalid_range', ['days' => GetPixelforgeReconciliationQuery::MAX_DAYS]));
 
             return;
         }
 
-        $this->rangeFrom = $this->from;
-        $this->rangeUntil = $this->until;
+        $this->rangeFrom = $dates['from'];
+        $this->rangeUntil = $dates['until'];
         $this->findResult = null;
         unset($this->report);
+        $this->flushCachedTableRecords();
     }
 
     /**
-     * **Find takes** (A04, D-034): only for a Mismatch day of the current report, read on an explicit click.
+     * **Find takes** (A04, D-034): a row action, only on a Mismatch day of the current report, read on an explicit
+     * click; the result shows in the nested drill-down table.
      */
-    public function findTakesAction(): Action
+    private function findTakesAction(): Action
     {
         return Action::make('findTakes')
             ->label(__('console.pixelforge.find_takes'))
-            ->size('xs')
+            ->icon(Heroicon::OutlinedMagnifyingGlass)
             ->color('gray')
             ->authorize(fn (): bool => self::canAccess())
-            ->action(function (array $arguments): void {
-                $date = $arguments['date'] ?? null;
+            ->visible(fn (array $record): bool => $record['status_value'] === ReconciliationStatus::Mismatch->value)
+            ->action(function (array $record): void {
+                $date = $record['date'] ?? null;
 
                 if (! is_string($date) || ! $this->isMismatchDay($date)) {
                     Notification::make()->danger()->title(__('console.pixelforge.not_a_mismatch'))->send();
@@ -191,6 +335,7 @@ final class PixelforgeUsage extends Page
                     $this->refreshUsage = true;
                     $this->findResult = null;
                     unset($this->report);
+                    $this->flushCachedTableRecords();
                 }),
         ];
     }
@@ -219,13 +364,19 @@ final class PixelforgeUsage extends Page
 
     private static function isDate(string $value): bool
     {
-        if (preg_match(self::DATE_PATTERN, $value) !== 1) {
-            return false;
+        return self::date($value) === $value;
+    }
+
+    /** A real Y-m-d date (DatePicker state), or null for a cleared or malformed one. */
+    private static function date(mixed $value): ?string
+    {
+        if (! is_string($value) || strlen($value) > 32 || preg_match(self::DATE_PATTERN, substr($value, 0, 10)) !== 1) {
+            return null;
         }
 
-        [$year, $month, $day] = array_map(intval(...), explode('-', $value));
+        [$year, $month, $day] = array_map(intval(...), explode('-', substr($value, 0, 10)));
 
-        return checkdate($month, $day, $year);
+        return checkdate($month, $day, $year) ? substr($value, 0, 10) : null;
     }
 
     /**
