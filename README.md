@@ -319,7 +319,7 @@ Tests use the `takes_testing` database (`phpunit.xml`). To point them elsewhere:
 
 ## Deploy
 
-Live at **<https://takes-production-aodrsk.laravel.cloud>** on Laravel Cloud (US East): app on Flex compute, Serverless Postgres 17, a managed queue, a Reverb cluster and a private object-storage bucket, all scaling to zero except Reverb, under a $15/month spend alert. Every merge to `main` deploys.
+Live at **<https://takes-production-aodrsk.laravel.cloud>** on Laravel Cloud (US East): app on Flex compute, Serverless Postgres 17, a managed queue, a Reverb cluster and a private object-storage bucket, all scaling to zero except Reverb, under a $15/month spend alert. Every merge to `main` deployed until v1.0.0; push to deploy is now off, so production stays on the v1.0.0 tag (`6ef9ebc`).
 
 | Cold start (2026-11-17) | Result |
 |---|---|
