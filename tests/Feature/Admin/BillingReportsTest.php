@@ -227,7 +227,7 @@ it('flags a total margin other than 20.0%', function (): void {
         ->assertTableColumnSummarySet('margin_bps', 'total', '23.1%')
         ->assertSeeHtml('data-invariant="broken"');
 
-    Livewire::test(BillingReportStats::class, ['pageFilters' => ['from' => '2026-10-19', 'until' => '2026-11-17']])
+    Livewire::test(BillingReportStats::class, BillingReportStats::props(app(GetBillingReportQuery::class)->execute(BillingReportFilterDTO::lastThirtyDays())->totals))
         ->assertSee('23.1%')
         ->assertSee('Invariant alert: expected 20.0%');
 });
@@ -351,11 +351,24 @@ it('shows the reconciled badge only for a day the cached Pixelforge check matche
     ]];
     Cache::put(GetPixelforgeReconciliationQuery::dayKey('2026-11-16'), $entry(1, 59_230_000, [1, 2, 3, 4]), 300);
     Cache::put(GetPixelforgeReconciliationQuery::dayKey('2026-11-15'), $entry(1, 9_000_000, [1, 0, 0, 0]), 300);
+    // Never checked: settled usage, no cached figures.
+    UsageRecord::factory()->settled(10_000_000)->create(['customer_id' => $customer->id, 'billing_date' => '2026-11-14', 'input_text_tokens' => 1, 'input_image_tokens' => 0, 'output_tokens' => 0, 'reasoning_tokens' => 0]);
+    // Pending: cached figures that match, but a take of that day is still in flight.
+    UsageRecord::factory()->settled(10_000_000)->create(['customer_id' => $customer->id, 'billing_date' => '2026-11-13', 'input_text_tokens' => 1, 'input_image_tokens' => 0, 'output_tokens' => 0, 'reasoning_tokens' => 0]);
+    Cache::put(GetPixelforgeReconciliationQuery::dayKey('2026-11-13'), $entry(1, 10_000_000, [1, 0, 0, 0]), 300);
+    Take::factory()->processing()->create(['customer_id' => $customer->id, 'created_at' => '2026-11-13 10:00:00']);
+    // Today: still open, so Pending even with matching cached figures.
+    UsageRecord::factory()->settled(10_000_000)->create(['customer_id' => $customer->id, 'billing_date' => '2026-11-17', 'input_text_tokens' => 1, 'input_image_tokens' => 0, 'output_tokens' => 0, 'reasoning_tokens' => 0]);
+    Cache::put(GetPixelforgeReconciliationQuery::dayKey('2026-11-17'), ['fetched_at' => '2026-11-17T11:00:00+00:00', 'totals' => $entry(1, 10_000_000, [1, 0, 0, 0])['totals']], 300);
     $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
 
     Livewire::test(Reports::class)
+        ->assertCanSeeTableRecords(['2026-11-17', '2026-11-16', '2026-11-15', '2026-11-14', '2026-11-13'])
         ->assertTableColumnStateSet('reconciled', 'Reconciled', '2026-11-16')
         ->assertTableColumnStateNotSet('reconciled', 'Reconciled', '2026-11-15')
+        ->assertTableColumnStateNotSet('reconciled', 'Reconciled', '2026-11-14')
+        ->assertTableColumnStateNotSet('reconciled', 'Reconciled', '2026-11-13')
+        ->assertTableColumnStateNotSet('reconciled', 'Reconciled', '2026-11-17')
         ->assertSeeHtml(PixelforgeUsage::getUrl());
 
     Http::assertNothingSent();
@@ -396,7 +409,7 @@ it('allocates promo and positive adjustment credits before purchases (D-084), in
         ->assertTableColumnFormattedStateSet('promo_consumed_nanos', '$0.65', '2026-11-16')
         ->assertTableColumnSummarySet('promo_consumed_nanos', 'total', '$1.40');
 
-    Livewire::test(BillingReportStats::class, ['pageFilters' => ['from' => '2026-10-19', 'until' => '2026-11-17']])
+    Livewire::test(BillingReportStats::class, BillingReportStats::props($report->totals))
         ->assertSee('$1.40');
 });
 
@@ -410,4 +423,92 @@ it('renders the page over HTTP as native Filament components: filters form, stat
         ->toContain('fi-wi-stats-overview')
         ->toContain('fi-fo-toggle-buttons')
         ->toContain('$0.0740375');
+});
+
+it('allocates promo credit per customer across interleaved ledgers, after a pre-range charge, under provider and customer filters (D-084)', function (): void {
+    $ana = Customer::factory()->create(['name' => 'Ana']);
+    $bob = Customer::factory()->create(['name' => 'Bob']);
+    $credit = fn (Customer $customer, LedgerEntryType $type, int $nanos) => LedgerEntry::factory()->create(['customer_id' => $customer->id, 'type' => $type, 'amount_nanos' => $nanos, 'reason' => 'test']);
+    $charge = function (Customer $customer, string $day, int $costNanos, Provider $provider = Provider::Pixelforge): UsageRecord {
+        $factory = UsageRecord::factory()->settled($costNanos);
+        $usage = ($provider === Provider::Anthropic ? $factory->forSuggestion() : $factory)->create(['customer_id' => $customer->id, 'billing_date' => $day]);
+        LedgerEntry::factory()->create(['customer_id' => $customer->id, 'type' => LedgerEntryType::Charge, 'amount_nanos' => -$usage->charge_nanos, 'usage_record_id' => $usage->id]);
+
+        return $usage;
+    };
+
+    // Ledger ids interleave the two customers.
+    $credit($ana, LedgerEntryType::PromoGrant, 1_000_000_000);       // Ana promo 1.00
+    $credit($bob, LedgerEntryType::PromoGrant, 500_000_000);         // Bob promo 0.50
+    $charge($ana, '2026-10-01', 600_000_000);                         // Ana 0.75 before the range: promo 1.00 → 0.25
+    LedgerEntry::factory()->purchase()->create(['customer_id' => $bob->id, 'amount_nanos' => 10_000_000_000]); // Bob purchase 10.00
+    LedgerEntry::factory()->purchase()->create(['customer_id' => $ana->id, 'amount_nanos' => 10_000_000_000]); // Ana purchase 10.00 (no overdraft)
+    $charge($ana, '2026-11-16', 600_000_000);                         // Ana 0.75: 0.25 promo
+    $anthropic = $charge($bob, '2026-11-16', 240_000_000, Provider::Anthropic); // Bob: whole charge from promo
+    $charge($bob, '2026-11-17', 600_000_000);                         // Bob 0.75: the promo left
+    $credit($ana, LedgerEntryType::Adjustment, 100_000_000);          // Ana +0.10
+    $charge($ana, '2026-11-17', 600_000_000);                         // Ana 0.75: 0.10 promo
+
+    $bobAnthropic = $anthropic->charge_nanos;
+    $bobLeft = 500_000_000 - $bobAnthropic;
+    $range = ['from' => '2026-10-19', 'until' => '2026-11-17'];
+    $promoBy = fn (array $filter): array => collect(app(GetBillingReportQuery::class)->execute(BillingReportFilterDTO::fromArray([...$range, ...$filter]))->rows)
+        ->mapWithKeys(fn ($row): array => [$row->key => $row->promoConsumed->toInt()])->all();
+    $totalOf = fn (array $filter): int => app(GetBillingReportQuery::class)->execute(BillingReportFilterDTO::fromArray([...$range, ...$filter]))->totals->promoConsumed->toInt();
+
+    expect($promoBy([]))->toBe(['2026-11-17' => $bobLeft + 100_000_000, '2026-11-16' => 250_000_000 + $bobAnthropic])
+        ->and($totalOf([]))->toBe(350_000_000 + 500_000_000)
+        ->and($promoBy(['group_by' => 'customer']))->toBe([(string) $ana->id => 350_000_000, (string) $bob->id => 500_000_000])
+        ->and($promoBy(['provider' => 'pixelforge']))->toBe(['2026-11-17' => $bobLeft + 100_000_000, '2026-11-16' => 250_000_000])
+        ->and($totalOf(['provider' => 'anthropic']))->toBe($bobAnthropic)
+        ->and($promoBy(['customer_id' => $bob->id]))->toBe(['2026-11-17' => $bobLeft, '2026-11-16' => $bobAnthropic])
+        ->and($totalOf(['customer_id' => $bob->id, 'provider' => 'pixelforge']))->toBe($bobLeft);
+
+    $operator = User::factory()->admin(AdminRole::Operator)->create();
+    $csv = fn (array $filter): array => collect(array_slice(exportLines($operator, BillingReportFilterDTO::fromArray([...$range, ...$filter])), 1))
+        ->mapWithKeys(fn (array $line): array => [$line[0].'|'.$line[2].'|'.$line[3] => $line[13]])->all();
+
+    expect($csv([]))->toBe([
+        '2026-11-16|Ana|pixelforge' => '250000000',
+        '2026-11-16|Bob|anthropic' => (string) $bobAnthropic,
+        '2026-11-17|Ana|pixelforge' => '100000000',
+        '2026-11-17|Bob|pixelforge' => (string) $bobLeft,
+    ])
+        ->and($csv(['provider' => 'pixelforge']))->toBe([
+            '2026-11-16|Ana|pixelforge' => '250000000',
+            '2026-11-17|Ana|pixelforge' => '100000000',
+            '2026-11-17|Bob|pixelforge' => (string) $bobLeft,
+        ])
+        ->and($csv(['customer_id' => $bob->id]))->toBe([
+            '2026-11-16|Bob|anthropic' => (string) $bobAnthropic,
+            '2026-11-17|Bob|pixelforge' => (string) $bobLeft,
+        ]);
+});
+
+it('repays an overdraft before a credit joins a pool, attributing the repayment to no charge (D-084)', function (): void {
+    $customer = Customer::factory()->create();
+    $charge = function (string $day) use ($customer): void {
+        $usage = UsageRecord::factory()->settled(600_000_000)->create(['customer_id' => $customer->id, 'billing_date' => $day]);
+        LedgerEntry::factory()->create(['customer_id' => $customer->id, 'type' => LedgerEntryType::Charge, 'amount_nanos' => -$usage->charge_nanos, 'usage_record_id' => $usage->id]);
+    };
+
+    $charge('2026-11-15');                                            // 0.75 on an empty balance: debt 0.75
+    LedgerEntry::factory()->create(['customer_id' => $customer->id, 'type' => LedgerEntryType::Adjustment, 'amount_nanos' => 1_000_000_000, 'reason' => 'goodwill']);
+    $charge('2026-11-16');                                            // +1.00 repaid 0.75 first: 0.25 promo, debt 0.50
+    LedgerEntry::factory()->purchase()->create(['customer_id' => $customer->id, 'amount_nanos' => 100_000_000]); // repays 0.10 of debt
+    $charge('2026-11-17');                                            // no promo left: debt 1.15
+    LedgerEntry::factory()->create(['customer_id' => $customer->id, 'type' => LedgerEntryType::PromoGrant, 'amount_nanos' => 1_000_000_000]);
+
+    $rows = collect(app(GetBillingReportQuery::class)->execute(BillingReportFilterDTO::lastThirtyDays())->rows)
+        ->mapWithKeys(fn ($row): array => [$row->key => $row->promoConsumed->toInt()])->all();
+
+    expect($rows)->toBe(['2026-11-17' => 0, '2026-11-16' => 250_000_000, '2026-11-15' => 0]);
+});
+
+it('renders the stats widget without polling', function (): void {
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
+
+    Livewire::test(BillingReportStats::class, BillingReportStats::props(app(GetBillingReportQuery::class)->execute(BillingReportFilterDTO::lastThirtyDays())->totals))
+        ->assertOk()
+        ->assertDontSeeHtml('wire:poll');
 });

@@ -16,7 +16,8 @@ use App\Models\UsageRecord;
  * in ledger order, `promo_grant` and positive `adjustment` credits are spent before `purchase` credits, and a
  * negative adjustment takes back promo credit first. It walks each affected customer's whole ledger (the pool at
  * the first charge in range depends on everything before it), so it is computed here in integer PHP from the
- * ledger rows, not with an SQL sum.
+ * ledger rows, not with an SQL sum. Overdraft debt is modelled: a credit first repays it, and that repayment is
+ * attributed to no charge, so a settled charge's figure never changes after the fact.
  *
  * Returns the promo-paid nanodollars of the charges whose usage is settled and billed in the filter's range,
  * keyed "billing_date|customer_id|provider".
@@ -59,30 +60,39 @@ final readonly class ListPromoCreditsConsumedQuery
         $until = $filter->until->toDateString();
         $consumed = [];
         $customer = null;
-        $promoPool = 0;
+        // Per customer: promo credit, purchased credit and overdraft debt (balance = promo + purchased − debt).
+        $promo = $purchased = $debt = 0;
 
         foreach ($entries as $entry) {
             if ($entry->customer_id !== $customer) {
                 $customer = $entry->customer_id;
-                $promoPool = 0;
+                $promo = $purchased = $debt = 0;
             }
 
             $amount = (int) $entry->amount_nanos;
             $type = LedgerEntryType::from((string) $entry->type);
 
-            if ($type === LedgerEntryType::PromoGrant || ($type === LedgerEntryType::Adjustment && $amount > 0)) {
-                $promoPool += $amount;
+            if ($amount > 0) {
+                // Any credit repays an overdraft first (M-15); only the rest joins its pool.
+                $repaid = min($debt, $amount);
+                $debt -= $repaid;
+
+                if ($type === LedgerEntryType::Purchase) {
+                    $purchased += $amount - $repaid;
+                } else {
+                    $promo += $amount - $repaid;
+                }
 
                 continue;
             }
 
-            if ($type === LedgerEntryType::Purchase) {
-                continue;
-            }
-
-            // A charge, or a negative adjustment: spend promo credit first.
-            $fromPromo = min(max($promoPool, 0), -$amount);
-            $promoPool -= $fromPromo;
+            // A charge or a negative adjustment: promo credit first, then purchased credit, the rest is debt.
+            $owed = -$amount;
+            $fromPromo = min($promo, $owed);
+            $promo -= $fromPromo;
+            $fromPurchased = min($purchased, $owed - $fromPromo);
+            $purchased -= $fromPurchased;
+            $debt += $owed - $fromPromo - $fromPurchased;
 
             if ($type !== LedgerEntryType::Charge || $fromPromo === 0 || $entry->billing_date === null) {
                 continue;

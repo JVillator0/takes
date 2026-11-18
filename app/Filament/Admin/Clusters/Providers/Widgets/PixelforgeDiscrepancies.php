@@ -4,13 +4,12 @@ declare(strict_types=1);
 
 namespace App\Filament\Admin\Clusters\Providers\Widgets;
 
-use App\Enums\Auth\AdminPermission;
+use App\Enums\Takes\TakeStatus;
 use App\Filament\Admin\Clusters\Providers\Pages\PixelforgeUsage;
 use App\Filament\Admin\Clusters\Studio\Resources\Takes\Actions\ReconcileTakeAction;
 use App\Filament\Admin\Clusters\Studio\Resources\Takes\TakeResource;
 use App\Models\Take;
 use Filament\Actions\Action;
-use Filament\Facades\Filament;
 use Filament\Support\ArrayRecord;
 use Filament\Support\Enums\Alignment;
 use Filament\Support\Icons\Heroicon;
@@ -22,7 +21,7 @@ use Livewire\Attributes\Reactive;
 /**
  * The **Find takes** drill-down of Providers › Pixelforge usage (A04, D-034), as a nested Filament table (#163): one
  * row per generation in the four groups, the take linked to its view, and **Reconcile now** (D-058, the A06 action,
- * #136) on a row whose take is still open. Never on an orphan success: its take failed free, nothing to reconcile.
+ * #136, configured by ReconcileTakeAction::configure) on a row whose take is still open. Never on an orphan success: its take failed free, nothing to reconcile.
  * The rows come from the page (a reactive prop the client cannot write); this widget never calls Pixelforge.
  */
 final class PixelforgeDiscrepancies extends TableWidget
@@ -38,6 +37,9 @@ final class PixelforgeDiscrepancies extends TableWidget
     /** @var array{date: string, truncated: bool, groups: array<string, list<array{generation: string, take: string|null, theirs: string, ours: string}>>}|null */
     #[Reactive]
     public ?array $findResult = null;
+
+    /** @var list<string>|null memoized by openTakeIds(), never client state */
+    private ?array $openTakeIds = null;
 
     public static function canView(): bool
     {
@@ -63,14 +65,8 @@ final class PixelforgeDiscrepancies extends TableWidget
                 TextColumn::make('ours')->label(__('console.pixelforge.our_cost'))->fontFamily('mono')->alignment(Alignment::End),
             ])
             ->recordActions([
-                Action::make('reconcile')
-                    ->label(__('console.takes.reconcile.label'))
-                    ->icon(Heroicon::OutlinedArrowPath)
-                    ->requiresConfirmation()
-                    ->modalHeading(__('console.takes.reconcile.heading'))
-                    ->modalDescription(__('console.takes.reconcile.description'))
-                    ->authorize(fn (): bool => Filament::auth()->user()?->can(AdminPermission::ReconcileTake->value) === true)
-                    ->visible(fn (array $record): bool => self::canReconcile($record))
+                ReconcileTakeAction::configure(Action::make('reconcile'))
+                    ->visible(fn (array $record): bool => $this->canReconcile($record))
                     ->action(function (array $record): void {
                         $take = is_string($record['take'] ?? null) ? Take::query()->find($record['take']) : null;
 
@@ -86,15 +82,45 @@ final class PixelforgeDiscrepancies extends TableWidget
      *
      * @param  array<string, mixed>  $record
      */
-    public static function canReconcile(array $record): bool
+    public function canReconcile(array $record): bool
     {
         if (($record['group'] ?? null) === 'orphan_success' || ! is_string($record['take'] ?? null)) {
             return false;
         }
 
-        $take = Take::query()->find($record['take']);
+        return in_array($record['take'], $this->openTakeIds(), true);
+    }
 
-        return $take !== null && ! $take->status->isTerminal();
+    /**
+     * The non-final takes of the drill-down, read with one query and memoized per request (no query per row).
+     *
+     * @return list<string>
+     */
+    private function openTakeIds(): array
+    {
+        if ($this->openTakeIds !== null) {
+            return $this->openTakeIds;
+        }
+
+        $ids = [];
+
+        foreach ($this->findResult['groups'] ?? [] as $group => $rows) {
+            foreach ($group === 'orphan_success' ? [] : $rows as $row) {
+                if ($row['take'] !== null) {
+                    $ids[] = $row['take'];
+                }
+            }
+        }
+
+        /** @var list<string> $open */
+        $open = $ids === [] ? [] : Take::query()
+            ->whereIn('id', array_values(array_unique($ids)))
+            ->whereIn('status', array_map(fn (TakeStatus $status): string => $status->value, TakeStatus::nonTerminal()))
+            ->pluck('id')
+            ->map(fn (mixed $id): string => (string) $id)
+            ->all();
+
+        return $this->openTakeIds = $open;
     }
 
     /**

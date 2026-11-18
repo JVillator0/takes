@@ -26,6 +26,10 @@ it('refuses a ratio that does not fit in basis points, at the exact boundary too
     'negative at the boundary' => [-2_767_011_611_056_433, 3],
 ]);
 
-it('accepts the largest ratio that still fits', function (): void {
-    expect(BasisPoints::ratio(intdiv(PHP_INT_MAX - 9_999, 10_000), 1))->toBe(intdiv(PHP_INT_MAX - 9_999, 10_000) * 10_000);
-});
+it('accepts every ratio whose basis points fit, judged on the actual digits', function (int $part, int $whole, int $bps): void {
+    expect(BasisPoints::ratio($part, $whole))->toBe($bps)
+        ->and(BasisPoints::ratio(-$part, $whole))->toBe(-$bps);
+})->with([
+    'largest quotient, no digits' => [922_337_203_685_477, 1, 9_223_372_036_854_770_000],
+    'largest quotient, digits that fit' => [2_767_011_611_056_432, 3, 9_223_372_036_854_773_333],
+]);

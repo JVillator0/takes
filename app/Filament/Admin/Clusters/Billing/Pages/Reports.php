@@ -146,7 +146,7 @@ final class Reports extends Page implements HasTable
     {
         return $schema->components([
             EmbeddedSchema::make('form'),
-            Livewire::make(BillingReportStats::class, fn (): array => ['pageFilters' => $this->filters])->key('billing-report-stats'),
+            Livewire::make(BillingReportStats::class, fn (): array => BillingReportStats::props($this->report->totals))->key('billing-report-stats'),
             EmbeddedTable::make(),
         ]);
     }

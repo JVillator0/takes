@@ -22,6 +22,7 @@ use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -542,4 +543,26 @@ it('renders the page over HTTP as native Filament components, with the outage as
     expect($html)->toContain('fi-ta-table')
         ->toContain('fi-callout')
         ->toContain('Could not reach Pixelforge.');
+});
+
+it('decides Reconcile now for every drill-down row with one take query', function (): void {
+    $open = Take::factory()->count(3)->processing()->create();
+    $final = Take::factory()->succeeded()->create();
+    $row = fn (Take $take): array => ['generation' => 'gen_'.$take->id, 'take' => $take->id, 'theirs' => '-', 'ours' => '-'];
+    $findResult = ['date' => '2026-11-15', 'truncated' => false, 'groups' => [
+        'theirs_not_ours' => [],
+        'ours_not_settled' => $open->map($row)->all(),
+        'amount_differs' => [$row($final)],
+        'orphan_success' => [],
+    ]];
+    $this->actingAs(User::factory()->admin(AdminRole::Operator)->withAppAuthentication()->create());
+    $widget = Livewire::test(PixelforgeDiscrepancies::class, ['findResult' => $findResult])->instance();
+
+    DB::enableQueryLog();
+    $decisions = array_map(fn (string $key): bool => $widget->canReconcile(['group' => explode('-', $key)[0], 'take' => $key === 'amount_differs-0' ? $final->id : $open[(int) explode('-', $key)[1]]->id]),
+        ['ours_not_settled-0', 'ours_not_settled-1', 'ours_not_settled-2', 'amount_differs-0']);
+    $takeQueries = collect(DB::getQueryLog())->filter(fn (array $query): bool => str_contains($query['query'], 'from "takes"'))->count();
+
+    expect($decisions)->toBe([true, true, true, false])
+        ->and($takeQueries)->toBeLessThanOrEqual(1);
 });

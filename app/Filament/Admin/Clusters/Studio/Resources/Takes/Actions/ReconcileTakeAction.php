@@ -23,16 +23,25 @@ final class ReconcileTakeAction
 {
     public static function make(): Action
     {
-        return Action::make('reconcile')
+        return self::configure(Action::make('reconcile'))
+            // A succeeded or failed take is final: there is nothing to poll, so the action is not offered.
+            ->visible(fn (Take $record): bool => ! $record->status->isTerminal())
+            ->action(fn (Take $record) => self::reconcile($record));
+    }
+
+    /**
+     * The look, confirmation and Shield gate every Reconcile now button shares (A06, the takes table, the A04
+     * drill-down rows); callers add visibility and the call to reconcile().
+     */
+    public static function configure(Action $action): Action
+    {
+        return $action
             ->label(__('console.takes.reconcile.label'))
             ->icon(Heroicon::OutlinedArrowPath)
             ->requiresConfirmation()
             ->modalHeading(__('console.takes.reconcile.heading'))
             ->modalDescription(__('console.takes.reconcile.description'))
-            ->authorize(fn (): bool => self::admin()?->can(AdminPermission::ReconcileTake->value) === true)
-            // A succeeded or failed take is final: there is nothing to poll, so the action is not offered.
-            ->visible(fn (Take $record): bool => ! $record->status->isTerminal())
-            ->action(fn (Take $record) => self::reconcile($record));
+            ->authorize(fn (): bool => self::admin()?->can(AdminPermission::ReconcileTake->value) === true);
     }
 
     /**
