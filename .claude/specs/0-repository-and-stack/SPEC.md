@@ -70,7 +70,7 @@ Pixelforge: one API key per environment (local and production), each with its ow
 - [ ] No secret in git history (`gitleaks` job in CI, spec 1-01).
 - [ ] `.env.example` covers every `env()` call in `config/` (a Pest test greps `config/` for `env()` keys and compares).
 - [ ] `composer check` and the full Pest suite pass offline with **no secrets** (HTTP fakes), also in CI.
-- [ ] Without `PIXELFORGE_API_KEY` the app boots and shows the 2-01 *service not configured* banner (no 500; `isConfigured()` and the `pixelforge.configured` prop are 3-04 issue 4, the banner UI and composer disabling are spec 4 issue 8, with a feature test that boots without the key); README "Run locally" has a 3-line prerequisites box: own Pixelforge key; tunnel optional because reconcile polling works; `AI_SUGGESTIONS_ENABLED=false` to run without Anthropic.
+- [ ] Without `PIXELFORGE_API_KEY` the app boots and shows the 2-01 *service not configured* banner (no 500; `isConfigured()` and the `imageService.configured` prop are 3-04 issue 4, the banner UI and composer disabling are spec 4 issue 8, with a feature test that boots without the key); README "Run locally" has a 3-line prerequisites box: own Pixelforge key; tunnel optional because reconcile polling works; `AI_SUGGESTIONS_ENABLED=false` to run without Anthropic.
 
 ## Issues
 1. Create repo `JVillator0/takes` with settings (squash only, auto-delete branches, Issues + Projects). Branch protection is 1-01 issue 5, after the first green CI run.

@@ -20,7 +20,7 @@ All customer routes use `auth:customer` + middleware `Auth::shouldUse('customer'
 | POST | `/projects` | `CreateProjectAction` |
 | GET | `/projects/{project}` | `GetProjectWorkspaceQuery` (takes paginated 24, status counts, `balance`/`held`/`available`) |
 | PATCH/DELETE | `/projects/{project}` | rename / archive |
-| GET | `/estimates/take` | `EstimateTakeQuery` → JSON |
+| GET | `/estimates/take` | `GetTakeEstimateQuery` → JSON |
 | POST | `/projects/{project}/takes` | `CreateTakeAction` |
 | GET | `/projects/{project}?take={id}` | the take drawer (2-01/2-02): partial reload `only: ['take']`; `TakeResource` exposes estimate min/max (exact, D-042), charged amount (exact) and a short-lived `image_url` only, never provider cost, tokens, rates or provider names (D-023). Unknown id and another customer's take return the identical 404 |
 | GET | `/takes/{take}` | same `TakeResource` as JSON for non-Inertia callers; **404 (not 403)** for non-owners |
@@ -74,7 +74,7 @@ Invariants:
 | Outcome (spec 3-04 exception) | Behavior |
 |---|---|
 | 202 (incl. replay) | `ApplyTakeSnapshotAction` (3-02; safe if a webhook already moved it) |
-| `PixelforgeBusy` (429 rate/concurrency, 503) | definite non-creation: `last_submit_error_kind = capacity` (unless already `ambiguous`); `release(min(max(Retry-After, backoff) + jitter, 900))`, where backoff grows with the take's API attempts (20, 40, 60 … capped at 120 s) so one waiting take makes at most ~3 calls a minute against the shared 60 rpm (#149); gate and budget waits are not attempts |
+| `PixelforgeBusy` (429 rate/concurrency, 503) | definite non-creation: `last_submit_error_kind = capacity` (unless already `ambiguous`); `release(min(max(Retry-After, backoff) + jitter, 900))`, where backoff grows with the take's API attempts (20, 40, 60 … capped at 120 s) so one waiting take makes at most two calls in any minute against the shared 60 rpm (#149); gate and budget waits are not attempts |
 | Timeout, connection error, 5xx (ambiguous) | the provider may have created it: keep retrying the **same key** (replay is safe), `release(5 + jitter)`, `last_submit_error_kind = ambiguous` (sticky: never reverts to `capacity`) |
 | 429 `daily_limit_exceeded` | `FailTakeAction('daily_limit')`, free |
 | 400 `content_policy_violation` | `FailTakeAction('content_policy')` ⇒ `VoidUsageAction` |
@@ -141,4 +141,4 @@ On success: stream the PNG (timeout 20 s, max 20 MB enforced while streaming, co
 5. `SubmitTakeJob` with the outcome table, the 3-04 gate helper, rate-limit middleware and invariants; `CancelTakeAction` + route + tests.
 6. Workspace grid + cards + status vocabulary + empty states + filters + drawer (`?take=`, Try again, Compare with parent, Cancel button) + remix.
 7. `PersistTakeImageJob` + temporary URLs + image route.
-8. Landing page, plus the single owner of the *service not configured* banner UI (2-01 copy, no provider name, D-023) and the composer's submit disabling, driven by the 3-04 prop `pixelforge.configured` (copy in 2-01; test: banner visible and submit disabled with the key unset, hidden when set).
+8. Landing page, plus the single owner of the *service not configured* banner UI (2-01 copy, no provider name, D-023) and the composer's submit disabling, driven by the 3-04 prop `imageService.configured` (copy in 2-01; test: banner visible and submit disabled with the key unset, hidden when set).

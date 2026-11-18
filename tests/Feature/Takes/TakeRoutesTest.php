@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Enums\Takes\FailureCode;
 use App\Enums\Takes\SubmitErrorKind;
 use App\Models\Take;
+use App\Support\Takes\TakeImageUrl;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -93,8 +94,40 @@ it('numbers takes per project and shows the lineage', function (): void {
         ->and($data['paramsLine'])->toContain('Remix of #1');
 });
 
+/**
+ * A succeeded take of the same customer whose image a reference points at,
+ * with its persisted copy when asked.
+ */
+function referencedTake(Take $take, bool $persisted): Take
+{
+    $source = Take::factory()->succeeded()->create([
+        'customer_id' => $take->customer_id,
+        'project_id' => $take->project_id,
+        'image_url_expires_at' => now()->addMinutes(30),
+    ]);
+
+    if ($persisted) {
+        $source->forceFill(['image_path' => "takes/{$take->customer_id}/{$source->id}.png"])->save();
+        Storage::put((string) $source->image_path, 'png');
+    }
+
+    return $source;
+}
+
+/** The provider's signed URL of a take image, the way a remix stored it. */
+function providerReference(Take $source): string
+{
+    return 'https://'.config()->string('pixelforge.image_host')."/images/{$source->pixelforge_id}.png?expires=1&signature=x";
+}
+
 it('never exposes provider data', function (string $status): void {
     $take = Takes::in($status);
+    // A reference to another take image, stored as the provider's URL, and
+    // one of the customer's own: the scan reaches referenceImages (#140).
+    $take->forceFill(['reference_images' => [
+        providerReference(referencedTake($take, persisted: true)),
+        'https://images.example/ref-1.png',
+    ]])->save();
 
     $data = $this->actingAs($take->customer()->firstOrFail(), 'customer')
         ->getJson(route('takes.show', $take))
@@ -162,4 +195,22 @@ it('drops an expired provider URL with no persisted copy (image no longer availa
 
     expect($data['imageUrl'])->toBeNull()
         ->and($data['remixReferenceUrl'])->toBeNull();
+});
+
+it('re-issues take-image references for the drawer and drops the ones that no longer resolve (#140)', function (): void {
+    $take = Takes::in('succeeded');
+    $persisted = referencedTake($take, persisted: true);
+    $expiring = referencedTake($take, persisted: false);
+    $issued = TakeImageUrl::forReference($persisted);
+    $take->forceFill(['reference_images' => [$issued, providerReference($expiring), 'https://images.example/ref-1.png']])->save();
+
+    // The 60-minute URL issued at create time and the provider URL have both expired.
+    $this->travel(61)->minutes();
+
+    $data = $this->actingAs($take->customer()->firstOrFail(), 'customer')->getJson(route('takes.show', $take))->json('data');
+
+    expect($data['referenceImages'])->toBe([TakeImageUrl::forReference($persisted), 'https://images.example/ref-1.png'])
+        ->and($data['referenceImages'][0])->not->toBe($issued)
+        // The parameters line still counts what the take was created with.
+        ->and($data['paramsLine'])->toContain('3 references');
 });

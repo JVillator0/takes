@@ -9,6 +9,7 @@ use App\Models\Customer;
 use App\Models\Project;
 use App\Models\Take;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -45,6 +46,19 @@ it('creates "Untitled project" on the first visit and lists it', function (): vo
 
     $this->actingAs($customer, 'customer')->get(route('projects.index'));
     expect(Project::query()->where('customer_id', $customer->id)->count())->toBe(1);
+});
+
+it('reads the projects page without locking the customer once a project exists (#140)', function (): void {
+    $customer = TakeFlow::customer();
+    Project::factory()->create(['customer_id' => $customer->id]);
+
+    DB::enableQueryLog();
+    $this->actingAs($customer, 'customer')->get(route('projects.index'))->assertOk();
+    $locks = array_filter(DB::getQueryLog(), fn (array $query): bool => str_contains(strtolower($query['query']), 'for update'));
+    DB::disableQueryLog();
+
+    // A read-only page never waits behind a settlement or a purchase.
+    expect($locks)->toBe([]);
 });
 
 it('never creates a project for the read-only showcase login', function (): void {
@@ -89,7 +103,7 @@ it('renders the workspace with the props live updates reload', function (): void
             ->where('take', null)
             ->where('hasMoreTakes', false)
             ->where('composer.maxPromptChars', 4000)
-            ->where('pixelforge.configured', true));
+            ->where('imageService.configured', true));
 });
 
 it('keeps creation order newest first and filters by status group', function (): void {
@@ -161,7 +175,7 @@ it('shares "not configured" so the banner shows and Generate is disabled without
     $customer = TakeFlow::customer();
 
     $this->actingAs($customer, 'customer')->get(route('projects.show', TakeFlow::project($customer)))
-        ->assertInertia(fn (Assert $page) => $page->where('pixelforge.configured', $configured));
+        ->assertInertia(fn (Assert $page) => $page->where('imageService.configured', $configured));
 })->with([
     'key unset' => [null, false],
     'key set' => ['pf_test_key', true],
@@ -176,9 +190,9 @@ it('never puts provider data in the workspace or drawer props', function (string
         ->get(route('projects.show', [$take->project_id, 'take' => $take->id]), ['X-Inertia' => 'true', 'X-Inertia-Version' => (string) app(HandleInertiaRequests::class)->version(request())])
         ->json('props');
 
-    // `copy` is the reviewed 2-01 copy (scanned by LandingPageTest); the
-    // `pixelforge.configured` boolean is the shared prop named by spec 3-04.
-    unset($props['copy'], $props['pixelforge']);
+    // `copy` is the reviewed 2-01 copy (scanned by LandingPageTest). Every
+    // other shared prop is scanned, with no exemption (#138).
+    unset($props['copy']);
 
     expect(ProviderLeak::find($props))->toBe([]);
 })->with(['pending', 'waiting', 'queued', 'processing', 'succeeded', 'failed']);

@@ -26,16 +26,28 @@ final readonly class EnsureDefaultProjectAction
             return null;
         }
 
+        // Fast path, unlocked: every later visit is read-only, so it never
+        // waits behind a settlement or a purchase on the customer row (#140).
+        if ($this->hasProject($customer)) {
+            return null;
+        }
+
         // Two first visits at once (a prefetch and the visit, two tabs)
-        // serialize on the customer row, so only one creates the project.
+        // serialize on the customer row and re-check, so only one creates it.
         return DB::transaction(function () use ($customer): ?Project {
             Customer::query()->lockForUpdate()->findOrFail($customer->id);
 
-            if (Project::query()->where('customer_id', $customer->id)->exists()) {
+            if ($this->hasProject($customer)) {
                 return null;
             }
 
             return $this->createProject->execute($customer, new ProjectNameDTO(__('takes.projects.untitled')));
         });
+    }
+
+    /** Archived projects count: the default is only for a customer who never had one. */
+    private function hasProject(Customer $customer): bool
+    {
+        return Project::query()->where('customer_id', $customer->id)->exists();
     }
 }

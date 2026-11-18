@@ -41,7 +41,8 @@ final class TakeDetailResource extends JsonResource
         return [
             ...(new TakeResource($take))->toArray($request),
             'paramsLine' => $this->paramsLine($take),
-            'referenceImages' => $take->reference_images,
+            // Re-issued for display; the parameters line counts the stored ones.
+            'referenceImages' => $detail->referenceImages,
             'price' => $this->price($take, $usage),
             'timeline' => $this->timeline($take, $usage),
             'parent' => $detail->parent === null ? null : [
