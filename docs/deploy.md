@@ -44,7 +44,7 @@ No CI or compose pin had to change.
 |---|---|---|---|
 | 2026-11-18 00:35 (day one, about 4 h after the first deploy, after the production smoke test) | **$0.10**, all covered by the $5.00 usage credit ($0.10 used) | Reverb $0.04, Serverless Postgres $0.02, application compute and queue $0.04, bucket $0.00 | $15.00 threshold, 99 % remaining |
 
-The 24 h and 48 h readings that spec 9's acceptance asks for cannot exist on day one; they are taken on 2026-11-18 and 2026-11-19 with the same command and added to this table. The CLI figure is usage only; it does not say whether the $5 plan fee is included.
+The 24 h and 48 h readings that spec 9's acceptance asks for cannot exist on day one; they are taken on 2026-11-18 and 2026-11-19 with the same command and added to this table (tracked in #80). The CLI reports usage; whether the $5 plan fee is included is not stated.
 
 ## Build and deploy commands
 
@@ -57,7 +57,7 @@ npm run build
 if [ -d app/Filament ]; then php artisan filament:optimize; fi
 ```
 
-`npm ci --include=dev` is required: the Vite build and its plugins (`laravel-vite-plugin`, `@inertiajs/vite`) are devDependencies (D-085), so a build with `NODE_ENV=production` or `--omit=dev` would skip them and fail.
+`npm ci --include=dev` is required: the build has always needed devDependencies (the Vite toolchain: `vite`/vite-plus, `@vitejs/plugin-vue`, `@tailwindcss/vite`, `typescript`), and D-085 added the two build-only plugins (`laravel-vite-plugin`, `@inertiajs/vite`) to that set. A build with `NODE_ENV=production` or `--omit=dev` would skip them and fail.
 
 `npm run build` reads the `VITE_REVERB_*` variables that Cloud injects when the WebSocket application is attached. `filament:optimize` runs only once `app/Filament` exists (redeploy 7, D-048).
 
