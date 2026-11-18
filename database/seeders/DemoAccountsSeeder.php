@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
-use App\Actions\Billing\GrantWelcomeCreditAction;
 use App\Actions\Billing\IssueInvoiceAction;
 use App\Actions\Billing\RecordLedgerEntryAction;
 use App\Enums\Auth\DemoAccount;
@@ -89,11 +88,11 @@ final class DemoAccountsSeeder extends Seeder
      * account's default role only when it has none, so an operator's (or
      * `takes:showcase`'s) later choice survives a re-run.
      *
-     * Demo identity is the email alone, so an account someone registered at
-     * a demo address (it has the registration welcome credit) is never
-     * adopted with its own role and a reset password: the run stops for an
-     * operator to resolve it. The addresses are reserved at registration and
-     * on profile updates, so only an account from before that can trip it.
+     * An account at a demo address that this seeder did not create (no
+     * `demo_seeded_at` stamp) is never adopted with its own role and a reset
+     * password: the run stops for an operator to resolve it, whatever the
+     * welcome-credit config was. The addresses are reserved at registration
+     * and on profile updates, so only an account from before that can trip it.
      *
      * @throws RuntimeException when the demo address belongs to a registered customer
      */
@@ -102,8 +101,8 @@ final class DemoAccountsSeeder extends Seeder
         $password = Config::string('takes.demo.password');
         $customer = Customer::query()->where('email', $account->email())->first();
 
-        if ($customer !== null && $customer->ledgerEntries()->where('reason', GrantWelcomeCreditAction::REASON)->exists()) {
-            throw new RuntimeException("Demo address {$account->email()} belongs to customer {$customer->id}, who registered it; resolve it by hand before seeding.");
+        if ($customer !== null && $customer->demo_seeded_at === null) {
+            throw new RuntimeException("Demo address {$account->email()} belongs to customer {$customer->id}, which this seeder did not create; resolve it by hand before seeding.");
         }
 
         if ($customer === null) {
@@ -112,6 +111,7 @@ final class DemoAccountsSeeder extends Seeder
                 'name' => $account->customerName(),
                 'email' => $account->email(),
                 'password' => $password,
+                'demo_seeded_at' => now(),
             ])->save();
         } elseif (! Hash::check($password, $customer->password)) {
             $customer->forceFill(['password' => $password])->save();

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Queries\Takes;
 
+use App\Enums\Takes\ReferenceResolution;
 use App\Exceptions\Suggestions\BaseImageUnavailableException;
 use App\Models\Take;
 use App\Support\Takes\TakeImageUrl;
@@ -16,14 +17,15 @@ use App\Support\Takes\TakeImageUrl;
  * signed image URL (24 h). Its path is the stable identity of the take image
  * (the customer and take ids, or the generation id), so the stored URL is
  * never trusted as is: it is re-issued through TakeImageUrl::forReference
- * (persisted copy, then the provider URL while valid) whenever references
- * are attached (create, remix, Try again, AI apply) or shown (the drawer).
+ * (persisted copy, then the provider URL while valid, spec 4's documented
+ * fallback until the image is persisted) whenever references are attached
+ * (create, remix, Try again, AI apply), checked (P07) or shown (the drawer).
  * Any other URL (the customer's own http(s) references) passes through
  * unchanged.
  *
- * A take image with no usable URL any more is refused, so a take is never
- * created and held with a dead reference; with `$dropUnavailable` it is left
- * out instead (display, and checking a proposal before apply).
+ * A take image with no usable URL any more is refused on `Attach`, so a
+ * take is never created and held with a dead reference; on `Check` it is
+ * left out, so the caller can tell exactly which ones Attach would refuse.
  */
 final class ListReferenceImageUrlsQuery
 {
@@ -37,9 +39,9 @@ final class ListReferenceImageUrlsQuery
      * @param  list<string>  $references
      * @return list<string>
      *
-     * @throws BaseImageUnavailableException when a reference names a take image that has no usable URL (unless dropped)
+     * @throws BaseImageUnavailableException on `Attach`, when a reference names a take image that has no usable URL
      */
-    public function execute(int $customerId, array $references, bool $dropUnavailable = false): array
+    public function execute(int $customerId, array $references, ReferenceResolution $for = ReferenceResolution::Attach): array
     {
         $urls = [];
 
@@ -56,7 +58,7 @@ final class ListReferenceImageUrlsQuery
 
             if ($reissued !== null) {
                 $urls[] = $reissued;
-            } elseif (! $dropUnavailable) {
+            } elseif ($for === ReferenceResolution::Attach) {
                 throw BaseImageUnavailableException::forTake($take->id);
             }
         }

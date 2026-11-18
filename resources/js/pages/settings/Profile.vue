@@ -57,6 +57,8 @@ const { locked, message: lockMessage } = useAccountLock();
                 :aria-describedby="locked ? 'account-locked-notice' : undefined"
                 class="space-y-6"
             >
+                <!-- Names the group, so its description (the lock notice) is read (F-20). -->
+                <legend class="sr-only">Profile</legend>
                 <div class="grid gap-2">
                     <Label for="name">Name</Label>
                     <Input

@@ -125,6 +125,8 @@ export type TakeDetailData = TakeCardData & {
     /** "Square 1024×1024 · Medium · 1 reference · AI change from #8" */
     paramsLine: string;
     referenceImages: string[];
+    /** Remix and Try again: how many earlier take-image references were left out (2-01); null when none. */
+    referencesNotice: string | null;
     price: TakePrice | null;
     timeline: TakeTimelineEntry[];
     parent: TakeParent | null;

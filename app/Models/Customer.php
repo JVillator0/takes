@@ -35,6 +35,7 @@ use Spatie\Permission\Traits\HasRoles;
  * @property int $balance_nanos
  * @property int $held_nanos
  * @property CarbonImmutable|null $last_active_at
+ * @property CarbonImmutable|null $demo_seeded_at
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  */
@@ -145,6 +146,7 @@ final class Customer extends Authenticatable
             'balance_nanos' => 'integer',
             'held_nanos' => 'integer',
             'last_active_at' => 'immutable_datetime',
+            'demo_seeded_at' => 'immutable_datetime',
             'created_at' => 'immutable_datetime',
             'updated_at' => 'immutable_datetime',
         ];

@@ -160,6 +160,7 @@ UI chrome strings added with the UI foundation (PR #99). Keys are the full `lang
 | `takes.composer.add_reference` | P04, P05, P10 composer | "Add reference URL" |
 | `takes.composer.remove_reference` | P04, P05, P10 composer | "Remove reference image :number" |
 | `takes.composer.reference_invalid` | P04, P05, P10 composer | "Reference images must be http(s) URLs." |
+| `takes.composer.references_left_out` | P04, P05, P10 composer after Remix or Try again, when earlier take-image references no longer resolve (pluralised) | "1 earlier reference image is no longer available and was left out." · ":count earlier reference images are no longer available and were left out." |
 | `takes.composer.remixing` | P04, P05, P10 composer | "Remixing #:id" |
 | `takes.composer.cancel_remix` | P04, P05, P10 composer | "Stop remixing #:id" |
 | `takes.composer.submit_with_max` | P04, P05, P10 composer | "Generate take · up to :amount" |
