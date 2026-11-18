@@ -108,31 +108,40 @@ final class Reports extends Page implements HasTable
         return __('console.reports.title');
     }
 
+    /**
+     * The filters, one column on mobile. From md: From and Until share a row, Group by fills its own row, and
+     * Provider and Customer share the next. From xl: From, Until and Group by fill one row of four, and Provider and
+     * Customer split the next, so each toggle group gets two of four columns and no button runs under its
+     * neighbour at 1280–1440 px (#176).
+     */
     public function form(Schema $schema): Schema
     {
         return $schema
             ->statePath('data')
             ->components([
                 Section::make()
-                    ->columns(['md' => 2, 'xl' => 5])
+                    ->columns(['default' => 1, 'md' => 2, 'xl' => 4])
                     ->schema([
                         DatePicker::make('from')->label(__('console.reports.from'))->live()
                             ->afterStateUpdated(fn () => $this->applyFilters('from')),
                         DatePicker::make('until')->label(__('console.reports.until'))->live()
                             ->afterStateUpdated(fn () => $this->applyFilters('until')),
                         ToggleButtons::make('group_by')->label(__('console.reports.group_by'))->inline()->grouped()->live()
+                            ->columnSpan(['default' => 1, 'md' => 2])
                             ->options([
                                 BillingReportFilterDTO::BY_DAY => __('console.reports.by_day'),
                                 BillingReportFilterDTO::BY_CUSTOMER => __('console.reports.by_customer'),
                             ])
                             ->afterStateUpdated(fn () => $this->applyFilters('group_by')),
                         ToggleButtons::make('provider')->label(__('console.reports.provider'))->inline()->grouped()->live()
+                            ->columnSpan(['default' => 1, 'md' => 1, 'xl' => 2])
                             ->options([
                                 self::ALL_PROVIDERS => __('console.reports.all_providers'),
                                 ...collect(Provider::cases())->mapWithKeys(fn (Provider $provider): array => [$provider->value => __('console.reports.providers.'.$provider->value)])->all(),
                             ])
                             ->afterStateUpdated(fn () => $this->applyFilters('provider')),
                         Select::make('customer')->label(__('console.common.customer'))->live()
+                            ->columnSpan(['default' => 1, 'md' => 1, 'xl' => 2])
                             ->placeholder(__('console.reports.all_customers'))
                             ->searchable()
                             ->getSearchResultsUsing(fn (string $search): array => self::searchCustomers($search))

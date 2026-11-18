@@ -581,3 +581,21 @@ it('reads the badge cache in batches on the database store, not one query per da
         ->and($cacheReads)->toBe(2);
     Http::assertNothingSent();
 });
+
+it('gives each filter toggle group two of four columns from xl, so the provider toggle never runs under the customer select (#176)', function (): void {
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
+    $form = Livewire::test(Reports::class)->instance()->form;
+    $fields = $form->getFlatFields();
+
+    expect($form->getComponents()[0]->getColumns())->toBe(['default' => 1, 'md' => 2, 'xl' => 4])
+        ->and($fields['group_by']->getColumnSpan())->toBe(['default' => 1, 'md' => 2])
+        // No xl key: it inherits md = 2, half of the four xl columns.
+        ->and($fields['group_by']->getColumnSpan('xl'))->toBeNull()
+        ->and($fields['provider']->getColumnSpan())->toBe(['default' => 1, 'md' => 1, 'xl' => 2])
+        ->and($fields['customer']->getColumnSpan())->toBe(['default' => 1, 'md' => 1, 'xl' => 2]);
+
+    // The row arithmetic depends on the date pickers spanning one column at every breakpoint.
+    foreach (['from', 'until'] as $date) {
+        expect($fields[$date]->getColumnSpan())->toBe(['default' => 1, 'sm' => null, 'md' => null, 'lg' => null, 'xl' => null, '2xl' => null]);
+    }
+});
