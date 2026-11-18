@@ -13,7 +13,9 @@ import type {
  * Activity (P08, spec 6): one line per usage (on hold, charged, not charged)
  * and the purchases, credits and adjustments. Exact amounts (D-042) and the
  * running balance, which excludes amounts on hold. Below the container's
- * `2xl` width the rows stack as cards, each cell labelled.
+ * `2xl` width the rows stack as cards, each cell labelled: the table and its
+ * body become blocks too, so a card is as wide as the screen (P10, 390 px)
+ * and a long description truncates instead of pushing the values out.
  */
 type Props = {
     activity: BillingActivityPage;
@@ -38,7 +40,7 @@ const statusClass: Record<BillingActivityStatus, string> = {
 
 /** Shared by every cell: in the stacked layout the label comes first. */
 const cell =
-    'px-3 py-2 align-top @max-2xl:flex @max-2xl:justify-between @max-2xl:gap-4 @max-2xl:px-0 @max-2xl:py-1 @max-2xl:before:font-medium @max-2xl:before:text-muted-foreground @max-2xl:before:content-[attr(data-label)]';
+    'px-3 py-2 align-top @max-2xl:flex @max-2xl:w-full @max-2xl:min-w-0 @max-2xl:justify-between @max-2xl:gap-4 @max-2xl:px-0 @max-2xl:py-1 @max-2xl:before:shrink-0 @max-2xl:before:font-medium @max-2xl:before:text-muted-foreground @max-2xl:before:content-[attr(data-label)]';
 </script>
 
 <template>
@@ -49,7 +51,9 @@ const cell =
             :aria-labelledby="captionId"
             class="@container overflow-x-auto rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
         >
-            <table class="w-full border-separate border-spacing-0 text-sm">
+            <table
+                class="w-full border-separate border-spacing-0 text-sm @max-2xl:block"
+            >
                 <caption :id="captionId" class="sr-only">
                     {{
                         t('billing.activity.caption')
@@ -82,7 +86,7 @@ const cell =
                         </th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody class="@max-2xl:block">
                     <tr v-if="activity.rows.length === 0">
                         <td
                             colspan="5"
@@ -118,14 +122,14 @@ const cell =
                                 <Link
                                     v-if="row.detail && row.takeHref"
                                     :href="row.takeHref"
-                                    class="max-w-[40ch] truncate text-muted-foreground underline-offset-4 hover:underline"
+                                    class="max-w-full truncate text-muted-foreground underline-offset-4 hover:underline @2xl:max-w-[40ch]"
                                     :title="t('billing.activity.open_take')"
                                 >
                                     {{ row.detail }}
                                 </Link>
                                 <span
                                     v-else-if="row.detail"
-                                    class="max-w-[40ch] truncate text-muted-foreground"
+                                    class="max-w-full truncate text-muted-foreground @2xl:max-w-[40ch]"
                                 >
                                     {{ row.detail }}
                                 </span>
@@ -143,7 +147,7 @@ const cell =
                             </span>
                         </th>
                         <td
-                            :class="cell"
+                            :class="[cell, '@max-2xl:text-right']"
                             :data-label="t('billing.activity.status')"
                         >
                             <span
