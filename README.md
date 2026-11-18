@@ -4,7 +4,11 @@
 
 **Takes** is an image-generation studio built on the Pixelforge API for the PromptEdit take-home ([brief](https://pixelforge.promptedit.dev/assessment)). The role's mission is to *"create the most intuitive video editing tool UIs in the world"*, so Takes borrows the vocabulary of video editing: every generation is a **take**, takes live in **projects**, any take can be **remixed**, and **Describe a change** turns a sentence ("warmer, portrait") into a reviewed parameter diff with a new price. Customers pay the provider's cost plus 25% from prepaid (simulated) credits. Every provider call, Pixelforge images and Anthropic suggestions alike, goes through one ledger in integer nanodollars, so each charge is exact, recorded once and explainable.
 
-Live app: **https://takes-production-aodrsk.laravel.cloud** · [Admin console](#admin-console): `/admin`, auditor login in the submission form · Plan and execution: [GitHub Project](https://github.com/users/JVillator0/projects/4) · Specs: [`.claude/specs/`](.claude/specs/README.md) · Decisions: [`DECISIONS.md`](.claude/specs/DECISIONS.md)
+- **Live app:** https://takes-production-aodrsk.laravel.cloud
+- **Admin console:** [`/admin`](https://takes-production-aodrsk.laravel.cloud/admin). The auditor login is in the submission form; see [Admin console](#admin-console).
+- **Plan and execution:** [GitHub Project](https://github.com/users/JVillator0/projects/4)
+- **Specs:** [`.claude/specs/`](.claude/specs/README.md)
+- **Decisions:** [`DECISIONS.md`](.claude/specs/DECISIONS.md)
 
 ## Brief coverage
 
@@ -315,7 +319,7 @@ Tests use the `takes_testing` database (`phpunit.xml`). To point them elsewhere:
 
 ## Deploy
 
-Live at **<https://takes-production-aodrsk.laravel.cloud>** on Laravel Cloud (US East): app on Flex compute, Serverless Postgres 17, a managed queue, a Reverb cluster and a private object-storage bucket, all scaling to zero except Reverb, under a $15/month spend alert. Every merge to `main` deploys.
+Live at **<https://takes-production-aodrsk.laravel.cloud>** on Laravel Cloud (US East): app on Flex compute, Serverless Postgres 17, a managed queue, a Reverb cluster and a private object-storage bucket, all scaling to zero except Reverb, under a $15/month spend alert. Every merge to `main` deployed until v1.0.0; push to deploy is now off, so production stays on the v1.0.0 tag (`6ef9ebc`).
 
 | Cold start (2026-11-17) | Result |
 |---|---|

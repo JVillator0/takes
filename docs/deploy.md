@@ -2,7 +2,7 @@
 
 Production runs on [Laravel Cloud](https://cloud.laravel.com) in a dedicated organization with a **$15/month** spend alert (D-005, D-028), managed with the `cloud` CLI (v0.6.7, checked 2026-11-17). Spec: [`.claude/specs/9-deployment/SPEC.md`](../.claude/specs/9-deployment/SPEC.md).
 
-**Production URL: <https://takes-production-aodrsk.laravel.cloud>** (first deploy 2026-11-17). Push to deploy is on for `main`: every merge redeploys the `production` environment.
+**Production URL: <https://takes-production-aodrsk.laravel.cloud>** (first deploy 2026-11-17). Push to deploy was on for `main` (every merge redeployed the `production` environment) until v1.0.0. It is now off, so production stays on the v1.0.0 tag (`6ef9ebc`) and docs-only merges after the tag do not redeploy.
 
 ## Platform check (spec 0, pre-M9 checklist)
 
