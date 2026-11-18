@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Link } from '@inertiajs/vue3';
 import {
     Tooltip,
     TooltipContent,
@@ -11,16 +12,21 @@ import type { BalanceSummary } from '@/types';
 type Props = {
     /** Server-formatted, 4 decimals on the pill and exact in the tooltip (D-042). */
     balance: BalanceSummary;
+    /**
+     * Where On hold leads (2-02: "clicking it opens the In progress filter"):
+     * the workspace's In progress filter, or the projects list with its
+     * in-progress badges. Null keeps the pill a plain tooltip trigger.
+     */
+    holdsHref?: string | null;
 };
 
-defineProps<Props>();
+withDefaults(defineProps<Props>(), { holdsHref: null });
 
 /**
  * Available and On hold at every width (P10); only the word "Available" hides
  * on phones. The pill is a focusable tooltip trigger, so the exact amounts are
- * reachable by hover, keyboard and screen reader alike. Spec 4 can make On
- * hold a link to the workspace's In progress filter (2-02) once that route
- * exists; until then the pill has no click action.
+ * reachable by hover, keyboard and screen reader alike; with `holdsHref` it is
+ * also the link to the takes that hold the amount.
  */
 const { t } = useCopy();
 </script>
@@ -29,10 +35,20 @@ const { t } = useCopy();
     <TooltipProvider :delay-duration="150">
         <Tooltip>
             <TooltipTrigger as-child>
-                <button
-                    type="button"
+                <component
+                    :is="holdsHref ? Link : 'button'"
+                    v-bind="
+                        holdsHref
+                            ? { href: holdsHref, preserveScroll: true }
+                            : { type: 'button' }
+                    "
                     data-slot="balance-pill"
-                    class="inline-flex h-8 min-w-0 cursor-help items-center gap-1.5 rounded-full border bg-background px-3 text-sm whitespace-nowrap tabular-nums outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                    :class="[
+                        'inline-flex h-8 min-w-0 items-center gap-1.5 rounded-full border bg-background px-3 text-sm whitespace-nowrap tabular-nums outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+                        holdsHref
+                            ? 'cursor-pointer hover:bg-accent'
+                            : 'cursor-help',
+                    ]"
                 >
                     <span class="sr-only">
                         {{
@@ -41,6 +57,9 @@ const { t } = useCopy();
                                 on_hold: balance.onHold,
                             })
                         }}
+                        <template v-if="holdsHref">
+                            {{ t('billing.on_hold_link') }}
+                        </template>
                     </span>
                     <span aria-hidden="true" class="contents">
                         <span class="hidden text-muted-foreground sm:inline">
@@ -55,7 +74,7 @@ const { t } = useCopy();
                         </span>
                         <span>{{ balance.onHold }}</span>
                     </span>
-                </button>
+                </component>
             </TooltipTrigger>
             <TooltipContent class="tabular-nums">
                 {{

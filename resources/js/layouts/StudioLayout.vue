@@ -18,6 +18,7 @@ import { useBuyCredits } from '@/composables/useBuyCredits';
 import { useCopy } from '@/composables/useCopy';
 import { getInitials } from '@/composables/useInitials';
 import { dashboard } from '@/routes';
+import { index as projectsIndex } from '@/routes/projects';
 import type { BalanceSummary, BreadcrumbItem } from '@/types';
 
 /**
@@ -33,6 +34,12 @@ type Props = {
     showBuyCredits?: boolean;
     /** Full-bleed pages (the workspace) manage their own padding. */
     fluid?: boolean;
+    /**
+     * Where the pill's On hold leads; the workspace passes its In progress
+     * filter. By default the projects list (its cards carry the in-progress
+     * badges), and nothing on that list itself.
+     */
+    holdsHref?: string | null;
 };
 
 const props = withDefaults(defineProps<Props>(), {
@@ -40,6 +47,7 @@ const props = withDefaults(defineProps<Props>(), {
     balance: null,
     showBuyCredits: false,
     fluid: false,
+    holdsHref: undefined,
 });
 
 const emit = defineEmits<{
@@ -92,6 +100,14 @@ const shellBalance = computed<BalanceSummary | null>(() => {
           }
         : null;
 });
+const holdsLink = computed<string | null>(() => {
+    if (props.holdsHref !== undefined) {
+        return props.holdsHref;
+    }
+
+    return page.component === 'projects/Index' ? null : projectsIndex().url;
+});
+
 const { t } = useCopy();
 </script>
 
@@ -132,6 +148,7 @@ const { t } = useCopy();
                         <BalancePill
                             v-if="shellBalance"
                             :balance="shellBalance"
+                            :holds-href="holdsLink"
                         />
                     </slot>
                     <Button
