@@ -4,6 +4,7 @@ import { Plus } from '@lucide/vue';
 import { useDebounceFn } from '@vueuse/core';
 import { computed, ref } from 'vue';
 import InputError from '@/components/InputError.vue';
+import ShowcaseNotice from '@/components/takes/ShowcaseNotice.vue';
 import TakeImage from '@/components/takes/TakeImage.vue';
 import TakeStatusBadge from '@/components/takes/TakeStatusBadge.vue';
 import { Button } from '@/components/ui/button';
@@ -17,6 +18,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useCopy } from '@/composables/useCopy';
+import { useReturnFocus } from '@/composables/useReturnFocus';
 import {
     index as projectsIndex,
     show as showProject,
@@ -50,6 +52,12 @@ const runSearch = useDebounceFn((value: string): void => {
 }, 250);
 
 const creating = ref(false);
+/* Two buttons open New project; focus returns to the one used (F-20). */
+const createFocus = useReturnFocus();
+const openCreate = (): void => {
+    createFocus.remember();
+    creating.value = true;
+};
 const form = useForm({ name: '' });
 const canCreate = computed(
     () => page.props.auth.can?.createProject.allowed === true,
@@ -69,6 +77,7 @@ const create = (): void => {
     <Head :title="t('takes.projects.title')" />
 
     <div class="flex flex-col gap-6 p-4 sm:p-6">
+        <ShowcaseNotice />
         <div class="flex flex-wrap items-center justify-between gap-3">
             <h1 class="text-2xl font-semibold tracking-tight">
                 {{ t('takes.projects.title') }}
@@ -82,7 +91,7 @@ const create = (): void => {
                     class="min-w-0 flex-1 sm:w-64"
                     @update:model-value="runSearch(String($event))"
                 />
-                <Button v-if="canCreate" @click="creating = true">
+                <Button v-if="canCreate" @click="openCreate">
                     <Plus aria-hidden="true" />
                     {{ t('takes.projects.new') }}
                 </Button>
@@ -159,14 +168,17 @@ const create = (): void => {
                         : t('takes.projects.empty')
                 }}
             </p>
-            <Button v-if="canCreate && !search" @click="creating = true">
+            <Button v-if="canCreate && !search" @click="openCreate">
                 <Plus aria-hidden="true" />
                 {{ t('takes.projects.new') }}
             </Button>
         </div>
 
         <Dialog v-model:open="creating">
-            <DialogContent class="sm:max-w-md">
+            <DialogContent
+                class="sm:max-w-md"
+                @close-auto-focus="createFocus.onCloseAutoFocus"
+            >
                 <DialogHeader>
                     <DialogTitle>{{ t('takes.projects.new') }}</DialogTitle>
                 </DialogHeader>

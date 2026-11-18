@@ -24,6 +24,7 @@ use App\Models\LedgerEntry;
 use App\Models\Suggestion;
 use App\Models\Take;
 use App\Models\UsageRecord;
+use App\Queries\Billing\GetDailyAiSpendQuery;
 use App\Support\Pricing\SuggestionEstimator;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Http\Client\ConnectionException;
@@ -233,6 +234,60 @@ describe('failed = free', function (): void {
     });
 });
 
+describe('voided calls the provider billed (spec 8 budget, issue #122)', function (): void {
+    it('keeps the tokens of an unusable response as absorbed cost that counts toward the daily AI budget', function (array $body, SuggestionFailureReason $reason, int $absorbed): void {
+        Suggestions::fake($body);
+
+        $suggestion = suggest();
+        $usage = $suggestion->usageRecord()->firstOrFail();
+
+        expectFreeFailure($suggestion, $reason);
+        expect($usage->provider_cost_nanos)->toBe(0)
+            ->and($usage->absorbed_cost_nanos)->toBe($absorbed)
+            ->and($usage->input_text_tokens)->toBe(Suggestions::EXAMPLE_INPUT_TOKENS)
+            ->and($usage->external_id)->toBe('msg_01TestSuggestion')
+            ->and($usage->billing_date?->toDateString())->toBe(now()->utc()->toDateString())
+            ->and(app(GetDailyAiSpendQuery::class)->execute()->toInt())->toBe($absorbed);
+
+        $this->artisan('billing:verify')->assertSuccessful();
+    })->with([
+        // 1,480 × 100 + 3 × 500 nanodollars.
+        'refusal' => [Suggestions::messageBody(null, outputTokens: 3, stopReason: 'refusal'), SuggestionFailureReason::Refusal, 149_500],
+        // 1,480 × 100 + 600 × 500 nanodollars.
+        'cut by max_tokens' => [Suggestions::messageBody(Suggestions::proposal(), outputTokens: 600, stopReason: 'max_tokens'), SuggestionFailureReason::InvalidOutput, 448_000],
+        // The example call: 1,480 × 100 + 212 × 500 nanodollars.
+        'output that fails re-validation' => [Suggestions::messageBody(Suggestions::proposal(['size' => '2048x2048'])), SuggestionFailureReason::InvalidOutput, 254_000],
+    ]);
+
+    it('absorbs nothing when no usage block came back', function (): void {
+        Suggestions::fake(fn () => throw new ConnectionException('cURL error 28: Operation timed out after 20000 milliseconds'));
+
+        $usage = suggest()->usageRecord()->firstOrFail();
+
+        expect($usage->status)->toBe(UsageStatus::Voided)
+            ->and($usage->absorbed_cost_nanos)->toBeNull()
+            ->and(app(GetDailyAiSpendQuery::class)->execute()->toInt())->toBe(0);
+    });
+
+    it('counts a result that came back after the sweeper expired the suggestion, still free', function (): void {
+        Suggestions::fake(function () {
+            DB::transaction(function (): void {
+                $suggestion = Suggestion::query()->lockForUpdate()->sole();
+                $suggestion->forceFill(['status' => SuggestionStatus::Failed, 'failure_reason' => SuggestionFailureReason::Timeout])->save();
+                app(VoidUsageAction::class)->execute($suggestion->usageRecord()->firstOrFail());
+            });
+
+            return Http::response(Suggestions::messageBody(Suggestions::proposal()));
+        });
+
+        $suggestion = suggest();
+
+        expectFreeFailure($suggestion, SuggestionFailureReason::Timeout);
+        expect($suggestion->usageRecord()->firstOrFail()->absorbed_cost_nanos)->toBe(254_000)
+            ->and(app(GetDailyAiSpendQuery::class)->execute()->toInt())->toBe(254_000);
+    });
+});
+
 describe('prompt injection', function (): void {
     it('cannot turn an instruction into a parameter outside the closed fields', function (array $output): void {
         Suggestions::fake(Suggestions::messageBody($output));
@@ -403,6 +458,10 @@ describe('guardrails', function (): void {
         'daily budget counts settled cost' => [function (): void {
             config(['takes.ai.daily_budget_nanos' => 254_000]);
             UsageRecord::factory()->forSuggestion()->settled(254_000)->create();
+        }, DenialReason::AiPaused],
+        'daily budget counts voided calls the provider billed' => [function (): void {
+            config(['takes.ai.daily_budget_nanos' => 254_000]);
+            UsageRecord::factory()->forSuggestion()->voided(254_000)->create();
         }, DenialReason::AiPaused],
         'daily limit per customer' => [function (): void {
             config(['takes.ai.daily_limit_per_customer' => 2]);

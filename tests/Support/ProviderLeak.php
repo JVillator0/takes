@@ -8,7 +8,11 @@ namespace Tests\Support;
  * M-23, D-023: what a customer receives must not name the provider or carry
  * cost, tokens, rates or the margin. Scans keys and string values; image
  * URLs are skipped because the provider's signed URL is the documented
- * fallback until the persisted copy exists (spec 4 "Persist image").
+ * fallback until the persisted copy exists (spec 4 "Persist image"): a value
+ * under a key ending in `url`, and each entry of a list of image URLs (a key
+ * ending in `images`, e.g. the drawer's referenceImages) that parses as an
+ * http(s) URL; any other entry of such a list is scanned. Keys are always
+ * scanned.
  */
 final class ProviderLeak
 {
@@ -20,7 +24,7 @@ final class ProviderLeak
      * @param  array<array-key, mixed>  $data
      * @return list<string> the offending paths
      */
-    public static function find(array $data, string $path = ''): array
+    public static function find(array $data, string $path = '', bool $imageUrls = false): array
     {
         $found = [];
 
@@ -35,8 +39,8 @@ final class ProviderLeak
             }
 
             if (is_array($value)) {
-                $found = [...$found, ...self::find($value, $here)];
-            } elseif (is_string($value) && ! str_ends_with($lowerKey, 'url')) {
+                $found = [...$found, ...self::find($value, $here, str_ends_with($lowerKey, 'images'))];
+            } elseif (is_string($value) && ! str_ends_with($lowerKey, 'url') && ! ($imageUrls && is_int($key) && self::isHttpUrl($value))) {
                 foreach (self::FORBIDDEN_WORDS as $word) {
                     if (str_contains(strtolower($value), $word)) {
                         $found[] = "value {$here} contains {$word}";
@@ -46,5 +50,14 @@ final class ProviderLeak
         }
 
         return $found;
+    }
+
+    private static function isHttpUrl(string $value): bool
+    {
+        $scheme = parse_url($value, PHP_URL_SCHEME);
+
+        return filter_var($value, FILTER_VALIDATE_URL) !== false
+            && is_string($scheme)
+            && in_array(strtolower($scheme), ['http', 'https'], true);
     }
 }

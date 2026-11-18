@@ -28,16 +28,20 @@ use Illuminate\Support\Str;
  */
 final class TakesTable
 {
-    public static function configure(Table $table): Table
+    /**
+     * @param  bool  $scopedToProject  inside one project (Studio › Projects view): no Customer · Project column and
+     *                                 no Customer / Project filters, which would only repeat the page
+     */
+    public static function configure(Table $table, bool $scopedToProject = false): Table
     {
         return $table
-            ->columns([
+            ->columns(array_values(array_filter([
                 TextColumn::make('id')
                     ->label(__('console.takes.take'))
                     ->formatStateUsing(fn (string $state): string => Str::limit($state, 10, '…'))
                     ->fontFamily('mono')
                     ->tooltip(fn (Take $record): string => $record->id),
-                TextColumn::make('customer.name')
+                $scopedToProject ? null : TextColumn::make('customer.name')
                     ->label(__('console.takes.customer_project'))
                     ->description(fn (Take $record): string => (string) $record->project?->name),
                 TextColumn::make('status')->label(__('console.takes.status'))->badge(),
@@ -68,13 +72,13 @@ final class TakesTable
                     ->label(__('console.common.created'))
                     ->dateTime('Y-m-d H:i:s \U\T\C')
                     ->sortable(),
-            ])
-            ->filters([
+            ])))
+            ->filters(array_values(array_filter([
                 SelectFilter::make('status')->label(__('console.takes.status'))->options(TakeStatus::class)->multiple(),
                 SelectFilter::make('source')->label(__('console.takes.source'))->options(TakeSource::class),
-                SelectFilter::make('customer')->label(__('console.common.customer'))
+                $scopedToProject ? null : SelectFilter::make('customer')->label(__('console.common.customer'))
                     ->relationship('customer', 'name')->searchable()->preload(),
-                SelectFilter::make('project')->label(__('console.common.project'))
+                $scopedToProject ? null : SelectFilter::make('project')->label(__('console.common.project'))
                     ->relationship('project', 'name')->searchable(),
                 Filter::make('created')
                     ->label(__('console.takes.created_range'))
@@ -91,7 +95,7 @@ final class TakesTable
                     ->options(collect(TakeQuality::cases())->mapWithKeys(fn (TakeQuality $quality): array => [$quality->value => $quality->value])->all()),
                 SelectFilter::make('size')->label(__('console.takes.size'))
                     ->options(collect(TakeSize::cases())->mapWithKeys(fn (TakeSize $size): array => [$size->value => $size->value])->all()),
-            ])
+            ])))
             ->recordActions([
                 ViewAction::make(),
                 ReconcileTakeAction::make(),

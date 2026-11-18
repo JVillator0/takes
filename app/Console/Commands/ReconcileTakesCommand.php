@@ -32,7 +32,7 @@ final class ReconcileTakesCommand extends Command
                 return self::FAILURE;
             }
 
-            $result = $reconcile->execute($take);
+            $result = $reconcile->execute($take, operator: true);
             $this->info("Take {$take->id}: {$result->status->value}, now {$take->status->value}.");
 
             return self::SUCCESS;

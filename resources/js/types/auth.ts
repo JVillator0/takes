@@ -13,6 +13,8 @@ export type Customer = {
     available_exact: string;
     on_hold: string;
     on_hold_exact: string;
+    /** The showcase login (D-072): browse only; the pages say so. */
+    read_only: boolean;
 };
 
 /** One entry of a `can` object: `{ allowed: false, reason: 'insufficient_credits', message }`. */

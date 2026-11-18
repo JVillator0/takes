@@ -23,10 +23,20 @@ import type { CreditPack } from '@/types';
  */
 const page = usePage();
 const { t } = useCopy();
-const { isOpen, opener, close } = useBuyCredits();
+const { isOpen, opener, onCloseAutoFocus, close } = useBuyCredits();
 
 const packs = computed<CreditPack[]>(() => page.props.creditPacks ?? []);
 const selected = ref<CreditPack | null>(null);
+
+/*
+ * Dismissing the pack chooser without a pack returns focus to the opener;
+ * after a pack, the purchase dialog does that on its own close (F-20).
+ */
+const onChooserCloseAutoFocus = (event: Event): void => {
+    if (selected.value === null) {
+        onCloseAutoFocus(event);
+    }
+};
 
 const choose = (pack: CreditPack): void => {
     close();
@@ -40,7 +50,10 @@ const choose = (pack: CreditPack): void => {
             :open="isOpen"
             @update:open="(open: boolean) => (open ? undefined : close())"
         >
-            <DialogContent class="sm:max-w-md">
+            <DialogContent
+                class="sm:max-w-md"
+                @close-auto-focus="onChooserCloseAutoFocus"
+            >
                 <DialogHeader>
                     <DialogTitle>{{ t('billing.buy_credits') }}</DialogTitle>
                     <DialogDescription>

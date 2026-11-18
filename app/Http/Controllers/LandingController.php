@@ -17,7 +17,9 @@ use Inertia\Response;
  * Landing page (P01, spec 4 issue 8): the welcome credit from
  * WELCOME_CREDIT_USD (D-019), example price ranges computed by the same
  * estimator the composer uses (prices, never costs or the margin, D-023),
- * and "Try a demo account" when DEMO_LOGIN_ENABLED (D-045).
+ * and "Try a demo account" when DEMO_LOGIN_ENABLED (D-045). The examples
+ * read the cached pricing or the config fallback, never GET /v1/pricing:
+ * an anonymous visitor never waits on the provider.
  */
 final class LandingController extends Controller
 {
@@ -40,7 +42,7 @@ final class LandingController extends Controller
      */
     private function example(GetTakeEstimateQuery $estimateTake, string $label, EstimateTakeDTO $input): array
     {
-        $estimate = $estimateTake->execute($input)->estimate;
+        $estimate = $estimateTake->execute($input, cachedPricing: true)->estimate;
 
         return [
             'label' => $label,

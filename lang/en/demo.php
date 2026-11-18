@@ -15,7 +15,7 @@ return [
     'ephemeral_name' => 'Demo account',
     'expired' => 'This demo account has expired. Register or try a new demo account.',
     'accounts' => [
-        'showcase' => 'Showcase customer · real history',
+        'showcase' => 'Showcase customer · read-only, real history',
         'demo_customer' => 'Demo customer · $10.00 credit',
         'low_balance' => 'Low balance · $0.01 (see blocking)',
         'new_customer' => 'New customer · $0.00 (empty states)',

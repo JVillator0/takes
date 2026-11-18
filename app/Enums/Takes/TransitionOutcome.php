@@ -11,7 +11,8 @@ namespace App\Enums\Takes;
  * ignored_stale: backwards (e.g. processing after succeeded).
  * ignored_conflict: terminal to a different terminal, or a late success after a definite local failure.
  * orphan_success: a success after a local submit_timeout, or after a local internal failure of a
- *   take Pixelforge had accepted (D-077); usage stays voided, cost absorbed.
+ *   take Pixelforge had accepted (D-077) or of an in-doubt submit (D-082); usage stays voided,
+ *   cost absorbed.
  * invalid_snapshot: the payload failed validation; no state change.
  */
 enum TransitionOutcome: string

@@ -143,12 +143,15 @@ return [
         'add_reference' => 'Add reference URL',
         'remove_reference' => 'Remove reference image :number',
         'reference_invalid' => 'Reference images must be http(s) URLs.',
+        'references_left_out' => '1 earlier reference image is no longer available and was left out.|:count earlier reference images are no longer available and were left out.',
         'remixing' => 'Remixing #:id',
         'cancel_remix' => 'Stop remixing #:id',
         'submit' => 'Generate take',
         'submit_with_max' => 'Generate take · up to :amount',
         'submitting' => 'Generating…',
         'shortcut' => 'Press :keys to generate',
+        'settings_need_attention' => 'A setting needs attention.',
+        'show_settings' => 'Show settings',
     ],
 
     /* Estimate panel (P04, P05-A). The margin is never shown to customers (D-023). */
@@ -194,6 +197,12 @@ return [
         'ai_change_from' => 'AI change from #:id',
         'version' => '#:id',
         'version_current' => '#:id this take',
+    ],
+
+    /* The showcase login (D-072) on P03/P04: read-only, so it says how to generate. */
+    'showcase' => [
+        'notice' => 'Showcase account: read-only, with real history. To generate, try a demo account or create your own.',
+        'register' => 'Create your own',
     ],
 
     /* Projects (P03). */

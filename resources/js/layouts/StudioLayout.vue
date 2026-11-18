@@ -18,6 +18,7 @@ import { useBuyCredits } from '@/composables/useBuyCredits';
 import { useCopy } from '@/composables/useCopy';
 import { getInitials } from '@/composables/useInitials';
 import { dashboard } from '@/routes';
+import { index as projectsIndex } from '@/routes/projects';
 import type { BalanceSummary, BreadcrumbItem } from '@/types';
 
 /**
@@ -33,6 +34,12 @@ type Props = {
     showBuyCredits?: boolean;
     /** Full-bleed pages (the workspace) manage their own padding. */
     fluid?: boolean;
+    /**
+     * The workspace's On hold click: applies its In progress filter in
+     * place. Without it the pill links to the projects list (its cards carry
+     * the in-progress badges), and to nothing on that list itself.
+     */
+    holdsAction?: (() => void) | null;
 };
 
 const props = withDefaults(defineProps<Props>(), {
@@ -40,6 +47,7 @@ const props = withDefaults(defineProps<Props>(), {
     balance: null,
     showBuyCredits: false,
     fluid: false,
+    holdsAction: null,
 });
 
 const emit = defineEmits<{
@@ -57,6 +65,7 @@ defineSlots<{
 }>();
 
 const page = usePage();
+const { t } = useCopy();
 const customer = computed(() => page.props.auth.customer);
 const buyCredits = useBuyCredits();
 
@@ -92,7 +101,18 @@ const shellBalance = computed<BalanceSummary | null>(() => {
           }
         : null;
 });
-const { t } = useCopy();
+const holdsLink = computed<string | null>(() =>
+    props.holdsAction || page.component === 'projects/Index'
+        ? null
+        : projectsIndex().url,
+);
+
+/** Where the click leads, in words (2-01: one string per destination). */
+const holdsLabel = computed(() =>
+    props.holdsAction
+        ? t('billing.on_hold_link')
+        : t('billing.on_hold_link_projects'),
+);
 </script>
 
 <template>
@@ -107,7 +127,9 @@ const { t } = useCopy();
         <header
             class="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 print:hidden"
         >
-            <div class="mx-auto flex h-14 w-full items-center gap-3 px-4">
+            <div
+                class="mx-auto flex h-14 w-full items-center gap-2 px-4 sm:gap-3"
+            >
                 <Link
                     :href="dashboard()"
                     class="shrink-0 rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
@@ -124,14 +146,22 @@ const { t } = useCopy();
                     </slot>
                 </div>
 
+                <!--
+                    On phones this group takes the whole bar: the balance pill
+                    and the avatar never shrink, so the connection label
+                    truncates first and nothing overlaps (P10, 390 px).
+                -->
                 <div
-                    class="ml-auto flex min-w-0 items-center justify-end gap-2"
+                    class="ml-auto flex min-w-0 flex-1 items-center justify-end gap-1 sm:flex-initial sm:gap-2"
                 >
                     <slot name="status" />
                     <slot name="balance">
                         <BalancePill
                             v-if="shellBalance"
                             :balance="shellBalance"
+                            :holds-action="holdsAction"
+                            :holds-href="holdsLink"
+                            :holds-label="holdsLabel"
                         />
                     </slot>
                     <Button

@@ -63,8 +63,10 @@ final class TakeChangeAgent implements Agent, HasProviderOptions, HasStructuredO
             - size: one of {$sizes} (1024x1024 is square, 1536x1024 is landscape, 1024x1536 is portrait).
             - quality: one of {$qualities}.
             - keep_references: true to keep the base take's reference images (the default), false only if the instruction asks to drop them.
-            - add_base_image_as_reference: true only if the instruction asks to build on, keep or vary the current image; the base take then has at most {$maxReferences} references in total.
+            - add_base_image_as_reference: true only if the instruction asks to build on, keep or vary the current image.
             - rationale: one plain sentence (at most {$maxRationale} characters) telling the customer what you changed and why. Never mention prices, tokens, models or vendors.
+
+            The new take has at most {$maxReferences} reference images in total: the kept base references (`base_take.reference_count`, when keep_references is true) plus the current image (when add_base_image_as_reference is true). If keeping the base references and adding the current image would go over {$maxReferences}, keep the references, set add_base_image_as_reference to false, and say in the rationale that the take already has the most reference images allowed.
 
             If the instruction asks for nothing you can express with these fields, return the base parameters unchanged and say so in the rationale.
             TEXT;

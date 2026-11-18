@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Actions\Takes\ApplyTakeSnapshotAction;
 use App\Actions\Takes\ReconcileTakeNowAction;
 use App\DTOs\Takes\TakeStatsDTO;
 use App\Enums\Auth\AdminRole;
@@ -180,15 +181,48 @@ it('reconciles a take once through the spec 5 action, reports what it applied an
     Livewire::test(ViewTake::class, ['record' => $take->id])->assertActionHidden('reconcile');
     expect(app(ReconcileTakeNowAction::class)->execute($operator, $take)->status)->toBe(ReconcileStatus::Terminal);
 
-    $entry = Activity::query()->where('event', 'reconciled')->orderBy('id')->first();
+    // Every Reconcile now is audited: the click, then the repeat poll on the settled take.
+    $entries = Activity::query()->where('event', 'reconciled')->orderBy('id')->get();
     expect($take->refresh()->status)->toBe(TakeStatus::Succeeded)
         ->and(LedgerEntry::query()->where('type', LedgerEntryType::Charge)->count())->toBe(1)
         ->and(Http::recorded())->toHaveCount(1)
-        ->and((int) $entry?->causer_id)->toBe($operator->id)
-        ->and($entry?->subject_type)->toBe('take')
-        ->and([$entry?->properties['status_before'] ?? null, $entry?->properties['status_after'] ?? null, $entry?->properties['reconcile'] ?? null])
-        ->toBe([TakeStatus::Processing->value, TakeStatus::Succeeded->value, ReconcileStatus::Terminal->value]);
+        ->and($entries->map(fn (Activity $entry): array => [
+            (int) $entry->causer_id,
+            $entry->subject_type,
+            $entry->properties['status_before'] ?? null,
+            $entry->properties['status_after'] ?? null,
+            $entry->properties['reconcile'] ?? null,
+        ])->all())
+        ->toBe([
+            [$operator->id, 'take', TakeStatus::Processing->value, TakeStatus::Succeeded->value, ReconcileStatus::Terminal->value],
+            [$operator->id, 'take', TakeStatus::Succeeded->value, TakeStatus::Succeeded->value, ReconcileStatus::Terminal->value],
+        ]);
     Queue::assertNotPushed(ReconcileTakeJob::class);
+});
+
+it('audits the status as it is when Reconcile now runs, not as the page loaded it', function (): void {
+    config(['pixelforge.base_url' => 'https://pixelforge.test/v1', 'pixelforge.api_key' => 'pf_test_reconcile']);
+    Queue::fake();
+    Event::fake([TakeUpdated::class]);
+    $loaded = Takes::in('queued'); // the take as the admin's page loaded it
+    $operator = User::factory()->admin(AdminRole::Operator)->withAppAuthentication()->create();
+    Http::fake(['pixelforge.test/v1/generations/*' => Http::response(PixelforgeFixture::generation('queued', [
+        'id' => $loaded->pixelforge_id,
+        'status' => 'processing',
+        'started_at' => '2026-11-04T14:03:13Z',
+        'metadata' => ['app_take_id' => $loaded->id],
+    ]))]);
+
+    // A webhook lands while the modal is open: the take is processing before the admin clicks.
+    app(ApplyTakeSnapshotAction::class)->execute($loaded->fresh(), Takes::snapshot($loaded, 'processing'));
+    expect($loaded->status)->toBe(TakeStatus::Queued);
+
+    app(ReconcileTakeNowAction::class)->execute($operator, $loaded);
+
+    $entries = Activity::query()->where('event', 'reconciled')->orderBy('id')->get();
+    expect($entries)->toHaveCount(1)
+        ->and([$entries[0]->properties['status_before'] ?? null, $entries[0]->properties['status_after'] ?? null])
+        ->toBe([TakeStatus::Processing->value, TakeStatus::Processing->value]);
 });
 
 it('says when Reconcile now could not check Pixelforge, never a green "No change"', function (): void {

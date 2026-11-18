@@ -115,3 +115,13 @@ it('sends a policy denial back to the Inertia page with its reason code', functi
         // An error too, so the form takes Inertia's error path, not success.
         ->assertSessionHasErrors(['denial' => 'Your account is restricted. Email support@example.com for help.']);
 });
+
+it('keeps /dashboard as an alias of the projects list for customers', function (): void {
+    $this->actingAs(Customer::factory()->withRole()->create(), 'customer')
+        ->get(route('dashboard'))
+        ->assertRedirect('/projects');
+});
+
+it('sends a guest on /dashboard to the sign-in page', function (): void {
+    $this->get(route('dashboard'))->assertRedirect(route('login'));
+});

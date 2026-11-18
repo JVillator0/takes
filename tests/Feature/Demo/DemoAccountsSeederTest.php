@@ -169,3 +169,18 @@ it('fails loudly instead of adopting a demo address someone registered first (D-
     expect(Hash::check('password', $squatter->refresh()->password))->toBeFalse()
         ->and($squatter->getRoleNames()->all())->toBe(['customer']);
 });
+
+it('fails loudly on a squatter registered while the welcome credit was off (#167)', function (): void {
+    $this->seed(RolesAndPermissionsSeeder::class);
+    config(['takes.welcome_credit_nanos' => 0]);
+    $squatter = Customer::factory()->create(['name' => 'Squatter', 'email' => DemoAccount::DemoCustomer->email(), 'password' => 'squatter-secret']);
+    $squatter->assignRole(CustomerRole::Customer->value);
+    app(GrantWelcomeCreditAction::class)->execute($squatter);
+
+    expect($squatter->ledgerEntries()->exists())->toBeFalse()
+        ->and(fn () => $this->seed(DemoAccountsSeeder::class))
+        ->toThrow(RuntimeException::class, DemoAccount::DemoCustomer->email());
+
+    expect(Hash::check('password', $squatter->refresh()->password))->toBeFalse()
+        ->and($squatter->ledgerEntries()->exists())->toBeFalse();
+});

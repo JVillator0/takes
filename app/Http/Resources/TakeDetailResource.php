@@ -43,6 +43,8 @@ final class TakeDetailResource extends JsonResource
             'paramsLine' => $this->paramsLine($take),
             // Re-issued for display; the parameters line counts the stored ones.
             'referenceImages' => $detail->referenceImages,
+            // Remix and Try again pre-fill referenceImages: say how many were left out (2-01).
+            'referencesNotice' => $this->referencesNotice(count($take->reference_images) - count($detail->referenceImages)),
             'price' => $this->price($take, $usage),
             'timeline' => $this->timeline($take, $usage),
             'parent' => $detail->parent === null ? null : [
@@ -85,6 +87,11 @@ final class TakeDetailResource extends JsonResource
         }
 
         return implode(' · ', $parts);
+    }
+
+    private function referencesNotice(int $leftOut): ?string
+    {
+        return $leftOut > 0 ? trans_choice('takes.composer.references_left_out', $leftOut, ['count' => $leftOut]) : null;
     }
 
     /**

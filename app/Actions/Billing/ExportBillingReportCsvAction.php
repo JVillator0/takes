@@ -8,6 +8,7 @@ use App\Actions\Admin\RecordAdminActivityAction;
 use App\DTOs\Billing\BillingReportFilterDTO;
 use App\Models\User;
 use App\Queries\Billing\ListBillingReportExportRowsQuery;
+use App\Queries\Billing\ListPromoCreditsConsumedQuery;
 use App\Support\Money\BasisPoints;
 use App\Support\Money\Nanodollars;
 
@@ -25,10 +26,12 @@ final readonly class ExportBillingReportCsvAction
     public const array COLUMNS = [
         'billing_date', 'customer_id', 'customer_name', 'provider', 'generations_charged',
         'spend', 'cost', 'profit', 'margin_bps', 'spend_nanos', 'cost_nanos', 'profit_nanos',
+        'promo_consumed', 'promo_consumed_nanos',
     ];
 
     public function __construct(
         private ListBillingReportExportRowsQuery $rows,
+        private ListPromoCreditsConsumedQuery $promoConsumed,
         private RecordAdminActivityAction $recordActivity,
     ) {}
 
@@ -50,6 +53,7 @@ final readonly class ExportBillingReportCsvAction
 
         fputcsv($stream, self::COLUMNS, escape: '');
         $written = 0;
+        $promo = $this->promoConsumed->execute($filter);
 
         foreach ($this->rows->execute($filter) as $row) {
             $spend = Nanodollars::fromInt($row->spend_nanos);
@@ -69,11 +73,20 @@ final readonly class ExportBillingReportCsvAction
                 (string) $spend->toInt(),
                 (string) $cost->toInt(),
                 (string) $profit->toInt(),
+                ...self::promoCells($promo[$row->billing_date.'|'.$row->customer_id.'|'.$row->provider] ?? 0),
             ], escape: '');
             $written++;
         }
 
         return $written;
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     */
+    private static function promoCells(int $nanos): array
+    {
+        return [Nanodollars::fromInt($nanos)->toDecimalString(), (string) $nanos];
     }
 
     /**

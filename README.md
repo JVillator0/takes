@@ -81,7 +81,7 @@ Scenario prompts ran at `low` quality, the others at `medium`, all 1024×1024. T
 
 Pixelforge key label: `Takes production (Laravel Cloud)` (production key). The Pixelforge account email is in the submission form, not here: contact emails stay out of the public repository (D-081).
 
-<!-- DATA CHECK: `php artisan billing:verify --usage` result and UTC timestamp, filled after the last QA re-verification (spec 10 § Final checks). -->
+**Final data check** (2026-11-18 02:17-02:18 UTC, main `e2ebaf9`, after the last QA fix deployed): `billing:verify` holds; `billing:verify --usage` matches Pixelforge for 2026-11-11 to 2026-11-17 and for 2026-11-17 to 2026-11-18; no open usage record, no non-terminal take, no balance or hold drift. Details in [`docs/deploy.md`](docs/deploy.md#final-verification-2026-11-18-main-e2ebaf9-after-164-to-174).
 
 ## Admin console
 
@@ -149,7 +149,7 @@ Spec [5](.claude/specs/5-webhooks-and-live-status/SPEC.md) and the checklist [`.
 - **Idempotency.** `webhook_events.event_id` is unique: the event is inserted with `insertOrIgnore`, and an event already there answers `200 {"status":"duplicate"}` and changes nothing. The handler runs in one transaction and never catches inside it, so a failure rolls back the event row and Pixelforge's retry redelivers.
 - **Ordering.** Every state change goes through `ApplyTakeSnapshotAction`, which locks the take and applies a matrix: forward jumps are applied (a `succeeded` may arrive before `processing`, or before our create call returns; the take is then found by `metadata.app_take_id`), a backwards snapshot is `ignored_stale`, a repeat is `ignored_same_state`, a terminal contradiction is `ignored_conflict` and flagged for attention. Settlement (settle or void) happens exactly once, inside the transaction that makes the take terminal, with the units and rates of that terminal snapshot.
 - **Reconcile.** Webhooks are not trusted to arrive. `ReconcileTakeJob` polls `GET /v1/generations/{id}` with delays of 1, 2, 5, 10 and 14 minutes (every delay within the managed queue's 15-minute limit) for about 30 minutes. An opportunistic sweeper, throttled to once every 2 minutes and triggered by page loads, restarts lost chains: there is no scheduler, so the app can scale to zero (D-036).
-- **`orphan_success`** (D-025, D-077). An ambiguous submit (timeout, connection error, 5xx) retries with the same idempotency key for 30 minutes, then fails free. If Pixelforge later reports that generation succeeded, the take stays failed, the usage stays voided, the cost is absorbed and the take is flagged `orphan_success` in the admin. The customer is never charged for a take they were told failed.
+- **`orphan_success`** (D-025, D-077, D-082). An ambiguous submit (timeout, connection error, 5xx) retries with the same idempotency key for 30 minutes, then fails free. If Pixelforge later reports that generation succeeded, the take stays failed, the usage stays voided, the cost is absorbed and the take is flagged `orphan_success` in the admin. The customer is never charged for a take they were told failed.
 - **Delivery log** (D-027). Every verified delivery appends a `webhook_deliveries` row with its attempt number and outcome (`applied`, `duplicate`, `ignored_stale`, `orphan_success`, ...). The evidence is in `/admin` › Studio › Takes › a take (A06, deliveries per take) and Providers › Webhook deliveries.
 - **Live status.** After commit, `TakeUpdated` broadcasts a small payload (take status plus the balance pill strings, D-079) on the customer's private Reverb channel; the page then refreshes the card with a scoped partial reload, so card copy and money lines keep one source. When the private channel is not subscribed, the page polls every 4 s and shows "Reconnecting…" (D-028); no setting turns this on. See "When webhooks never arrive" under Run locally.
 
@@ -164,7 +164,7 @@ app/
   Exceptions/{Domain}/  domain exceptions; controllers translate them to HTTP
   Support/Money/        Nanodollars, TokenCost
   Services/Pixelforge/  PixelforgeClient: the only service, thin and typed, no retries inside
-  Filament/Admin/       the admin console (clusters Studio, Billing, Providers)
+  Filament/Admin/       the admin console: dashboard widgets, Customers and Admins resources, clusters Studio, Billing, Providers
 ```
 
 Controllers stay around ten lines: authorize, validate, call one Action or Query, render. Jobs are thin and own the retry policy. The rules are in [`.claude/rules/architecture.md`](.claude/rules/architecture.md) and enforced by `tests/Arch/ArchitectureTest.php` (status writes only in the two transition actions, ledger writes only in `RecordLedgerEntryAction`, no `lockForUpdate` on usage records, no floats in money code).
@@ -322,6 +322,7 @@ Live at **<https://takes-production-aodrsk.laravel.cloud>** on Laravel Cloud (US
 | `/` after 12 min idle (app and database asleep) | 2.98 s and 2.73 s to first byte (two runs) |
 | `/` warm | 0.29 – 0.33 s |
 | Signed webhook ping after idle (target < 10 s) | not captured: the dashboard test ping was answered 200 (recorded as `ping`), but its latency after idle was not measured |
+| Final check, 2026-11-18 02:30 and 02:43 | 0.60 s and 0.48 s, not cold: review traffic kept the app awake, so the two figures above stand |
 
 Resources, build and deploy commands, environment variables and key rotation are in [`docs/deploy.md`](docs/deploy.md).
 
@@ -338,7 +339,7 @@ I built Takes with AI agents (Claude Code, Opus 5.5) under a harness that keeps 
    - [#99](https://github.com/JVillator0/takes/pull/99) UI foundation: four rounds, 65 inline comments on copy and money display (the exact amount hidden under a card's click target, a raw lang key in a denial).
    - [#109](https://github.com/JVillator0/takes/pull/109) take transitions: three rounds, 21 inline comments; the reviewers found cases the spec had not decided, recorded as D-077.
 5. **Escalation without blocking** (D-075). Reviews stop at round 3. The lead may authorise one extra full round after the important and critical findings are fixed; minors left after that become follow-up issues. No round 5, and nobody waits for me during the day.
-6. **QA against the specs** (D-071). Before `v1.0.0`, a dedicated [QA agent](.claude/agents/qa-tester.md) drives a real browser through the production site with a [test plan derived from the specs](.claude/qa/plan.md) and files one issue per defect. The [QA report](https://github.com/JVillator0/takes/issues/96#issuecomment-6965234745) (2026-11-17 23:59 to 2026-11-18 00:36 UTC, Playwright at 1440 px and 390 px) ran 160 checks: 140 passed, 10 failed, 2 skipped, 4 blocked by spec ambiguity, 4 not applicable, using 23 of its 25 generations. It filed nine issues (#152 to #158, #162, #163), and every one was fixed through the normal PR and review flow and re-verified on production.
+6. **QA against the specs** (D-071). Before `v1.0.0`, a dedicated [QA agent](.claude/agents/qa-tester.md) drives a real browser through the production site with a [test plan derived from the specs](.claude/qa/plan.md) and files one issue per defect. The [QA report](https://github.com/JVillator0/takes/issues/96#issuecomment-6965234745) (2026-11-17 23:59 to 2026-11-18 00:36 UTC, Playwright at 1440 px and 390 px) ran 160 checks: 140 passed, 10 failed, 2 skipped, 4 blocked by spec ambiguity, 4 not applicable, using 23 of its 25 generations. It filed nine issues (#152 to #158, #162, #163); every one was fixed through the normal PR and review flow and is closed.
 
 **Decisions made during the build.** The log grew from the planning decisions to [D-087](.claude/specs/DECISIONS.md); the last ones, one line each:
 
@@ -358,7 +359,7 @@ I built Takes with AI agents (Claude Code, Opus 5.5) under a harness that keeps 
 
 ## Trade-offs and what I'd do next
 
-- **Admin scope cut** (D-080, partly reversed by D-086). D-080 cut the Purchases and Invoices resources, the Anthropic usage and Pricing pages, the Ledger entries page and ledger invariant widget, and from spec 8 the admin AI suggestions resource and *Edit in composer*; those issues are closed as not planned. Customers still see every purchase and invoice on `/billing`, and `billing:verify` checks the ledger invariant from the command line. D-086 brought back the dashboard with its charts and Needs attention for takes, and the System › Admins resource.
+- **Admin scope cut** (D-080, partly reversed by D-086). The console covers the brief's stretch goal with the dashboard (charts and Needs attention for takes), Studio, Billing › Reports, Providers › Pixelforge usage and Webhook deliveries, Customers with Adjust credits and each customer's ledger, and System › Admins. D-080 cut the admin Purchases and Invoices resources (customers see every purchase and invoice on `/billing`), the standalone Ledger entries page and ledger invariant widget (`billing:verify` checks the invariant from the command line), the Anthropic usage and Pricing pages ([#71](https://github.com/JVillator0/takes/issues/71), closed as not planned), and from spec 8 the admin AI suggestions resource and *Edit in composer* ([#76](https://github.com/JVillator0/takes/issues/76), closed as not planned). D-086 brought back the dashboard charts and the Admins resource.
 - **Simulated payments.** "Buy credits" credits the account instantly and issues an invoice; there is no payment provider. A real one would add a pending purchase confirmed by its own signed webhook, through the same `PurchaseCreditsAction`.
 - **Shared Pixelforge quotas.** Limits are per account (3 in flight, 60 rpm, 500 per day) and every evaluator shares them. Takes queues politely ("Waiting for capacity"), caps takes per customer and globally per day (D-050), and throttles the demo button per IP, but a busy review window can still mean waiting.
 - **Anthropic cost is not reconcilable by API.** Each AI charge comes from the exact usage block of the response, but there is no per-key usage endpoint to compare with, so the AI side has no "match" column. A $5 workspace limit and a $1 daily AI budget bound the exposure.
@@ -367,4 +368,4 @@ I built Takes with AI agents (Claude Code, Opus 5.5) under a harness that keeps 
 - **Cold starts** (D-038). App and database scale to zero to fit the $15/month limit; the first request after idle is slower. Measurements are in [`docs/deploy.md`](docs/deploy.md).
 - **Rate-card assumptions.** Estimates use the token tables and variance from `GET /v1/pricing`; charges use each generation's own rates. If Pixelforge changed its pricing model, the estimator would need a new table, not a new money path.
 - **Demo access after the review.** The auditor and the demo logins are rotated or disabled after the review window; the seeded demo data stays separate from real registrations.
-- **No open follow-ups.** Every minor finding deferred by the review rule (D-075) was fixed before `v1.0.0`.
+- **No open follow-ups.** Every minor finding deferred by the review rule (D-075) was fixed and closed before `v1.0.0` (#98, #102, #107, #111, #118, #122, #123, #124, #141, #142).

@@ -160,11 +160,14 @@ UI chrome strings added with the UI foundation (PR #99). Keys are the full `lang
 | `takes.composer.add_reference` | P04, P05, P10 composer | "Add reference URL" |
 | `takes.composer.remove_reference` | P04, P05, P10 composer | "Remove reference image :number" |
 | `takes.composer.reference_invalid` | P04, P05, P10 composer | "Reference images must be http(s) URLs." |
+| `takes.composer.references_left_out` | P04, P05, P10 composer after Remix or Try again, when earlier take-image references no longer resolve (pluralised) | "1 earlier reference image is no longer available and was left out." · ":count earlier reference images are no longer available and were left out." |
 | `takes.composer.remixing` | P04, P05, P10 composer | "Remixing #:id" |
 | `takes.composer.cancel_remix` | P04, P05, P10 composer | "Stop remixing #:id" |
 | `takes.composer.submit_with_max` | P04, P05, P10 composer | "Generate take · up to :amount" |
 | `takes.composer.submitting` | P04, P05, P10 composer | "Generating…" |
 | `takes.composer.shortcut` | P04, P05, P10 composer | "Press :keys to generate" |
+| `takes.composer.settings_need_attention` | P10 collapsed composer sheet, when a hidden setting (size, quality, references) blocks Generate | "A setting needs attention." |
+| `takes.composer.show_settings` | P10 collapsed composer sheet, expands it to that setting | "Show settings" |
 | `takes.estimate.title` | P04, P05-A estimate panel (no margin, D-023) | "Estimated price" |
 | `takes.estimate.range` | P04, P05-A estimate panel (no margin, D-023) | ":min – :max" |
 | `takes.estimate.updates` | P04, P05-A estimate panel (no margin, D-023) | "updates as you type" |
@@ -203,6 +206,8 @@ UI chrome strings added with the UI foundation (PR #99). Keys are the full `lang
 | `billing.on_hold` | balance pill and Buy credits (P03, P04, P10) | "on hold" |
 | `billing.balance_label` | balance pill and Buy credits (P03, P04, P10) | "Available :available, on hold :on_hold" |
 | `billing.balance_exact` | balance pill tooltip (exact amounts, D-042) | "Exact: available :available, on hold :on_hold" |
+| `billing.on_hold_link` | balance pill on the workspace, screen-reader text: On hold applies the In progress filter (2-02) | "Show the takes in progress." |
+| `billing.on_hold_link_projects` | balance pill on other customer pages, screen-reader text: On hold links to the projects list and its in-progress badges | "Open your projects to see their takes in progress." |
 | `landing.meta_title` | P01 landing | "Describe it. Take it. Remix it." |
 | `landing.nav.label` | P01 landing | "Sections" |
 | `landing.nav.how_it_works` | P01 landing | "How it works" |
@@ -332,6 +337,9 @@ Describe a change (P07) chrome added with spec 8. Prices reuse `takes.money.on_h
 | `suggestions.diff.quality` | P07 proposal table | "Quality" |
 | `suggestions.diff.references` | P07 proposal table | "References" |
 | `suggestions.diff.references_with_image` | P07 proposal table | ":count + take image" |
+| `suggestions.diff.removed` | P07 prompt diff, screen-reader text before removed words | "removed:" |
+| `suggestions.diff.added` | P07 prompt diff, screen-reader text before added words | "added:" |
+| `suggestions.diff.end` | P07 prompt diff, screen-reader text after a removed or added run | "end of change." |
 | `suggestions.new_take` | P07 proposal | "New take: :range" |
 | `suggestions.discard` | P07 proposal | "Discard" |
 | `suggestions.discarded` | P07 result | "Suggestion discarded." |
@@ -358,7 +366,9 @@ Strings added with spec 4 (takes and generation). Same rules: keys are the full 
 | `takes.projects.sample_prompt` | P03/P04 empty state, pre-filled composer | "A lighthouse on a cliff at dusk, warm light, cinematic wide shot" |
 | `demo.ephemeral_name` | name of a "Try a demo account" customer | "Demo account" |
 | `demo.expired` | P02 status line after an expired "Try a demo account" customer is signed out | "This demo account has expired. Register or try a new demo account." |
-| `demo.accounts.showcase` | P02 demo panel, label of the seeded read-only showcase login (D-072) | "Showcase customer · real history" |
+| `demo.accounts.showcase` | P02 demo panel, label of the seeded read-only showcase login (D-072) | "Showcase customer · read-only, real history" |
+| `takes.showcase.notice` | P03, P04 notice while signed in as the read-only showcase login (D-072) | "Showcase account: read-only, with real history. To generate, try a demo account or create your own." |
+| `takes.showcase.register` | P03, P04 showcase notice: sign out, then register (the other action reuses `landing.hero.demo` and opens the P02 demo panel) | "Create your own" |
 | `takes.projects.title` | P03 heading | "Projects" |
 | `takes.projects.search` | P03 search field | "Search projects" |
 | `takes.projects.new` | P03 button and dialog title | "New project" |

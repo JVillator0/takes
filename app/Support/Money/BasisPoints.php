@@ -33,16 +33,19 @@ final class BasisPoints
         $quotient = intdiv($numerator, $denominator);
         $remainder = $numerator % $denominator;
 
-        if ($quotient > intdiv(PHP_INT_MAX, 10_000)) {
-            throw new OverflowException('The ratio does not fit in basis points.');
-        }
-
-        $bps = $quotient;
+        $digits = 0;
 
         for ($digit = 0; $digit < self::DIGITS; $digit++) {
             [$next, $remainder] = self::timesTen($remainder, $denominator);
-            $bps = $bps * 10 + $next;
+            $digits = $digits * 10 + $next;
         }
+
+        // Exact: q × 10,000 + digits must fit, checked before it is computed (no float promotion).
+        if ($quotient > intdiv(PHP_INT_MAX - $digits, 10_000)) {
+            throw new OverflowException('The ratio does not fit in basis points.');
+        }
+
+        $bps = $quotient * 10_000 + $digits;
 
         return $negative ? -$bps : $bps;
     }

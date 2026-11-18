@@ -10,6 +10,7 @@ use App\DTOs\Billing\RatesSnapshotDTO;
 use App\DTOs\Billing\UsageUnitsDTO;
 use App\DTOs\Pixelforge\GenerationSnapshotDTO;
 use App\Enums\Billing\UsageFlag;
+use App\Enums\Billing\UsageKind;
 use App\Enums\Takes\AttentionReason;
 use App\Enums\Takes\FailureCode;
 use App\Enums\Takes\TakeStatus;
@@ -19,6 +20,7 @@ use App\Exceptions\Takes\SnapshotRatesMissingException;
 use App\Jobs\PersistTakeImageJob;
 use App\Jobs\ReconcileTakeJob;
 use App\Models\Take;
+use App\Support\Money\TokenCost;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -40,15 +42,19 @@ final readonly class ApplyTakeSnapshotAction
     public function __construct(
         private SettleUsageAction $settleUsage,
         private VoidUsageAction $voidUsage,
+        private TokenCost $tokenCost,
     ) {}
 
     /**
-     * @throws SnapshotRatesMissingException when a succeeded snapshot that would settle has no rates; nothing is written
+     * @param  bool  $flagUnpricedOrphan  the generation was fetched and still has no rates: record an
+     *                                    orphan without its cost instead of throwing (ReconcileTakeAction)
+     *
+     * @throws SnapshotRatesMissingException when a succeeded snapshot that would settle, or price an orphan, has no rates; nothing is written
      */
-    public function execute(Take $take, GenerationSnapshotDTO $snapshot): TransitionOutcome
+    public function execute(Take $take, GenerationSnapshotDTO $snapshot, bool $flagUnpricedOrphan = false): TransitionOutcome
     {
         try {
-            return $this->apply($take, $snapshot);
+            return $this->apply($take, $snapshot, $flagUnpricedOrphan);
         } catch (Throwable $exception) {
             // The rollback undoes the database, not the caller's model: never
             // hand back a take that still carries an unsaved transition.
@@ -58,9 +64,9 @@ final readonly class ApplyTakeSnapshotAction
         }
     }
 
-    private function apply(Take $take, GenerationSnapshotDTO $snapshot): TransitionOutcome
+    private function apply(Take $take, GenerationSnapshotDTO $snapshot, bool $flagUnpricedOrphan): TransitionOutcome
     {
-        return DB::transaction(function () use ($take, $snapshot): TransitionOutcome {
+        return DB::transaction(function () use ($take, $snapshot, $flagUnpricedOrphan): TransitionOutcome {
             // Lock order: the take first; Settle/Void then lock only the
             // customer (spec 3-03 §6). Everything below decides on the row as
             // it is under this lock, never on the caller's copy.
@@ -82,17 +88,25 @@ final readonly class ApplyTakeSnapshotAction
 
             $outcome = $this->decide($take, $snapshot);
 
-            // Never settle without the generation's own rates (D-055, D-077).
-            // Checked before any write: the caller fetches the generation
-            // (GET /v1/generations/{id}, outside any transaction) and applies that.
-            if ($outcome === TransitionOutcome::Applied && $snapshot->status === TakeStatus::Succeeded && $snapshot->rates === null) {
+            // Never price without the generation's own rates (D-055, D-077):
+            // neither a settlement nor an orphan's absorbed cost not yet
+            // recorded (#102). Checked before any write: the caller fetches the
+            // generation (GET /v1/generations/{id}, outside any transaction)
+            // and applies that. An orphan may still be recorded without its
+            // cost: when the caller asks (the webhook's signed snapshot, or a
+            // fetched generation without rates either), and on a retry once
+            // the usage already carries the orphan flag, which is then
+            // acknowledged instead of answering 5xx again. A settlement
+            // without rates always throws.
+            if ($snapshot->status === TakeStatus::Succeeded && $snapshot->rates === null && $this->wouldPrice($take, $outcome)
+                && ! ($outcome === TransitionOutcome::OrphanSuccess && ($flagUnpricedOrphan || $this->isFlaggedOrphan($take)))) {
                 throw new SnapshotRatesMissingException($take->id, $snapshot->id);
             }
 
             $firstAccepted = $take->pixelforge_id === null;
 
             // Missing facts (spec 5 step 2). A terminal take keeps the
-            // generation id it had when it finished: mayHideAGeneration()
+            // generation id it had when it finished: failureMayHideAGeneration()
             // reads it as "Pixelforge had accepted it when we failed it", so
             // only the orphan, the one outcome that adopts the late
             // generation, may add it. Otherwise a replay could reclassify.
@@ -113,7 +127,7 @@ final readonly class ApplyTakeSnapshotAction
             if ($outcome === TransitionOutcome::Applied) {
                 $this->advance($take, $snapshot);
             } elseif ($outcome === TransitionOutcome::OrphanSuccess) {
-                $this->recordOrphan($take);
+                $this->recordOrphan($take, $snapshot);
             } elseif ($outcome === TransitionOutcome::IgnoredConflict) {
                 // A terminal take contradicted by the provider: always flagged (spec 5 matrix).
                 $this->flag($take, AttentionReason::InternalFailure);
@@ -126,6 +140,23 @@ final readonly class ApplyTakeSnapshotAction
 
             return $outcome;
         });
+    }
+
+    /** The take's usage already carries the `orphan` flag (recorded, maybe without its cost). */
+    private function isFlaggedOrphan(Take $take): bool
+    {
+        return in_array(UsageFlag::Orphan->value, $take->usageRecord()->firstOrFail()->flags, true);
+    }
+
+    /**
+     * Whether applying this outcome computes a cost from the snapshot's rates:
+     * a settlement, or an orphan whose absorbed cost is not recorded yet (a
+     * replay of a priced orphan only re-flags it).
+     */
+    private function wouldPrice(Take $take, TransitionOutcome $outcome): bool
+    {
+        return $outcome === TransitionOutcome::Applied
+            || ($outcome === TransitionOutcome::OrphanSuccess && $take->usageRecord()->value('absorbed_cost_nanos') === null);
     }
 
     /**
@@ -166,24 +197,9 @@ final readonly class ApplyTakeSnapshotAction
             ! $to->isTerminal() => TransitionOutcome::IgnoredStale,
             // Terminal → the other terminal: an orphan when our local failure
             // may have hidden a generation Pixelforge really ran.
-            $to === TakeStatus::Succeeded && $this->mayHideAGeneration($take) => TransitionOutcome::OrphanSuccess,
+            $to === TakeStatus::Succeeded && $take->failureMayHideAGeneration() => TransitionOutcome::OrphanSuccess,
             default => TransitionOutcome::IgnoredConflict,
         };
-    }
-
-    /**
-     * submit_timeout: the ambiguous submit window expired (D-025, D-049).
-     * internal on a take Pixelforge had accepted: we failed it free, e.g. on
-     * a revoked key (D-062), while it kept running (D-077). "Accepted" is the
-     * pixelforge_id the take had when it failed, a fact frozen at failure
-     * time: a failed take adopts a generation id only as an orphan, so every
-     * replay of the same late success classifies the same way. Every other
-     * local code means nothing was created.
-     */
-    private function mayHideAGeneration(Take $take): bool
-    {
-        return $take->failure_code === FailureCode::SubmitTimeout
-            || ($take->failure_code === FailureCode::Internal && $take->pixelforge_id !== null);
     }
 
     /**
@@ -245,20 +261,59 @@ final readonly class ApplyTakeSnapshotAction
     /**
      * Pixelforge ran a generation we had already failed, free: after the
      * ambiguous submit window (D-025), or after an internal failure of a take
-     * it had accepted (D-077). The customer keeps "failed, not charged": the
-     * usage stays voided and the cost is absorbed. Both rows
-     * carry a durable flag for Needs attention and reconciliation (D-054, D-058).
+     * it had accepted (D-077) or whose submit was in doubt (D-082). The
+     * customer keeps "failed, not charged": the usage stays voided and the
+     * cost is absorbed. Both rows carry a durable flag for Needs attention
+     * and reconciliation (D-054, D-058).
+     *
+     * The absorbed cost (units × the generation's own rates, on its UTC
+     * billing day) is kept on the voided usage, never in the ledger, so
+     * `billing:verify --usage` can attribute that day's Pixelforge cost
+     * (issue #102). Recorded once: a replay of the same late success finds it.
+     * apply() refused an unpriced orphan snapshot without rates unless the
+     * caller asked to flag it anyway or it is already flagged: then the flags
+     * are recorded and the cost stays null. Only a snapshot with rates prices
+     * it later (the webhook's one-off fetch, or an operator's Reconcile now).
      */
-    private function recordOrphan(Take $take): void
+    private function recordOrphan(Take $take, GenerationSnapshotDTO $snapshot): void
     {
         $this->flag($take, AttentionReason::OrphanSuccess);
 
         $usage = $take->usageRecord()->firstOrFail();
+        $changes = [];
 
-        // Not a money write: the usage is voided, so Settle/Void ignore it,
-        // and the take lock serializes every writer of this take's usage.
         if (! in_array(UsageFlag::Orphan->value, $usage->flags, true)) {
-            $usage->forceFill(['flags' => [...$usage->flags, UsageFlag::Orphan->value]])->save();
+            $changes['flags'] = [...$usage->flags, UsageFlag::Orphan->value];
+        }
+
+        if ($usage->absorbed_cost_nanos === null && $snapshot->rates !== null) {
+            // invalidReason() rejected a succeeded snapshot without usage or completion time.
+            assert($snapshot->usage !== null && $snapshot->completedAt !== null);
+
+            $units = new UsageUnitsDTO($snapshot->usage->toUnits());
+            $rates = new RatesSnapshotDTO($snapshot->rates->toNanosPerMillion());
+
+            // The same columns SettleUsageAction fills, so the row is whole.
+            foreach (UsageKind::cases() as $kind) {
+                $changes[$kind->tokenColumn()] = $units->tokens($kind);
+            }
+
+            $changes = [
+                ...$changes,
+                'units' => $units->tokens,
+                'rates' => $rates->toArray(),
+                'absorbed_cost_nanos' => $this->tokenCost->compute($units->tokens, $rates->toArray(), ['usage_record_id' => $usage->id])->toInt(),
+                'external_id' => $snapshot->id,
+                'completed_at' => $snapshot->completedAt->utc(),
+                'billing_date' => $snapshot->completedAt->utc()->toDateString(),
+            ];
+        }
+
+        // Not a money write: the usage is voided (cost and charge stay 0), so
+        // Settle/Void ignore it, and the take lock serializes every writer of
+        // this take's usage.
+        if ($changes !== []) {
+            $usage->forceFill($changes)->save();
         }
     }
 

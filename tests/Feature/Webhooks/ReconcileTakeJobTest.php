@@ -2,17 +2,24 @@
 
 declare(strict_types=1);
 
+use App\Actions\Takes\ApplyTakeSnapshotAction;
+use App\Actions\Takes\FailTakeAction;
 use App\Actions\Takes\ReconcileTakeAction;
+use App\Actions\Takes\ReconcileTakeNowAction;
 use App\Enums\Billing\UsageStatus;
 use App\Enums\Takes\AttentionReason;
 use App\Enums\Takes\FailureCode;
 use App\Enums\Takes\ReconcileStatus;
+use App\Enums\Takes\SubmitErrorKind;
 use App\Enums\Takes\TakeStatus;
+use App\Enums\Webhooks\WebhookOutcome;
 use App\Events\TakeUpdated;
 use App\Exceptions\Billing\TransactionNotAllowedException;
 use App\Jobs\ReconcileTakeJob;
 use App\Models\LedgerEntry;
 use App\Models\Take;
+use App\Models\User;
+use App\Models\WebhookDelivery;
 use App\Support\Takes\ReconcileStopMarker;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
@@ -22,6 +29,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Tests\Support\PixelforgeFixture;
+use Tests\Support\PixelforgeWebhook;
 use Tests\Support\Takes;
 
 /*
@@ -190,6 +198,224 @@ it('does nothing for a terminal take', function (): void {
 
     Http::assertNothingSent();
 });
+
+it('fetches the generation of an orphan that arrived without rates and records its absorbed cost (#102)', function (): void {
+    $take = Takes::pendingWithHold(['last_submit_error_kind' => SubmitErrorKind::Ambiguous]);
+    app(FailTakeAction::class)->execute($take, FailureCode::SubmitTimeout, 'Submit window expired.');
+    $generationId = Takes::generationId($take);
+    fakeGeneration($take, 'succeeded', ['id' => $generationId]);
+
+    // What the webhook handler dispatches after ApplyTakeSnapshotAction threw (ReconcileTakeJob::fetchNow).
+    Queue::fake();
+    app()->call([new ReconcileTakeJob($take->id, 0, false, $generationId), 'handle']);
+
+    $usage = Takes::usage($take);
+
+    expect($take->refresh()->status)->toBe(TakeStatus::Failed)
+        ->and($take->attention_reason)->toBe(AttentionReason::OrphanSuccess)
+        ->and($usage->status)->toBe(UsageStatus::Voided)
+        ->and($usage->absorbed_cost_nanos)->toBe(305_510_000)
+        ->and(LedgerEntry::query()->where('type', 'charge')->count())->toBe(0);
+    Http::assertSentCount(1);
+});
+
+it('does not fetch a failed take whose orphan cost is already recorded', function (): void {
+    $take = Takes::pendingWithHold(['last_submit_error_kind' => SubmitErrorKind::Ambiguous]);
+    app(FailTakeAction::class)->execute($take, FailureCode::SubmitTimeout, 'Submit window expired.');
+    app(ApplyTakeSnapshotAction::class)->execute($take, Takes::snapshot($take, 'succeeded'));
+    Http::fake();
+
+    runReconcile($take->refresh());
+
+    Http::assertNothingSent();
+});
+
+it('records the orphan without its cost when the fetched generation has no rates either', function (): void {
+    Log::spy();
+    $take = Takes::pendingWithHold(['last_submit_error_kind' => SubmitErrorKind::Ambiguous]);
+    app(FailTakeAction::class)->execute($take, FailureCode::SubmitTimeout, 'Submit window expired.');
+    $generationId = Takes::generationId($take);
+    fakeGeneration($take, 'succeeded', ['id' => $generationId, 'rates' => null]);
+
+    $result = app(ReconcileTakeAction::class)->execute($take, $generationId);
+    $usage = Takes::usage($take);
+
+    expect($result->status)->toBe(ReconcileStatus::Terminal)
+        ->and($take->refresh()->status)->toBe(TakeStatus::Failed)
+        ->and($take->failure_code)->toBe(FailureCode::SubmitTimeout)
+        ->and($take->pixelforge_id)->toBe($generationId)
+        ->and($take->attention_reason)->toBe(AttentionReason::OrphanSuccess)
+        ->and($usage->status)->toBe(UsageStatus::Voided)
+        ->and($usage->flags)->toBe(['orphan'])
+        ->and($usage->absorbed_cost_nanos)->toBeNull()
+        ->and(LedgerEntry::query()->where('type', 'charge')->count())->toBe(0)
+        ->and(ReconcileStopMarker::stopped([$take->id]))->toBe([]);
+    Log::shouldHaveReceived('critical')->withArgs(fn (string $message): bool => str_contains($message, 'orphan success without its cost'))->once();
+});
+
+it('never re-polls a failed take that may hide a generation without a webhook asking', function (Closure $poll): void {
+    // internal after acceptance: it keeps its pixelforge_id, and no orphan cost is recorded.
+    $take = Takes::in('processing');
+    app(FailTakeAction::class)->execute($take, FailureCode::Internal, 'Revoked key while reconciling.');
+    Http::fake();
+
+    $poll($take->refresh());
+
+    Http::assertNothingSent();
+    expect($take->refresh()->attention_reason)->toBe(AttentionReason::InternalFailure);
+})->with([
+    'chain poll' => [fn (Take $take) => runReconcile($take)],
+    // An operator's single-take reconcile only re-polls a take already recorded as an unpriced orphan.
+    'reconcile now' => [fn (Take $take) => app(ReconcileTakeAction::class)->execute($take, operator: true)],
+]);
+
+it('keeps a failed take\'s failure reason when the orphan fetch is rejected', function (int $status, string $code): void {
+    $take = Takes::in('processing');
+    app(FailTakeAction::class)->execute($take, FailureCode::Internal, 'Revoked key while reconciling.');
+    $take->refresh();
+    Http::fake(['pixelforge.test/v1/generations/*' => Http::response(PixelforgeFixture::error($code), $status)]);
+
+    $result = app(ReconcileTakeAction::class)->execute($take, (string) $take->pixelforge_id);
+
+    expect($result->status)->toBe(ReconcileStatus::Terminal)
+        ->and($take->refresh()->status)->toBe(TakeStatus::Failed)
+        ->and($take->failure_code)->toBe(FailureCode::Internal)
+        ->and($take->attention_reason)->toBe(AttentionReason::InternalFailure)
+        ->and(ReconcileStopMarker::stopped([$take->id]))->toBe([]);
+    Http::assertSentCount(1);
+})->with([
+    '404' => [404, 'not_found'],
+    '401' => [401, 'invalid_api_key'],
+]);
+
+/** A take that failed submit_timeout: its late success is an orphan (D-025). */
+function submitTimeoutTake(): Take
+{
+    $take = Takes::pendingWithHold(['last_submit_error_kind' => SubmitErrorKind::Ambiguous]);
+    app(FailTakeAction::class)->execute($take, FailureCode::SubmitTimeout, 'Submit window expired.');
+
+    return $take->refresh();
+}
+
+it('records the orphan from the signed webhook when the fetch is rejected, and acknowledges the retry', function (int $status, string $code): void {
+    PixelforgeWebhook::configure();
+    config(['pixelforge.base_url' => 'https://pixelforge.test/v1', 'pixelforge.api_key' => 'pf_test_reconcile']);
+    $take = submitTimeoutTake();
+    $generationId = 'gen_'.$take->id;
+    $event = PixelforgeWebhook::forTake($take, 'succeeded', 'evt_orphan_no_rates_0001', ['id' => $generationId, 'rates' => null]);
+    Queue::fake();
+
+    // The rate-less delivery answers 5xx (D-077(a)), but the orphan is already recorded from its signed snapshot.
+    PixelforgeWebhook::post($this, $event, attempt: 1)->assertServerError();
+
+    expect($take->refresh()->attention_reason)->toBe(AttentionReason::OrphanSuccess)
+        ->and($take->pixelforge_id)->toBe($generationId)
+        ->and(Takes::usage($take)->flags)->toBe(['orphan'])
+        ->and(Takes::usage($take)->absorbed_cost_nanos)->toBeNull();
+
+    $fetch = null;
+    Queue::assertPushed(ReconcileTakeJob::class, function (ReconcileTakeJob $job) use (&$fetch): bool {
+        $fetch = $job;
+
+        return $job->generationId !== null && ! $job->continuesChain;
+    });
+
+    // The one-off fetch is rejected (a revoked key, or Pixelforge no longer has it).
+    Http::fake(['pixelforge.test/v1/generations/*' => Http::response(PixelforgeFixture::error($code), $status)]);
+    Queue::fake();
+    app()->call([$fetch, 'handle']);
+
+    $usage = Takes::usage($take);
+
+    expect($take->refresh()->status)->toBe(TakeStatus::Failed)
+        ->and($take->failure_code)->toBe(FailureCode::SubmitTimeout)
+        ->and($take->attention_reason)->toBe(AttentionReason::OrphanSuccess)
+        ->and($usage->status)->toBe(UsageStatus::Voided)
+        ->and($usage->flags)->toBe(['orphan'])
+        ->and(LedgerEntry::query()->where('type', 'charge')->count())->toBe(0);
+    Http::assertSentCount(1);
+
+    // Pixelforge retries the same rate-less delivery: acknowledged, no 5xx loop.
+    PixelforgeWebhook::post($this, $event, attempt: 2)->assertOk()->assertExactJson(['status' => 'orphan_success']);
+
+    expect(WebhookDelivery::query()->sole()->outcome)->toBe(WebhookOutcome::OrphanSuccess);
+    Queue::assertNotPushed(ReconcileTakeJob::class);
+})->with([
+    '401' => [401, 'invalid_api_key'],
+    '404' => [404, 'not_found'],
+]);
+
+it('flags a rejected orphan fetch durably when the take has no attention reason yet', function (): void {
+    $take = submitTimeoutTake();
+    Http::fake(['pixelforge.test/v1/generations/*' => Http::response(PixelforgeFixture::error('not_found'), 404)]);
+
+    $result = app(ReconcileTakeAction::class)->execute($take, Takes::generationId($take));
+
+    expect($result->status)->toBe(ReconcileStatus::Terminal)
+        ->and($take->refresh()->failure_code)->toBe(FailureCode::SubmitTimeout)
+        ->and($take->attention_reason)->toBe(AttentionReason::ReconcileExhausted);
+});
+
+it('lets an operator price an orphan recorded without its cost', function (Closure $reconcile): void {
+    $take = submitTimeoutTake();
+    app(ApplyTakeSnapshotAction::class)->execute(
+        $take,
+        Takes::snapshot($take, 'succeeded', ['rates' => null]),
+        flagUnpricedOrphan: true,
+    );
+    expect(Takes::usage($take)->absorbed_cost_nanos)->toBeNull();
+    fakeGeneration($take->refresh(), 'succeeded');
+    Queue::fake();
+
+    $reconcile($this, $take);
+
+    expect(Takes::usage($take)->absorbed_cost_nanos)->toBe(305_510_000)
+        ->and(Takes::usage($take)->flags)->toBe(['orphan'])
+        ->and($take->refresh()->attention_reason)->toBe(AttentionReason::OrphanSuccess)
+        ->and(LedgerEntry::query()->where('type', 'charge')->count())->toBe(0);
+    Http::assertSentCount(1);
+    Queue::assertNotPushed(ReconcileTakeJob::class);
+})->with([
+    'takes:reconcile --take' => [fn ($test, Take $take) => $test->artisan('takes:reconcile', ['--take' => $take->id])->assertSuccessful()],
+    'admin Reconcile now' => [fn ($test, Take $take) => app(ReconcileTakeNowAction::class)->execute(User::factory()->create(), $take)],
+]);
+
+it('keeps the cost null when an operator\'s fetch still has no rates', function (): void {
+    Log::spy();
+    $take = submitTimeoutTake();
+    app(ApplyTakeSnapshotAction::class)->execute($take, Takes::snapshot($take, 'succeeded', ['rates' => null]), flagUnpricedOrphan: true);
+    fakeGeneration($take->refresh(), 'succeeded', ['rates' => null]);
+
+    $result = app(ReconcileTakeAction::class)->execute($take, operator: true);
+
+    expect($result->status)->toBe(ReconcileStatus::Terminal)
+        ->and(Takes::usage($take)->absorbed_cost_nanos)->toBeNull()
+        ->and(Takes::usage($take)->flags)->toBe(['orphan']);
+    Log::shouldHaveReceived('critical')->withArgs(fn (string $message): bool => str_contains($message, 'orphan success without its cost'))->once();
+});
+
+it('fetches the orphan of an internal failure during an in-doubt submit by the webhook\'s generation id', function (?array $rates, ?int $absorbed): void {
+    // A counted attempt never answered (D-082), then internal: no pixelforge_id was ever stored.
+    $take = Takes::pendingWithHold(['last_submit_error_kind' => null, 'submit_attempts' => 1]);
+    app(FailTakeAction::class)->execute($take, FailureCode::Internal, 'Revoked key while retrying.');
+    $generationId = Takes::generationId($take->refresh());
+    expect($take->pixelforge_id)->toBeNull();
+    fakeGeneration($take, 'succeeded', ['id' => $generationId, ...($rates === null ? ['rates' => null] : [])]);
+
+    $result = app(ReconcileTakeAction::class)->execute($take, $generationId);
+    $usage = Takes::usage($take);
+
+    expect($result->status)->toBe(ReconcileStatus::Terminal)
+        ->and($take->refresh()->pixelforge_id)->toBe($generationId)
+        ->and($take->failure_code)->toBe(FailureCode::Internal)
+        ->and($take->attention_reason)->toBe(AttentionReason::OrphanSuccess)
+        ->and($usage->flags)->toBe(['orphan'])
+        ->and($usage->absorbed_cost_nanos)->toBe($absorbed)
+        ->and(LedgerEntry::query()->where('type', 'charge')->count())->toBe(0);
+})->with([
+    'priced with its rates' => [[], 305_510_000],
+    'recorded without cost when it has none' => [null, null],
+]);
 
 it('does nothing without an API key', function (): void {
     config(['pixelforge.api_key' => '']);

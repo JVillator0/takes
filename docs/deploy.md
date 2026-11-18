@@ -203,6 +203,26 @@ curl -s -o /dev/null -w 'status=%{http_code} connect=%{time_connect}s ttfb=%{tim
 | Webhook endpoint right after the cold page (invalid signature) | 401 in 0.31 s, nothing written |
 | Signed webhook ping after idle (target < 10 s) | the dashboard test event was answered 200 (row `ping`); its latency after idle was not captured, Pixelforge's Recent deliveries shows it |
 
+## Final verification (2026-11-18, main `e2ebaf9`, after #164 to #174)
+
+The deploy of `e2ebaf9` (#170) succeeded at 02:16:49 UTC (`depl-a3405bac-d52d-46d7-8e71-b8be478c1d41`), after the deploys of #166, #169, #165, #164, #172, #174 and #168. All 24 migrations ran and none is pending. The ones added since the smoke test: `add_absorbed_cost_nanos_to_usage_records_table` (#166, D-087), `add_customer_id_id_index_to_ledger_entries_table` (#169), `add_failure_reason_check_to_suggestions_table` (#164), `add_demo_seeded_at_to_customers_table` (#172) and `add_settled_billing_date_index_to_usage_records_table` (#170). No takes were generated for this check.
+
+| Check (UTC) | Result |
+|---|---|
+| `php artisan billing:verify` (02:17:47) | Billing invariants hold. |
+| `php artisan billing:verify --usage` (02:17:53, default range) | Pixelforge usage matches from 2026-11-11 to 2026-11-17; invariants hold. |
+| `php artisan billing:verify --usage --from=2026-11-17 --to=2026-11-18` (02:17:59) | Pixelforge usage matches from 2026-11-17 to 2026-11-18; invariants hold. |
+| SQL (02:18:13): open usage records | 0 |
+| SQL: takes `pending`/`queued`/`processing` older than 30 min (and in total) | 0 (0) |
+| SQL: customers whose `balance_nanos` ≠ Σ ledger | 0 |
+| SQL: customers whose `held_nanos` ≠ Σ open `max_charge_nanos` | 0 |
+| SQL: `charge` ledger rows whose usage is not `settled` | 0 |
+| Data at that moment | 32 takes, 6 customers, 40 ledger rows |
+| `/` after waiting 12 min (02:30:30) | 200, TTFB 0.60 s: **not a cold start**. Other traffic (QA re-checks) hit the app every minute until 02:25, so it never scaled to zero (environment metrics) |
+| `/` after a second 12 min wait (02:43:48) | 200, TTFB 0.48 s: **not a cold start** either (requests at 02:32, 02:36 and 02:41) |
+| Cold start figures that stand | 2.98 s (2026-11-17 21:01) and 2.73 s (23:54) to first byte after 12 min of real idle, see [Smoke and cold start](#smoke-and-cold-start) |
+| Signed webhook ping after idle | not captured: a Pixelforge test event can only be sent from the dashboard, and its delivery latency was not read there |
+
 ## Rotating keys
 
 Values live in the password manager; nothing secret is stored in this repository.

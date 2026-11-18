@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Actions\Billing\OpenUsageAction;
 use App\Actions\Billing\SettleUsageAction;
 use App\Actions\Billing\VoidUsageAction;
+use App\DTOs\Billing\AbsorbedUsageDTO;
 use App\DTOs\Billing\EstimateDTO;
 use App\DTOs\Billing\RatesSnapshotDTO;
 use App\DTOs\Billing\UsageUnitsDTO;
@@ -437,6 +438,93 @@ describe('void', function (): void {
 
         // The second void must not release the other usage's hold.
         expect($this->customer->refresh()->held_nanos)->toBe($other->max_charge_nanos);
+        Billing::assertCachedColumnsMatch($this->customer);
+    });
+});
+
+/*
+ * Absorbed cost (spec 8 budget, D-087): provider work that failed but was
+ * still billed. Free for the customer; recorded once, never on a settled usage.
+ */
+describe('void with absorbed provider cost', function (): void {
+    beforeEach(function (): void {
+        $suggestion = Suggestion::factory()->create(['customer_id' => $this->customer->id]);
+        $this->usage = DB::transaction(fn (): UsageRecord => app(OpenUsageAction::class)->execute(
+            $suggestion, Provider::Anthropic, Billing::estimate(400_000, 50_000), Billing::anthropicRates(), 'claude-haiku-5-5',
+        ));
+        // 1,480 input × 100 + 3 output × 500 = 149,500.
+        $this->absorbed = AbsorbedUsageDTO::fromArray([
+            'units' => new UsageUnitsDTO(['input_text' => 1_480, 'output' => 3]),
+            'rates' => Billing::anthropicRates(),
+            'completed_at' => CarbonImmutable::parse('2026-11-17T10:00:00Z'),
+            'external_id' => 'msg_01Refusal',
+        ]);
+    });
+
+    function absorb(UsageRecord $usage, AbsorbedUsageDTO $absorbed): UsageRecord
+    {
+        return DB::transaction(fn (): UsageRecord => app(VoidUsageAction::class)->execute($usage, $absorbed));
+    }
+
+    it('voids an open usage free and records what the provider billed', function (): void {
+        $voided = absorb($this->usage, $this->absorbed);
+        $this->customer->refresh();
+
+        expect($voided->status)->toBe(UsageStatus::Voided)
+            ->and($voided->provider_cost_nanos)->toBe(0)
+            ->and($voided->charge_nanos)->toBe(0)
+            ->and($voided->absorbed_cost_nanos)->toBe(149_500)
+            ->and($voided->units)->toBe(['input_text' => 1_480, 'output' => 3])
+            ->and($voided->input_text_tokens)->toBe(1_480)
+            ->and($voided->output_tokens)->toBe(3)
+            ->and($voided->external_id)->toBe('msg_01Refusal')
+            ->and($voided->completed_at?->toIso8601String())->toBe('2026-11-17T10:00:00+00:00')
+            ->and($voided->billing_date?->toDateString())->toBe('2026-11-17')
+            ->and($this->customer->held_nanos)->toBe(0)
+            ->and($this->customer->balance_nanos)->toBe(10_000_000_000)
+            ->and(LedgerEntry::query()->where('usage_record_id', $voided->id)->count())->toBe(0);
+
+        Billing::assertCachedColumnsMatch($this->customer);
+    });
+
+    it('records absorbed cost on a usage voided earlier, without moving the hold again', function (): void {
+        $other = Billing::openForNewTake($this->customer);
+        DB::transaction(fn () => app(VoidUsageAction::class)->execute($this->usage));
+
+        $voided = absorb($this->usage, $this->absorbed);
+
+        expect($voided->status)->toBe(UsageStatus::Voided)
+            ->and($voided->absorbed_cost_nanos)->toBe(149_500)
+            ->and($this->customer->refresh()->held_nanos)->toBe($other->max_charge_nanos);
+
+        Billing::assertCachedColumnsMatch($this->customer);
+    });
+
+    it('ignores a second absorb: the first record stays', function (): void {
+        absorb($this->usage, $this->absorbed);
+
+        $again = absorb($this->usage, new AbsorbedUsageDTO(
+            new UsageUnitsDTO(['input_text' => 9_999, 'output' => 600]), Billing::anthropicRates(), CarbonImmutable::now(), 'msg_02',
+        ));
+
+        expect($again->absorbed_cost_nanos)->toBe(149_500)
+            ->and($again->input_text_tokens)->toBe(1_480)
+            ->and($again->external_id)->toBe('msg_01Refusal');
+    });
+
+    it('is a no-op on a settled usage: no absorbed cost, the charge stays', function (): void {
+        $settled = DB::transaction(fn (): UsageRecord => app(SettleUsageAction::class)->execute(
+            $this->usage, new UsageUnitsDTO(['input_text' => 1_000, 'output' => 600]), Billing::anthropicRates(), CarbonImmutable::now(), 'msg_01',
+        ));
+
+        $result = absorb($settled, $this->absorbed);
+
+        expect($result->status)->toBe(UsageStatus::Settled)
+            ->and($result->absorbed_cost_nanos)->toBeNull()
+            ->and($result->charge_nanos)->toBe(500_000)
+            ->and($result->input_text_tokens)->toBe(1_000)
+            ->and($this->customer->refresh()->balance_nanos)->toBe(10_000_000_000 - 500_000);
+
         Billing::assertCachedColumnsMatch($this->customer);
     });
 });

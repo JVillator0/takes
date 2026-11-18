@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 use App\Enums\Takes\FailureCode;
 use App\Enums\Takes\SubmitErrorKind;
+use App\Exceptions\Suggestions\BaseImageUnavailableException;
 use App\Models\Take;
+use App\Queries\Takes\ListReferenceImageUrlsQuery;
 use App\Support\Takes\TakeImageUrl;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Support\Facades\Queue;
@@ -120,21 +122,33 @@ function providerReference(Take $source): string
     return 'https://'.config()->string('pixelforge.image_host')."/images/{$source->pixelforge_id}.png?expires=1&signature=x";
 }
 
-it('never exposes provider data', function (string $status): void {
+it('never exposes provider data', function (string $status, bool $persisted): void {
     $take = Takes::in($status);
-    // A reference to another take image, stored as the provider's URL, and
-    // one of the customer's own: the scan reaches referenceImages (#140).
-    $take->forceFill(['reference_images' => [
-        providerReference(referencedTake($take, persisted: true)),
-        'https://images.example/ref-1.png',
-    ]])->save();
+    // A reference to another take image, stored as the provider's signed URL
+    // (still valid), and one of the customer's own. The scan reaches
+    // referenceImages; like imageUrl, its entries may be the provider's URL,
+    // spec 4's documented fallback until the image is persisted.
+    $source = referencedTake($take, $persisted);
+    $take->forceFill(['reference_images' => [providerReference($source), 'https://images.example/ref-1.png']])->save();
 
     $data = $this->actingAs($take->customer()->firstOrFail(), 'customer')
         ->getJson(route('takes.show', $take))
         ->json('data');
 
     expect(ProviderLeak::find($data))->toBe([]);
-})->with(['pending', 'queued', 'processing', 'succeeded', 'failed']);
+
+    // Re-signed like Remix does: our persisted copy, else the provider's URL
+    // while valid. Nothing is left out, so Try again keeps the same inputs (D-044).
+    expect($data['referenceImages'])->toBe([TakeImageUrl::forReference($source), 'https://images.example/ref-1.png'])
+        ->and($data['referencesNotice'])->toBeNull();
+
+    if ($persisted) {
+        expect($data['referenceImages'][0])->not->toContain(config()->string('pixelforge.image_host'))
+            ->not->toBe($source->image_url);
+    } else {
+        expect($data['referenceImages'][0])->toBe($source->image_url);
+    }
+})->with(['pending', 'queued', 'processing', 'succeeded', 'failed'])->with(['persisted copy' => true, 'not persisted yet' => false]);
 
 it('is the same 404 for another customer and an unknown take', function (string $route): void {
     $take = Takes::in('succeeded');
@@ -211,6 +225,23 @@ it('re-issues take-image references for the drawer and drops the ones that no lo
 
     expect($data['referenceImages'])->toBe([TakeImageUrl::forReference($persisted), 'https://images.example/ref-1.png'])
         ->and($data['referenceImages'][0])->not->toBe($issued)
-        // The parameters line still counts what the take was created with.
-        ->and($data['paramsLine'])->toContain('3 references');
+        // The parameters line still counts what the take was created with,
+        // and Remix / Try again say what they leave out (2-01, #167).
+        ->and($data['paramsLine'])->toContain('3 references')
+        ->and($data['referencesNotice'])->toBe('1 earlier reference image is no longer available and was left out.');
+
+    // The one left out is exactly the one creating a take would refuse.
+    $attach = app(ListReferenceImageUrlsQuery::class);
+    expect(fn () => $attach->execute($take->customer_id, [providerReference($expiring)]))->toThrow(BaseImageUnavailableException::class)
+        ->and($attach->execute($take->customer_id, [$issued, 'https://images.example/ref-1.png']))->toBe($data['referenceImages']);
+});
+
+it('says nothing is left out when every reference still resolves', function (): void {
+    $take = Takes::in('succeeded');
+    $take->forceFill(['reference_images' => ['https://images.example/ref-1.png']])->save();
+
+    $data = $this->actingAs($take->customer()->firstOrFail(), 'customer')->getJson(route('takes.show', $take))->json('data');
+
+    expect($data['referenceImages'])->toBe(['https://images.example/ref-1.png'])
+        ->and($data['referencesNotice'])->toBeNull();
 });

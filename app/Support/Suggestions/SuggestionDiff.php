@@ -19,9 +19,10 @@ use App\Models\Take;
 final class SuggestionDiff
 {
     /**
+     * @param  bool  $referenceUnavailable  ProposalReferences::referenceUnavailable(), computed once by the caller
      * @return array<string, mixed>
      */
-    public static function build(TakeChangeProposalDTO $proposal, Take $base): array
+    public static function build(TakeChangeProposalDTO $proposal, Take $base, bool $referenceUnavailable): array
     {
         $baseReferences = count($base->reference_images);
         $keptReferences = $proposal->keepReferences ? $baseReferences : 0;
@@ -45,7 +46,7 @@ final class SuggestionDiff
                     $afterReferences,
                     $proposal->referenceCount($baseReferences) !== $baseReferences || $proposal->addBaseImageAsReference,
                     // The base image or a kept take-image reference no longer resolves (#133).
-                    ProposalReferences::referenceUnavailable($proposal, $base) ? self::copy('takes.image_unavailable') : null,
+                    $referenceUnavailable ? self::copy('takes.image_unavailable') : null,
                 ),
             ],
         ];

@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import { ChevronUp, EllipsisVertical } from '@lucide/vue';
-import { useMediaQuery } from '@vueuse/core';
+import { useElementSize, useMediaQuery } from '@vueuse/core';
 import { computed, nextTick, ref, shallowRef, watch } from 'vue';
 import { toast } from 'vue-sonner';
 import InputError from '@/components/InputError.vue';
 import LiveIndicator from '@/components/takes/LiveIndicator.vue';
+import ShowcaseNotice from '@/components/takes/ShowcaseNotice.vue';
 import DescribeChangePanel from '@/components/takes/DescribeChangePanel.vue';
 import TakeComposer from '@/components/takes/TakeComposer.vue';
 import TakeDrawer from '@/components/takes/TakeDrawer.vue';
@@ -29,6 +30,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useBuyCredits } from '@/composables/useBuyCredits';
 import { useCopy } from '@/composables/useCopy';
+import { useReturnFocus } from '@/composables/useReturnFocus';
 import { useTakeUpdates } from '@/composables/useTakeUpdates';
 import StudioLayout from '@/layouts/StudioLayout.vue';
 import {
@@ -135,6 +137,17 @@ const filter = computed({
         );
     },
 });
+
+/**
+ * The pill's On hold opens this project's In progress filter (2-02), in
+ * place: the same partial visit as the filter tabs, so the composer draft,
+ * the drawer and the live subscription stay. On hold is account-wide: with
+ * nothing in progress here, the holds are in other projects, so the pill
+ * links to the projects list (their in-progress badges) instead.
+ */
+const showHolds = (): void => {
+    filter.value = 'in_progress';
+};
 
 const loadMore = (): void => {
     router.reload({
@@ -244,13 +257,34 @@ const composerRef = ref<InstanceType<typeof TakeComposer> | null>(null);
 const composerPanel = ref<HTMLElement | null>(null);
 const sheetExpanded = ref(false);
 /*
- * Below lg (64rem, Tailwind's breakpoint) the collapsed sheet only clips
- * the composer; inert takes its controls out of the tab order, so a hidden
- * Cmd/Ctrl+Enter can never start a paid take (F-20).
+ * Below lg (64rem, Tailwind's breakpoint) the collapsed sheet keeps the
+ * prompt and Generate · up to $x in view (P10); the rest of the composer is
+ * hidden, so nothing out of view stays focusable (F-20). A created take
+ * collapses the sheet so its new card is visible.
  */
 const isDesktop = useMediaQuery('(min-width: 64rem)');
 const composerCollapsed = computed(
     () => !isDesktop.value && !sheetExpanded.value,
+);
+
+/*
+ * The grid ends above the collapsed sheet, whatever it holds (a denied
+ * estimate, an error): its measured height, kept while it is collapsed so
+ * expanding (an overlay) does not move the grid. Desktop keeps lg:pb-6.
+ */
+const { height: sheetHeight } = useElementSize(composerPanel, undefined, {
+    box: 'border-box',
+});
+const collapsedSheetHeight = ref(0);
+watch([sheetHeight, composerCollapsed], ([height, collapsed]) => {
+    if (collapsed) {
+        collapsedSheetHeight.value = height;
+    }
+});
+const gridPadding = computed(() =>
+    isDesktop.value
+        ? undefined
+        : { paddingBottom: `${collapsedSheetHeight.value + 24}px` },
 );
 
 const focusComposer = async (): Promise<void> => {
@@ -383,7 +417,13 @@ watch(
 const renaming = ref(false);
 const renameForm = useForm({ name: props.project.name });
 
+/* Rename opens from a menu item; focus returns to the menu trigger (F-20). */
+const renameFocus = useReturnFocus();
+/* A ref, not an id: reka's DropdownMenuTrigger owns the trigger's id (aria-labelledby). */
+const projectActions = ref<{ $el: HTMLElement } | null>(null);
+
 const startRename = (): void => {
+    renameFocus.remember(projectActions.value?.$el ?? null);
     renameForm.name = props.project.name;
     renameForm.clearErrors();
     renaming.value = true;
@@ -417,7 +457,11 @@ const canPurchase = computed(
 <template>
     <Head :title="project.name" />
 
-    <StudioLayout :balance="balance" fluid>
+    <StudioLayout
+        :balance="balance"
+        :holds-action="counts.in_progress > 0 ? showHolds : null"
+        fluid
+    >
         <template #switcher>
             <nav
                 class="flex min-w-0 items-center gap-1.5 text-sm"
@@ -450,9 +494,10 @@ const canPurchase = computed(
                 :class="[
                     'z-20 border-t bg-background lg:static lg:w-[400px] lg:shrink-0 lg:border-t-0 lg:border-r',
                     'max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:rounded-t-2xl max-lg:shadow-[0_-8px_24px_-12px_rgb(0_0_0/0.25)]',
+                    'max-lg:overflow-y-auto',
                     sheetExpanded
-                        ? 'max-lg:max-h-[85svh] max-lg:overflow-y-auto'
-                        : 'max-lg:max-h-16 max-lg:overflow-hidden',
+                        ? 'max-lg:max-h-[85svh]'
+                        : 'max-lg:max-h-[50svh]',
                 ]"
             >
                 <button
@@ -473,7 +518,6 @@ const canPurchase = computed(
                 </button>
                 <div
                     id="composer-sheet"
-                    :inert="composerCollapsed"
                     class="p-4 pt-0 lg:sticky lg:top-14 lg:max-h-[calc(100svh-3.5rem)] lg:overflow-y-auto lg:p-6"
                 >
                     <TakeComposer
@@ -482,14 +526,19 @@ const canPurchase = computed(
                         :config="composer"
                         :available-display="balance.available"
                         :available-exact="balance.availableExact"
+                        :compact="composerCollapsed"
+                        @created="sheetExpanded = false"
+                        @expand="sheetExpanded = true"
                     />
                 </div>
             </aside>
 
             <section
-                class="flex min-w-0 flex-1 flex-col gap-4 p-4 pb-24 sm:p-6 lg:pb-6"
+                class="flex min-w-0 flex-1 flex-col gap-4 p-4 sm:p-6 lg:pb-6"
+                :style="gridPadding"
                 aria-labelledby="workspace-title"
             >
+                <ShowcaseNotice />
                 <div
                     v-if="negativeBalance"
                     role="status"
@@ -556,6 +605,7 @@ const canPurchase = computed(
                         <DropdownMenu v-if="canManage">
                             <DropdownMenuTrigger as-child>
                                 <Button
+                                    ref="projectActions"
                                     variant="ghost"
                                     size="icon"
                                     class="size-8 shrink-0"
@@ -614,7 +664,10 @@ const canPurchase = computed(
         </TakeDrawer>
 
         <Dialog v-model:open="renaming">
-            <DialogContent class="sm:max-w-md">
+            <DialogContent
+                class="sm:max-w-md"
+                @close-auto-focus="renameFocus.onCloseAutoFocus"
+            >
                 <DialogHeader>
                     <DialogTitle>{{ t('takes.projects.rename') }}</DialogTitle>
                 </DialogHeader>

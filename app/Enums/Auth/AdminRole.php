@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Enums\Auth;
 
+use Filament\Support\Contracts\HasColor;
+use Filament\Support\Contracts\HasLabel;
+
 /**
  * Roles on the `web` guard: the admins of the console (spec 7, A08, D-012, D-013).
  *
@@ -11,7 +14,7 @@ namespace App\Enums\Auth;
  * `Operator` reads everything and runs the audited write actions. `Auditor` only reads (the evaluator's demo login)
  * and is the one role exempt from multi-factor authentication (the rule lives only in the panel's MFA closure).
  */
-enum AdminRole: string
+enum AdminRole: string implements HasColor, HasLabel
 {
     case SuperAdmin = 'super_admin';
     case Operator = 'operator';
@@ -47,5 +50,23 @@ enum AdminRole: string
     public static function values(): array
     {
         return array_map(fn (self $role): string => $role->value, self::cases());
+    }
+
+    /** Admin console label (Filament HasLabel), from lang/en/console.php. */
+    public function getLabel(): string
+    {
+        $label = __('console.enums.admin_role.'.$this->value);
+
+        return is_string($label) ? $label : $this->value;
+    }
+
+    /** Admin console badge color (Filament HasColor). */
+    public function getColor(): string
+    {
+        return match ($this) {
+            self::SuperAdmin => 'danger',
+            self::Operator => 'primary',
+            self::Auditor => 'gray',
+        };
     }
 }

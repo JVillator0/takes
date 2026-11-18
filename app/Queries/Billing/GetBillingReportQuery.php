@@ -23,6 +23,8 @@ use Illuminate\Database\Query\Builder;
  */
 final readonly class GetBillingReportQuery
 {
+    public function __construct(private ListPromoCreditsConsumedQuery $promoConsumed) {}
+
     public function execute(BillingReportFilterDTO $filter): BillingReportDTO
     {
         $byDay = $filter->groupBy === BillingReportFilterDTO::BY_DAY;
@@ -41,6 +43,15 @@ final readonly class GetBillingReportQuery
             ->get()
             ->keyBy('key');
 
+        // Promo/adjustment credits consumed (D-084), regrouped from day × customer × provider to this grouping.
+        $promo = [];
+
+        foreach ($this->promoConsumed->execute($filter) as $allocationKey => $nanos) {
+            [$day, $customerId] = explode('|', $allocationKey);
+            $key = $byDay ? $day : $customerId;
+            $promo[$key] = ($promo[$key] ?? 0) + $nanos;
+        }
+
         $keys = $usage->keys()->merge($takes->keys())->unique()->map(fn (mixed $key): string => (string) $key);
         $names = $byDay ? collect() : Customer::query()->whereIn('id', $keys->all())->pluck('name', 'id');
 
@@ -50,13 +61,14 @@ final readonly class GetBillingReportQuery
                 $byDay ? $key : (string) ($names[(int) $key] ?? $key),
                 $usage->get($key),
                 $takes->get($key),
+                $promo[$key] ?? 0,
             ))
             ->sort(fn (BillingReportRowDTO $a, BillingReportRowDTO $b): int => $byDay
                 ? strcmp($b->key, $a->key)
                 : (($b->spend->toInt() <=> $a->spend->toInt()) ?: strcmp($a->label, $b->label)))
             ->all());
 
-        return new BillingReportDTO($rows, $this->row('total', 'Total', $this->usage($filter)->first(), $this->takes($filter)->first()));
+        return new BillingReportDTO($rows, $this->row('total', 'Total', $this->usage($filter)->first(), $this->takes($filter)->first(), array_sum($promo)));
     }
 
     /**
@@ -94,7 +106,7 @@ final readonly class GetBillingReportQuery
             ->selectRaw('count(*) filter (where status = ?) as failed_takes', [TakeStatus::Failed->value]);
     }
 
-    private function row(string $key, string $label, ?object $usage, ?object $takes): BillingReportRowDTO
+    private function row(string $key, string $label, ?object $usage, ?object $takes, int $promoConsumedNanos): BillingReportRowDTO
     {
         return BillingReportRowDTO::fromArray([
             'key' => $key,
@@ -107,6 +119,7 @@ final readonly class GetBillingReportQuery
             'suggestions' => $usage->suggestions ?? 0,
             'takes' => (int) ($takes->takes ?? 0),
             'failed_takes' => (int) ($takes->failed_takes ?? 0),
+            'promo_consumed_nanos' => $promoConsumedNanos,
         ]);
     }
 }
