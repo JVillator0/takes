@@ -18,6 +18,7 @@ import { useBuyCredits } from '@/composables/useBuyCredits';
 import { useCopy } from '@/composables/useCopy';
 import { getInitials } from '@/composables/useInitials';
 import { dashboard } from '@/routes';
+import { index as projectsIndex } from '@/routes/projects';
 import type { BalanceSummary, BreadcrumbItem } from '@/types';
 
 /**
@@ -33,6 +34,12 @@ type Props = {
     showBuyCredits?: boolean;
     /** Full-bleed pages (the workspace) manage their own padding. */
     fluid?: boolean;
+    /**
+     * The workspace's On hold click: applies its In progress filter in
+     * place. Without it the pill links to the projects list (its cards carry
+     * the in-progress badges), and to nothing on that list itself.
+     */
+    holdsAction?: (() => void) | null;
 };
 
 const props = withDefaults(defineProps<Props>(), {
@@ -40,6 +47,7 @@ const props = withDefaults(defineProps<Props>(), {
     balance: null,
     showBuyCredits: false,
     fluid: false,
+    holdsAction: null,
 });
 
 const emit = defineEmits<{
@@ -57,6 +65,7 @@ defineSlots<{
 }>();
 
 const page = usePage();
+const { t } = useCopy();
 const customer = computed(() => page.props.auth.customer);
 const buyCredits = useBuyCredits();
 
@@ -92,7 +101,18 @@ const shellBalance = computed<BalanceSummary | null>(() => {
           }
         : null;
 });
-const { t } = useCopy();
+const holdsLink = computed<string | null>(() =>
+    props.holdsAction || page.component === 'projects/Index'
+        ? null
+        : projectsIndex().url,
+);
+
+/** Where the click leads, in words (2-01: one string per destination). */
+const holdsLabel = computed(() =>
+    props.holdsAction
+        ? t('billing.on_hold_link')
+        : t('billing.on_hold_link_projects'),
+);
 </script>
 
 <template>
@@ -132,6 +152,9 @@ const { t } = useCopy();
                         <BalancePill
                             v-if="shellBalance"
                             :balance="shellBalance"
+                            :holds-action="holdsAction"
+                            :holds-href="holdsLink"
+                            :holds-label="holdsLabel"
                         />
                     </slot>
                     <Button

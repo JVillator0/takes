@@ -7,7 +7,7 @@ import {
     Square,
     X,
 } from '@lucide/vue';
-import { computed, useId } from 'vue';
+import { computed, nextTick, ref, useId, watch } from 'vue';
 import EstimatePanel from '@/components/takes/EstimatePanel.vue';
 import ScenarioChips from '@/components/takes/ScenarioChips.vue';
 import ServiceNotConfiguredBanner from '@/components/takes/ServiceNotConfiguredBanner.vue';
@@ -47,6 +47,12 @@ type Props = {
     errors?: ComposerErrors;
     maxPromptChars?: number;
     maxReferences?: number;
+    /**
+     * The collapsed phone sheet (P10): only the prompt and Generate · up to
+     * $x stay; size, quality, references and the estimate details are
+     * hidden (not focusable) until the sheet is expanded.
+     */
+    compact?: boolean;
 };
 
 const props = withDefaults(defineProps<Props>(), {
@@ -62,6 +68,7 @@ const props = withDefaults(defineProps<Props>(), {
     errors: () => ({}),
     maxPromptChars: 4000,
     maxReferences: 4,
+    compact: false,
 });
 
 const prompt = defineModel<string>('prompt', { default: '' });
@@ -79,6 +86,8 @@ const emit = defineEmits<{
     submit: [estimate: TakeEstimate];
     buyCredits: [];
     cancelRemix: [];
+    /** Collapsed: a hidden setting blocks Generate; the page expands the sheet. */
+    expand: [];
 }>();
 
 const slots = defineSlots<{
@@ -99,6 +108,7 @@ const ids = {
     referenceError: useId(),
     referencesError: useId(),
     banner: useId(),
+    hiddenBlocker: useId(),
 };
 
 const sizes: { value: TakeSize; icon: typeof Square }[] = [
@@ -150,6 +160,54 @@ const referenceDescribedBy = (index: number): string | undefined => {
 
 const hasInvalidReference = computed(() =>
     references.value.some(referenceInvalid),
+);
+
+/**
+ * Collapsed (P10), a setting hidden with the rest of the form blocks
+ * Generate: an invalid reference, or a server error on size, quality or the
+ * references. The sheet says so; a server error also asks the page to
+ * expand it, so the error is seen where it is (F-20).
+ */
+const hiddenBlocker = computed(
+    () =>
+        props.compact &&
+        (hasInvalidReference.value ||
+            Boolean(props.errors.size) ||
+            Boolean(props.errors.quality) ||
+            Boolean(props.errors.reference_images)),
+);
+
+const formRef = ref<HTMLFormElement | null>(null);
+
+/**
+ * "Show settings" unmounts itself when the sheet expands, so focus moves to
+ * the setting that needs attention: the first invalid control, else the
+ * chosen size (F-20).
+ */
+const showSettings = async (): Promise<void> => {
+    emit('expand');
+    await nextTick();
+
+    const form = formRef.value;
+    const target =
+        form?.querySelector<HTMLElement>('[aria-invalid="true"]') ??
+        form?.querySelector<HTMLElement>('input[name="size"]:checked') ??
+        form?.querySelector<HTMLElement>('input[name="size"]');
+
+    target?.focus();
+};
+
+watch(
+    () => [
+        props.errors.size,
+        props.errors.quality,
+        props.errors.reference_images,
+    ],
+    (now) => {
+        if (props.compact && now.some(Boolean)) {
+            emit('expand');
+        }
+    },
 );
 
 /**
@@ -205,6 +263,7 @@ const submitDescribedBy = computed(() => {
             ? ids.estimateMessage
             : null,
         promptError.value ? ids.promptError : null,
+        hiddenBlocker.value ? ids.hiddenBlocker : null,
         props.disabledReason || slots['disabled-reason'] ? ids.reason : null,
     ].filter((id): id is string => id !== null);
 
@@ -261,9 +320,10 @@ const segmentClass =
         start a paid take. Only the Generate click and Cmd/Ctrl+Enter in the
         prompt (2-02) call submit(), which keeps the price gate (F-15).
     -->
-    <form class="flex flex-col gap-4" novalidate @submit.prevent>
+    <form ref="formRef" class="flex flex-col gap-4" novalidate @submit.prevent>
         <div class="flex items-center justify-between gap-2">
-            <h2 class="text-base font-semibold">
+            <!-- On phones the sheet's toggle shows the title; keep it for screen readers only. -->
+            <h2 class="text-base font-semibold max-lg:sr-only">
                 {{ t('takes.composer.title') }}
             </h2>
             <span
@@ -300,7 +360,7 @@ const segmentClass =
                 :id="ids.prompt"
                 v-model="prompt"
                 name="prompt"
-                rows="4"
+                :rows="compact ? 2 : 4"
                 :placeholder="t('takes.composer.prompt_placeholder')"
                 :aria-invalid="promptError ? true : undefined"
                 :aria-describedby="
@@ -308,10 +368,14 @@ const segmentClass =
                         .filter(Boolean)
                         .join(' ')
                 "
-                class="min-h-24 w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 md:text-sm dark:bg-input/30"
+                :class="compact ? 'min-h-16' : 'min-h-24'"
+                class="w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 md:text-sm dark:bg-input/30"
                 @keydown="onPromptKeydown"
             />
-            <div class="flex items-center justify-between gap-2 text-xs">
+            <div
+                v-show="!compact"
+                class="flex items-center justify-between gap-2 text-xs"
+            >
                 <span :id="ids.tip" class="text-muted-foreground">
                     {{ t('takes.composer.prompt_tip') }}
                 </span>
@@ -339,10 +403,14 @@ const segmentClass =
             >
                 {{ promptError }}
             </p>
-            <ScenarioChips :disabled="processing" @add="addScenario" />
+            <ScenarioChips
+                v-show="!compact"
+                :disabled="processing"
+                @add="addScenario"
+            />
         </div>
 
-        <fieldset class="flex flex-col gap-1.5">
+        <fieldset v-show="!compact" class="flex flex-col gap-1.5">
             <legend
                 class="mb-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase"
             >
@@ -387,7 +455,7 @@ const segmentClass =
             </p>
         </fieldset>
 
-        <fieldset class="flex flex-col gap-1.5">
+        <fieldset v-show="!compact" class="flex flex-col gap-1.5">
             <legend
                 class="mb-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase"
             >
@@ -422,7 +490,7 @@ const segmentClass =
             </p>
         </fieldset>
 
-        <fieldset class="flex flex-col gap-2">
+        <fieldset v-show="!compact" class="flex flex-col gap-2">
             <legend
                 class="mb-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase"
             >
@@ -502,7 +570,13 @@ const segmentClass =
             </Button>
         </fieldset>
 
+        <!-- Collapsed, the panel shows only to say why Generate is blocked. -->
         <EstimatePanel
+            v-show="
+                !compact ||
+                estimateState === 'denied' ||
+                estimateState === 'error'
+            "
             :estimate="estimate"
             :state="estimateState"
             :available-display="availableDisplay"
@@ -511,7 +585,10 @@ const segmentClass =
             :message-id="ids.estimateMessage"
         />
 
-        <div class="flex flex-col gap-2">
+        <!-- In the phone sheet Generate stays in view while the form scrolls (P10). -->
+        <div
+            class="flex flex-col gap-2 max-lg:sticky max-lg:bottom-0 max-lg:-mx-4 max-lg:border-t max-lg:bg-background max-lg:px-4 max-lg:py-3"
+        >
             <div class="flex flex-wrap gap-2">
                 <Button
                     type="button"
@@ -548,6 +625,20 @@ const segmentClass =
                     {{ t('billing.buy_credits') }}
                 </Button>
             </div>
+            <p
+                v-if="hiddenBlocker"
+                :id="ids.hiddenBlocker"
+                class="flex flex-wrap items-center gap-x-2 text-sm text-red-700 dark:text-red-300"
+            >
+                {{ t('takes.composer.settings_need_attention') }}
+                <button
+                    type="button"
+                    class="rounded-sm font-medium underline underline-offset-4 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                    @click="showSettings"
+                >
+                    {{ t('takes.composer.show_settings') }}
+                </button>
+            </p>
             <!-- Hidden: read only through Generate's aria-describedby while the price loads. -->
             <span :id="ids.pricePending" hidden>
                 {{ t('takes.estimate.loading') }}
