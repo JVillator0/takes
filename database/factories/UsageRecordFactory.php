@@ -62,12 +62,15 @@ final class UsageRecordFactory extends Factory
         ]);
     }
 
-    public function voided(): static
+    /** @param  int|null  $absorbedCostNanos  provider cost the provider still billed (an unusable AI call) */
+    public function voided(?int $absorbedCostNanos = null): static
     {
         return $this->state(fn (): array => [
             'status' => UsageStatus::Voided,
             'provider_cost_nanos' => 0,
             'charge_nanos' => 0,
+            'absorbed_cost_nanos' => $absorbedCostNanos,
+            'completed_at' => $absorbedCostNanos === null ? null : now(),
         ]);
     }
 

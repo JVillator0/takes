@@ -200,8 +200,40 @@ describe('orphan success vs conflict', function (): void {
             ->and(Takes::usage($take)->flags)->toBe(['orphan']);
     });
 
-    it('never turns an internal failure before acceptance into an orphan, whatever arrives first', function (array $leadIn, array $expected): void {
-        $take = Takes::pendingWithHold();
+    it('records a late success after an internal failure of an ambiguous submit as an orphan, on every replay (D-082)', function (array $leadIn, array $expected): void {
+        // Pixelforge may hold the generation under the idempotency key.
+        $take = Takes::pendingWithHold(['last_submit_error_kind' => SubmitErrorKind::Ambiguous]);
+        app(FailTakeAction::class)->execute($take, FailureCode::Internal, 'Revoked key while retrying an ambiguous submit.');
+
+        $outcomes = [];
+
+        foreach ([...$leadIn, 'succeeded', 'succeeded'] as $status) {
+            $outcomes[] = applySnapshot($take, Takes::snapshot($take, $status));
+        }
+
+        $take->refresh();
+        $usage = Takes::usage($take);
+
+        expect($outcomes)->toBe([...$expected, TransitionOutcome::OrphanSuccess, TransitionOutcome::OrphanSuccess])
+            ->and($take->status)->toBe(TakeStatus::Failed)
+            ->and($take->failure_code)->toBe(FailureCode::Internal)
+            ->and($take->last_submit_error_kind)->toBe(SubmitErrorKind::Ambiguous)
+            ->and($take->pixelforge_id)->not->toBeNull()
+            ->and($take->attention_reason)->toBe(AttentionReason::OrphanSuccess)
+            ->and($usage->status)->toBe(UsageStatus::Voided)
+            ->and($usage->flags)->toBe(['orphan'])
+            ->and($take->customer->refresh()->balance_nanos)->toBe(Takes::FUNDED_NANOS)
+            ->and($take->customer->held_nanos)->toBe(0)
+            ->and(chargeCount())->toBe(0);
+    })->with([
+        'success applied twice' => [[], []],
+        'late queued first' => [['queued'], [TransitionOutcome::IgnoredStale]],
+        'late provider failure first' => [['failed'], [TransitionOutcome::IgnoredSameState]],
+    ]);
+
+    it('never turns an internal failure before acceptance into an orphan, whatever arrives first', function (?SubmitErrorKind $kind, array $leadIn, array $expected): void {
+        // Capacity answers (429/503) or no answer at all: nothing was created (D-082).
+        $take = Takes::pendingWithHold(['last_submit_error_kind' => $kind]);
         app(FailTakeAction::class)->execute($take, FailureCode::Internal, 'Rejected at submit.');
 
         $outcomes = [];
@@ -220,6 +252,9 @@ describe('orphan success vs conflict', function (): void {
             ->and(Takes::usage($take)->status)->toBe(UsageStatus::Voided)
             ->and(chargeCount())->toBe(0);
     })->with([
+        'no submit answer' => [null],
+        'capacity answers only' => [SubmitErrorKind::Capacity],
+    ])->with([
         'success applied twice' => [[], []],
         'late queued first' => [['queued'], [TransitionOutcome::IgnoredStale]],
         'late provider failure first' => [['failed'], [TransitionOutcome::IgnoredSameState]],

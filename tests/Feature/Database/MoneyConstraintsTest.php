@@ -185,7 +185,16 @@ it('rejects usage records that break a CHECK constraint', function (array $overr
     'settled without amounts' => [['status' => 'settled', 'billing_date' => '2026-11-17'], 'usage_records_settled_check'],
     'settled without billing date' => [['status' => 'settled', 'provider_cost_nanos' => 100, 'charge_nanos' => 125], 'usage_records_settled_check'],
     'voided with a charge' => [['status' => 'voided', 'provider_cost_nanos' => 0, 'charge_nanos' => 125], 'usage_records_voided_check'],
+    'absorbed cost while open' => [['absorbed_cost_nanos' => 100], 'usage_records_absorbed_cost_check'],
+    'absorbed cost on a settled usage' => [['status' => 'settled', 'provider_cost_nanos' => 100, 'charge_nanos' => 125, 'billing_date' => '2026-11-17', 'absorbed_cost_nanos' => 100], 'usage_records_absorbed_cost_check'],
+    'negative absorbed cost' => [['status' => 'voided', 'provider_cost_nanos' => 0, 'charge_nanos' => 0, 'absorbed_cost_nanos' => -1], 'usage_records_absorbed_cost_check'],
 ]);
+
+it('lets only a voided usage carry absorbed provider cost (spec 8 budget)', function (): void {
+    DB::table('usage_records')->insert(usageRow($this->customer, ['status' => 'voided', 'provider_cost_nanos' => 0, 'charge_nanos' => 0, 'absorbed_cost_nanos' => 254_000]));
+
+    expect(DB::table('usage_records')->value('absorbed_cost_nanos'))->toBe(254_000);
+});
 
 it('allows one usage record per billable', function (): void {
     $row = usageRow($this->customer);

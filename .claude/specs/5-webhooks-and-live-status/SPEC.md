@@ -40,8 +40,8 @@ This spec owns the matrix tests and the wiring; the action itself is built in 3-
 | `succeeded` | `processing`/`queued` | none | `ignored_stale` |
 | `succeeded` | `failed` | none, warning log, `attention_reason = internal_failure` | `ignored_conflict` |
 | `failed` (any cause) | `failed` | none | `ignored_same_state` |
-| `failed` locally with `failure_code = submit_timeout` (ambiguous window expired, D-025/D-049), or `internal` on a take that had a `pixelforge_id` when it failed (accepted, then failed free, e.g. revoked key D-062; a failed take adopts a generation id only as an orphan; D-077) | `succeeded` | usage stays voided, cost absorbed, `attention_reason = orphan_success` | `orphan_success` |
-| `failed` with any other code (`provider_busy`, `cancelled`, content/validation, `internal` before Pixelforge accepted it, or provider `failed`) | `succeeded` | none, warning log, `attention_reason = internal_failure` (`provider_busy`/`cancelled` mean nothing was created, so this is unexpected) | `ignored_conflict` |
+| `failed` locally with `failure_code = submit_timeout` (ambiguous window expired, D-025/D-049), or `internal` on a take that had a `pixelforge_id` when it failed (accepted, then failed free, e.g. revoked key D-062; a failed take adopts a generation id only as an orphan; D-077), or `internal` while its submit was ambiguous (`last_submit_error_kind = ambiguous` when it failed; Pixelforge may hold the generation under the idempotency key; D-082) | `succeeded` | usage stays voided, cost absorbed, `attention_reason = orphan_success` | `orphan_success` |
+| `failed` with any other code (`provider_busy`, `cancelled`, content/validation, `internal` before Pixelforge accepted it with a `capacity` or no submit error kind, or provider `failed`) | `succeeded` | none, warning log, `attention_reason = internal_failure` (`provider_busy`/`cancelled` mean nothing was created, so this is unexpected) | `ignored_conflict` |
 
 The Pest outcome tests are driven from this table. `ignored_conflict` always writes a warning log and sets `takes.attention_reason` (the flag is a durable column, not a log line).
 
@@ -63,7 +63,7 @@ The Pest outcome tests are driven from this table. `ignored_conflict` always wri
 - Out of order: `succeeded` then `processing` ⇒ stays succeeded, charge unchanged. Full outcome matrix table-driven.
 - `succeeded` before the create response ⇒ found by metadata; later 202 is a no-op.
 - `succeeded` with null usage ⇒ `invalid_snapshot`, no state change. `succeeded` without rates ⇒ `SnapshotRatesMissingException`, nothing written; the refetched snapshot settles once (D-077).
-- `failed` ⇒ not charged, hold released. Late `succeeded` after a `submit_timeout` failure ⇒ `orphan_success`, usage stays voided; late `succeeded` after `provider_busy`/`cancelled` or `succeeded`-then-`failed` ⇒ `ignored_conflict` with `attention_reason` set.
+- `failed` ⇒ not charged, hold released. Late `succeeded` after a `submit_timeout` failure, or after `internal` on an accepted take or an ambiguous submit (D-077, D-082) ⇒ `orphan_success`, usage stays voided; late `succeeded` after `provider_busy`/`cancelled` or `succeeded`-then-`failed` ⇒ `ignored_conflict` with `attention_reason` set.
 - `SettleUsageAction` forced to throw ⇒ 5xx, no `webhook_events` row; the retried delivery settles once.
 - Reconcile job restarts its chain when `pixelforge_id` is first set, re-dispatches `SubmitTakeJob` for a pending take without `pixelforge_id`, and sets `reconcile_exhausted` on 404/exhaustion; a 401 fails the take free.
 - Sweeper voids pending suggestions older than 2 min.

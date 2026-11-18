@@ -12,6 +12,7 @@ use App\DTOs\Pixelforge\GenerationSnapshotDTO;
 use App\Enums\Billing\UsageFlag;
 use App\Enums\Takes\AttentionReason;
 use App\Enums\Takes\FailureCode;
+use App\Enums\Takes\SubmitErrorKind;
 use App\Enums\Takes\TakeStatus;
 use App\Enums\Takes\TransitionOutcome;
 use App\Events\TakeUpdated;
@@ -177,13 +178,18 @@ final readonly class ApplyTakeSnapshotAction
      * a revoked key (D-062), while it kept running (D-077). "Accepted" is the
      * pixelforge_id the take had when it failed, a fact frozen at failure
      * time: a failed take adopts a generation id only as an orphan, so every
-     * replay of the same late success classifies the same way. Every other
-     * local code means nothing was created.
+     * replay of the same late success classifies the same way.
+     * internal while a submit was ambiguous (D-082): Pixelforge may hold the
+     * generation under the idempotency key. last_submit_error_kind is frozen
+     * too: only a pending take's submit records it. Every other local code,
+     * and internal after capacity answers only or no answer at all, means
+     * nothing was created.
      */
     private function mayHideAGeneration(Take $take): bool
     {
         return $take->failure_code === FailureCode::SubmitTimeout
-            || ($take->failure_code === FailureCode::Internal && $take->pixelforge_id !== null);
+            || ($take->failure_code === FailureCode::Internal
+                && ($take->pixelforge_id !== null || $take->last_submit_error_kind === SubmitErrorKind::Ambiguous));
     }
 
     /**
@@ -245,7 +251,7 @@ final readonly class ApplyTakeSnapshotAction
     /**
      * Pixelforge ran a generation we had already failed, free: after the
      * ambiguous submit window (D-025), or after an internal failure of a take
-     * it had accepted (D-077). The customer keeps "failed, not charged": the
+     * it had accepted (D-077) or of an ambiguous submit (D-082). The customer keeps "failed, not charged": the
      * usage stays voided and the cost is absorbed. Both rows
      * carry a durable flag for Needs attention and reconciliation (D-054, D-058).
      */
