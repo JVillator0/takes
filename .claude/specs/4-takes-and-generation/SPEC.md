@@ -66,7 +66,7 @@ Same action with `parent_take_id`; the composer is pre-filled with the parent's 
 ## Submit (`SubmitTakeJob` → `SubmitTakeToPixelforgeAction`)
 Invariants:
 - Idempotent job: skip unless status is `pending`.
-- `retryUntil = take.created_at + 30 min` (D-025); **no `$tries` cap** (release-based retries count as attempts). Backoff has jitter: `release(base + random(0..5))`. Every release delay is capped at **900 s** (Cloud limit; 3-04), including a large `Retry-After`. A job on a non-`pending` take (e.g. cancelled) is a no-op.
+- The 30-min window from `take.created_at` (D-025) ends the take: `handle()` fails it by its last outcome on the run just past the window, and `retryUntil = window end + 900 s + 60 s` so the worker never gives up first (#149); **no `$tries` cap** (release-based retries count as attempts). Backoff has jitter: `release(base + random(0..5))`. Every release delay is capped at **900 s** (Cloud limit; 3-04), including a large `Retry-After`. A job on a non-`pending` take (e.g. cancelled) is a no-op.
 - Never open a DB transaction or hold a take lock across `createGeneration`; lock only to apply the snapshot/failure.
 - Before calling, ask the **3-04 submit gate helper** (global in-flight cap of 3, which counts non-terminal takes with a `pixelforge_id` plus those currently submitting; this spec keeps no count of its own), or if the `RateLimited` job middleware (database cache, ~50 req/min app-wide, below Pixelforge's 60) is exhausted, skip the call and `release(5 + jitter)` without touching `submit_attempts`: the limits are per account across all keys and shared with every evaluator.
 - `createGeneration` carries the take's idempotency key and metadata `{app_take_id, app_customer_id}`; increments `submit_attempts`.
@@ -74,7 +74,7 @@ Invariants:
 | Outcome (spec 3-04 exception) | Behavior |
 |---|---|
 | 202 (incl. replay) | `ApplyTakeSnapshotAction` (3-02; safe if a webhook already moved it) |
-| `PixelforgeBusy` (429 rate/concurrency, 503) | definite non-creation: `last_submit_error_kind = capacity` (unless already `ambiguous`); `release(min(Retry-After, 900) + jitter)` |
+| `PixelforgeBusy` (429 rate/concurrency, 503) | definite non-creation: `last_submit_error_kind = capacity` (unless already `ambiguous`); `release(min(max(Retry-After, backoff) + jitter, 900))`, where backoff grows with the take's API attempts (20, 40, 60 … capped at 120 s) so one waiting take makes at most ~3 calls a minute against the shared 60 rpm (#149); gate and budget waits are not attempts |
 | Timeout, connection error, 5xx (ambiguous) | the provider may have created it: keep retrying the **same key** (replay is safe), `release(5 + jitter)`, `last_submit_error_kind = ambiguous` (sticky: never reverts to `capacity`) |
 | 429 `daily_limit_exceeded` | `FailTakeAction('daily_limit')`, free |
 | 400 `content_policy_violation` | `FailTakeAction('content_policy')` ⇒ `VoidUsageAction` |
