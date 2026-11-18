@@ -82,3 +82,21 @@ it('grants exactly one welcome credit of WELCOME_CREDIT_USD on registration (D-0
         ->and($customer->balance_nanos)->toBe(1_000_000_000)
         ->and($customer->available()->format())->toBe('$1.0000');
 });
+
+it('refuses to register a demo account address, whatever its case (D-072, #111)', function (string $email): void {
+    $this->post(route('register.store'), [
+        'name' => 'Squatter',
+        'email' => $email,
+        'password' => 'password',
+        'password_confirmation' => 'password',
+    ])->assertSessionHasErrors('email');
+
+    $this->assertGuest('customer');
+    expect(Customer::query()->whereRaw('lower(email) = ?', [strtolower($email)])->exists())->toBeFalse();
+})->with([
+    'showcase' => ['showcase@example.com'],
+    'demo customer' => ['demo@example.com'],
+    'low balance' => ['low-balance@example.com'],
+    'new customer' => ['new@example.com'],
+    'showcase, upper case' => ['Showcase@Example.com'],
+]);

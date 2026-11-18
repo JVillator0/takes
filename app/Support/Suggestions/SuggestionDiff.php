@@ -26,8 +26,8 @@ final class SuggestionDiff
         $baseReferences = count($base->reference_images);
         $keptReferences = $proposal->keepReferences ? $baseReferences : 0;
         // Same resolver as apply and the estimate (spec 4 remix source order).
-        $imageUnavailable = ProposalReferences::baseImageUnavailable($proposal, $base);
-        $afterReferences = $proposal->addBaseImageAsReference && ! $imageUnavailable
+        $baseImageUnavailable = ProposalReferences::baseImageUnavailable($proposal, $base);
+        $afterReferences = $proposal->addBaseImageAsReference && ! $baseImageUnavailable
             ? __('suggestions.diff.references_with_image', ['count' => $keptReferences])
             : (string) $keptReferences;
 
@@ -44,7 +44,8 @@ final class SuggestionDiff
                     (string) $baseReferences,
                     $afterReferences,
                     $proposal->referenceCount($baseReferences) !== $baseReferences || $proposal->addBaseImageAsReference,
-                    $imageUnavailable ? self::copy('takes.image_unavailable') : null,
+                    // The base image or a kept take-image reference no longer resolves (#133).
+                    ProposalReferences::referenceUnavailable($proposal, $base) ? self::copy('takes.image_unavailable') : null,
                 ),
             ],
         ];

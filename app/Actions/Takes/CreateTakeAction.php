@@ -20,8 +20,8 @@ use App\Jobs\SubmitTakeJob;
 use App\Models\Customer;
 use App\Models\Project;
 use App\Models\Take;
-use App\Queries\Takes\EstimateTakeQuery;
-use App\Queries\Takes\ResolveTakeImageReferencesQuery;
+use App\Queries\Takes\GetTakeEstimateQuery;
+use App\Queries\Takes\ListReferenceImageUrlsQuery;
 use App\Services\Pixelforge\PixelforgeClient;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -49,9 +49,9 @@ final readonly class CreateTakeAction
 {
     public function __construct(
         private PixelforgeClient $client,
-        private EstimateTakeQuery $estimateTake,
+        private GetTakeEstimateQuery $estimateTake,
         private OpenUsageAction $openUsage,
-        private ResolveTakeImageReferencesQuery $resolveReferences,
+        private ListReferenceImageUrlsQuery $resolveReferences,
     ) {}
 
     /**
@@ -107,7 +107,7 @@ final readonly class CreateTakeAction
             // References to the customer's own take images are short-lived
             // URLs (a remix, Try again, a kept AI reference): re-issue them, or
             // refuse before anything is held. The count, and so the price, is unchanged.
-            $references = $this->resolveReferences->execute($customer, $data->referenceImages);
+            $references = $this->resolveReferences->execute($customer->id, $data->referenceImages);
 
             // The policy again, on the customer as it is under the lock (D-015).
             $decision = Gate::forUser($customer)->inspect('create', [Take::class, $quote->estimate]);

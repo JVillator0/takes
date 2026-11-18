@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
+use App\Actions\Billing\GrantWelcomeCreditAction;
 use App\Actions\Billing\IssueInvoiceAction;
 use App\Actions\Billing\RecordLedgerEntryAction;
 use App\Enums\Auth\DemoAccount;
@@ -17,6 +18,7 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 /**
  * Showcase customer and fixed-state demo accounts (spec 3-01 issue 4,
@@ -86,11 +88,23 @@ final class DemoAccountsSeeder extends Seeder
      * password, so a shared login always works (D-072); it assigns the
      * account's default role only when it has none, so an operator's (or
      * `takes:showcase`'s) later choice survives a re-run.
+     *
+     * Demo identity is the email alone, so an account someone registered at
+     * a demo address (it has the registration welcome credit) is never
+     * adopted with its own role and a reset password: the run stops for an
+     * operator to resolve it. The addresses are reserved at registration and
+     * on profile updates, so only an account from before that can trip it.
+     *
+     * @throws RuntimeException when the demo address belongs to a registered customer
      */
     private function findOrCreateCustomer(DemoAccount $account): Customer
     {
         $password = Config::string('takes.demo.password');
         $customer = Customer::query()->where('email', $account->email())->first();
+
+        if ($customer !== null && $customer->ledgerEntries()->where('reason', GrantWelcomeCreditAction::REASON)->exists()) {
+            throw new RuntimeException("Demo address {$account->email()} belongs to customer {$customer->id}, who registered it; resolve it by hand before seeding.");
+        }
 
         if ($customer === null) {
             $customer = new Customer;

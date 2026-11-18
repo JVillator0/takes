@@ -7,7 +7,7 @@ namespace App\Http\Controllers;
 use App\DTOs\Takes\EstimateTakeDTO;
 use App\Enums\Takes\TakeQuality;
 use App\Enums\Takes\TakeSize;
-use App\Queries\Takes\EstimateTakeQuery;
+use App\Queries\Takes\GetTakeEstimateQuery;
 use App\Support\Money\Nanodollars;
 use App\Support\Money\RoundingMode;
 use Inertia\Inertia;
@@ -21,7 +21,7 @@ use Inertia\Response;
  */
 final class LandingController extends Controller
 {
-    public function __invoke(EstimateTakeQuery $estimateTake): Response
+    public function __invoke(GetTakeEstimateQuery $estimateTake): Response
     {
         return Inertia::render('Welcome', [
             'welcomeCredit' => Nanodollars::fromInt(config()->integer('takes.welcome_credit_nanos'))->formatExact(),
@@ -38,7 +38,7 @@ final class LandingController extends Controller
     /**
      * @return array{label: string, range: string}
      */
-    private function example(EstimateTakeQuery $estimateTake, string $label, EstimateTakeDTO $input): array
+    private function example(GetTakeEstimateQuery $estimateTake, string $label, EstimateTakeDTO $input): array
     {
         $estimate = $estimateTake->execute($input)->estimate;
 
