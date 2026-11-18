@@ -13,9 +13,12 @@ import type {
  * Activity (P08, spec 6): one line per usage (on hold, charged, not charged)
  * and the purchases, credits and adjustments. Exact amounts (D-042) and the
  * running balance, which excludes amounts on hold. Below the container's
- * `2xl` width the rows stack as cards, each cell labelled: the table and its
- * body become blocks too, so a card is as wide as the screen (P10, 390 px)
- * and a long description truncates instead of pushing the values out.
+ * `4xl` width (56rem, about where the five columns fit: the table needs
+ * roughly 870 px) the rows stack as cards, each cell labelled, so the
+ * running balance is never past the box edge at tablet width (QA #177). The
+ * table and its body become blocks too, so a card is as wide as the screen
+ * (P10, 390 px) and a long description truncates instead of pushing the
+ * values out.
  */
 type Props = {
     activity: BillingActivityPage;
@@ -40,7 +43,7 @@ const statusClass: Record<BillingActivityStatus, string> = {
 
 /** Shared by every cell: in the stacked layout the label comes first. */
 const cell =
-    'px-3 py-2 align-top @max-2xl:flex @max-2xl:w-full @max-2xl:min-w-0 @max-2xl:justify-between @max-2xl:gap-4 @max-2xl:px-0 @max-2xl:py-1 @max-2xl:before:shrink-0 @max-2xl:before:font-medium @max-2xl:before:text-muted-foreground @max-2xl:before:content-[attr(data-label)]';
+    'px-3 py-2 align-top @max-4xl:flex @max-4xl:w-full @max-4xl:min-w-0 @max-4xl:justify-between @max-4xl:gap-4 @max-4xl:px-0 @max-4xl:py-1 @max-4xl:before:shrink-0 @max-4xl:before:font-medium @max-4xl:before:text-muted-foreground @max-4xl:before:content-[attr(data-label)]';
 </script>
 
 <template>
@@ -52,14 +55,14 @@ const cell =
             class="@container overflow-x-auto rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
         >
             <table
-                class="w-full border-separate border-spacing-0 text-sm @max-2xl:block"
+                class="w-full border-separate border-spacing-0 text-sm @max-4xl:block"
             >
                 <caption :id="captionId" class="sr-only">
                     {{
                         t('billing.activity.caption')
                     }}
                 </caption>
-                <thead class="@max-2xl:hidden">
+                <thead class="@max-4xl:hidden">
                     <tr
                         class="text-left text-xs tracking-wide text-muted-foreground uppercase"
                     >
@@ -86,14 +89,14 @@ const cell =
                         </th>
                     </tr>
                 </thead>
-                <tbody class="@max-2xl:block">
+                <tbody class="@max-4xl:block">
                     <tr
                         v-if="activity.rows.length === 0"
-                        class="@max-2xl:block"
+                        class="@max-4xl:block"
                     >
                         <td
                             colspan="5"
-                            class="px-3 py-6 text-center text-muted-foreground @max-2xl:block @max-2xl:w-full"
+                            class="px-3 py-6 text-center text-muted-foreground @max-4xl:block @max-4xl:w-full"
                         >
                             {{ t('billing.activity.empty') }}
                         </td>
@@ -101,7 +104,7 @@ const cell =
                     <tr
                         v-for="row in activity.rows"
                         :key="row.key"
-                        class="@max-2xl:mb-3 @max-2xl:block @max-2xl:rounded-md @max-2xl:border @max-2xl:p-3 [&>*]:border-b @max-2xl:[&>*]:border-0"
+                        class="@max-4xl:mb-3 @max-4xl:block @max-4xl:rounded-md @max-4xl:border @max-4xl:p-3 [&>*]:border-b @max-4xl:[&>*]:border-0"
                     >
                         <td
                             :class="[cell, 'whitespace-nowrap tabular-nums']"
@@ -117,7 +120,7 @@ const cell =
                             :data-label="t('billing.activity.description')"
                         >
                             <span
-                                class="flex min-w-0 flex-col @max-2xl:items-end @max-2xl:text-right"
+                                class="flex min-w-0 flex-col @max-4xl:items-end @max-4xl:text-right"
                             >
                                 <span class="font-medium">
                                     {{ kindLabel(row) }}
@@ -125,14 +128,14 @@ const cell =
                                 <Link
                                     v-if="row.detail && row.takeHref"
                                     :href="row.takeHref"
-                                    class="max-w-full truncate text-muted-foreground underline-offset-4 hover:underline @2xl:max-w-[40ch]"
+                                    class="max-w-full truncate text-muted-foreground underline-offset-4 hover:underline @4xl:max-w-[40ch]"
                                     :title="t('billing.activity.open_take')"
                                 >
                                     {{ row.detail }}
                                 </Link>
                                 <span
                                     v-else-if="row.detail"
-                                    class="max-w-full truncate text-muted-foreground @2xl:max-w-[40ch]"
+                                    class="max-w-full truncate text-muted-foreground @4xl:max-w-[40ch]"
                                 >
                                     {{ row.detail }}
                                 </span>
@@ -150,7 +153,7 @@ const cell =
                             </span>
                         </th>
                         <td
-                            :class="[cell, '@max-2xl:text-right']"
+                            :class="[cell, '@max-4xl:text-right']"
                             :data-label="t('billing.activity.status')"
                         >
                             <span
