@@ -44,7 +44,7 @@ const { t } = useCopy();
                     "
                     data-slot="balance-pill"
                     :class="[
-                        'inline-flex h-8 min-w-0 items-center gap-1.5 rounded-full border bg-background px-3 text-sm whitespace-nowrap tabular-nums outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+                        'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border bg-background px-3 text-sm whitespace-nowrap tabular-nums outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
                         holdsHref
                             ? 'cursor-pointer hover:bg-accent'
                             : 'cursor-help',

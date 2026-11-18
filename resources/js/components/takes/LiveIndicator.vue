@@ -9,7 +9,9 @@ import type { LiveConnectionState } from '@/types/live';
  * Colour is never the only signal: the state is always in words, on
  * phones the short "Reconnecting…" (the full line stays for screen
  * readers). The role=status container stays mounted, so screen readers
- * announce the words when they change (F-19).
+ * announce the words when they change (F-19). In a narrow header the
+ * label truncates before the balance pill would be pushed under the
+ * avatar (the pill never shrinks).
  */
 defineProps<{ state: LiveConnectionState }>();
 
@@ -20,7 +22,7 @@ const { t } = useCopy();
     <span
         role="status"
         :data-state="state"
-        class="inline-flex min-w-0 items-center gap-1.5 text-xs font-medium"
+        class="inline-flex min-w-0 shrink items-center gap-1.5 overflow-hidden text-xs font-medium"
     >
         <template v-if="state === 'live'">
             <span
@@ -38,7 +40,7 @@ const { t } = useCopy();
             />
             <span
                 aria-hidden="true"
-                class="whitespace-nowrap text-amber-800 sm:hidden dark:text-amber-200"
+                class="min-w-0 truncate text-amber-800 sm:hidden dark:text-amber-200"
             >
                 {{ t('takes.connection.reconnecting_short') }}
             </span>

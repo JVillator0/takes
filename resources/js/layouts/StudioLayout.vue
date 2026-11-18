@@ -140,8 +140,13 @@ const { t } = useCopy();
                     </slot>
                 </div>
 
+                <!--
+                    On phones this group takes the whole bar: the balance pill
+                    and the avatar never shrink, so the connection label
+                    truncates first and nothing overlaps (P10, 390 px).
+                -->
                 <div
-                    class="ml-auto flex min-w-0 items-center justify-end gap-2"
+                    class="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2 sm:flex-none"
                 >
                     <slot name="status" />
                     <slot name="balance">
