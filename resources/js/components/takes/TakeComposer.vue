@@ -56,6 +56,19 @@ const remixingFrom = ref<number | null>(null);
 const referenceUnavailable = ref(false);
 /** Remix or Try again left out earlier references that no longer resolve (2-01). */
 const referencesNotice = ref<string | null>(null);
+/**
+ * Read by the always-mounted live region (F-19): the notices above mount
+ * together with their text, and Remix / Try again move focus to the prompt,
+ * so only a region whose text changes is announced.
+ */
+const referencesAnnouncement = computed(() =>
+    [
+        referenceUnavailable.value ? t('takes.image_unavailable') : null,
+        referencesNotice.value,
+    ]
+        .filter((line): line is string => line !== null)
+        .join(' '),
+);
 
 const mintKey = (): void => {
     form.idempotency_key = crypto.randomUUID();
@@ -220,13 +233,16 @@ defineExpose({ remix, tryAgain, refresh });
             v-if="referenceUnavailable || referencesNotice"
             #disabled-reason
         >
-            <p v-if="referenceUnavailable" role="status">
+            <p v-if="referenceUnavailable">
                 {{ t('takes.image_unavailable') }}
             </p>
-            <p v-if="referencesNotice" role="status">
+            <p v-if="referencesNotice">
                 {{ referencesNotice }}
             </p>
             <p v-if="submitDenial">{{ submitDenial }}</p>
         </template>
     </ComposerShell>
+    <p class="sr-only" aria-live="polite" aria-atomic="true">
+        {{ referencesAnnouncement }}
+    </p>
 </template>
