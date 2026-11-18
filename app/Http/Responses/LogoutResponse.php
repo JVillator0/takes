@@ -32,7 +32,8 @@ final class LogoutResponse implements LogoutResponseContract
             return new JsonResponse('', 204);
         }
 
-        $route = self::TARGETS[$request->string('to')->toString()] ?? null;
+        // Strict: an array (to[]=login) is not a target, never a string cast.
+        $route = self::TARGETS[$request->string('to', strict: true)->toString()] ?? null;
 
         return redirect($route === null ? '/' : route($route));
     }

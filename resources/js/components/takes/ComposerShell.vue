@@ -7,7 +7,7 @@ import {
     Square,
     X,
 } from '@lucide/vue';
-import { computed, useId, watch } from 'vue';
+import { computed, nextTick, ref, useId, watch } from 'vue';
 import EstimatePanel from '@/components/takes/EstimatePanel.vue';
 import ScenarioChips from '@/components/takes/ScenarioChips.vue';
 import ServiceNotConfiguredBanner from '@/components/takes/ServiceNotConfiguredBanner.vue';
@@ -177,6 +177,26 @@ const hiddenBlocker = computed(
             Boolean(props.errors.reference_images)),
 );
 
+const formRef = ref<HTMLFormElement | null>(null);
+
+/**
+ * "Show settings" unmounts itself when the sheet expands, so focus moves to
+ * the setting that needs attention: the first invalid control, else the
+ * chosen size (F-20).
+ */
+const showSettings = async (): Promise<void> => {
+    emit('expand');
+    await nextTick();
+
+    const form = formRef.value;
+    const target =
+        form?.querySelector<HTMLElement>('[aria-invalid="true"]') ??
+        form?.querySelector<HTMLElement>('input[name="size"]:checked') ??
+        form?.querySelector<HTMLElement>('input[name="size"]');
+
+    target?.focus();
+};
+
 watch(
     () => [
         props.errors.size,
@@ -300,7 +320,7 @@ const segmentClass =
         start a paid take. Only the Generate click and Cmd/Ctrl+Enter in the
         prompt (2-02) call submit(), which keeps the price gate (F-15).
     -->
-    <form class="flex flex-col gap-4" novalidate @submit.prevent>
+    <form ref="formRef" class="flex flex-col gap-4" novalidate @submit.prevent>
         <div class="flex items-center justify-between gap-2">
             <!-- On phones the sheet's toggle shows the title; keep it for screen readers only. -->
             <h2 class="text-base font-semibold max-lg:sr-only">
@@ -614,7 +634,7 @@ const segmentClass =
                 <button
                     type="button"
                     class="rounded-sm font-medium underline underline-offset-4 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                    @click="emit('expand')"
+                    @click="showSettings"
                 >
                     {{ t('takes.composer.show_settings') }}
                 </button>

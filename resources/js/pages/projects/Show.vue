@@ -141,7 +141,9 @@ const filter = computed({
 /**
  * The pill's On hold opens this project's In progress filter (2-02), in
  * place: the same partial visit as the filter tabs, so the composer draft,
- * the drawer and the live subscription stay.
+ * the drawer and the live subscription stay. On hold is account-wide: with
+ * nothing in progress here, the holds are in other projects, so the pill
+ * links to the projects list (their in-progress badges) instead.
  */
 const showHolds = (): void => {
     filter.value = 'in_progress';
@@ -453,7 +455,11 @@ const canPurchase = computed(
 <template>
     <Head :title="project.name" />
 
-    <StudioLayout :balance="balance" :holds-action="showHolds" fluid>
+    <StudioLayout
+        :balance="balance"
+        :holds-action="counts.in_progress > 0 ? showHolds : null"
+        fluid
+    >
         <template #switcher>
             <nav
                 class="flex min-w-0 items-center gap-1.5 text-sm"
