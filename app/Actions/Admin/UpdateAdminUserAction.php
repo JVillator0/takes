@@ -12,8 +12,9 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * System › Admins **Edit** (D-086; super admin only): name, email, roles and, when given, a new password, with an
- * audit entry (roles before and after, whether the password changed, the required reason). The super admins are
- * locked while it runs, so taking the role from the last one is refused even when two edits race.
+ * audit entry (roles before and after, whether the password changed, the required reason). It runs under
+ * LockSuperAdminsAction (the `super_admin` role row locked, members re-read), so taking the role from the last
+ * super admin is refused even when two edits race.
  */
 final readonly class UpdateAdminUserAction
 {
@@ -28,6 +29,8 @@ final readonly class UpdateAdminUserAction
     {
         return DB::transaction(function () use ($actor, $admin, $data): User {
             $superAdmins = $this->lockSuperAdmins->execute();
+            // Re-read under the lock: the page may have preloaded roles another edit has changed since.
+            $admin->load('roles');
             $rolesBefore = $admin->getRoleNames()->sort()->values()->all();
             $losesSuperAdmin = in_array($admin->id, $superAdmins, true) && ! in_array(AdminRole::SuperAdmin, $data->roles, true);
 

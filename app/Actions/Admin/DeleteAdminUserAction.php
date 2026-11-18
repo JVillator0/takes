@@ -5,13 +5,17 @@ declare(strict_types=1);
 namespace App\Actions\Admin;
 
 use App\Exceptions\Admin\AdminChangeDeniedException;
+use App\Models\LedgerEntry;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Spatie\Activitylog\Models\Activity;
 
 /**
  * System › Admins **Delete** (D-086; super admin only): removes an admin and its roles, with an audit entry
- * (email, roles, required reason). Never your own account, never the last super admin: both are refused here as
- * well as hidden in the console (UserPolicy), with the super admins locked so two deletes cannot race past it.
+ * (email, roles, required reason). Refused: your own account and the last super admin (also hidden in the
+ * console by UserPolicy; checked under LockSuperAdminsAction, so two deletes cannot race past it), and an admin
+ * with history, a ledger adjustment (`ledger_entries.admin_id`, restrict FK) or an audit entry it caused: who did
+ * what must stay readable, so such an admin keeps its row and loses access by having its roles removed.
  */
 final readonly class DeleteAdminUserAction
 {
@@ -35,6 +39,12 @@ final readonly class DeleteAdminUserAction
                 throw AdminChangeDeniedException::lastSuperAdmin();
             }
 
+            if ($this->hasHistory($admin)) {
+                throw AdminChangeDeniedException::hasHistory();
+            }
+
+            $admin->load('roles');
+
             $properties = [
                 'resource' => $admin->getTable(),
                 'record' => (string) $admin->id,
@@ -48,5 +58,11 @@ final readonly class DeleteAdminUserAction
 
             $this->recordActivity->execute($actor, self::EVENT, null, $properties);
         });
+    }
+
+    private function hasHistory(User $admin): bool
+    {
+        return LedgerEntry::query()->where('admin_id', $admin->id)->exists()
+            || Activity::query()->where('causer_type', $admin->getMorphClass())->where('causer_id', $admin->id)->exists();
     }
 }

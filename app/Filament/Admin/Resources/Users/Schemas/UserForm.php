@@ -6,11 +6,13 @@ namespace App\Filament\Admin\Resources\Users\Schemas;
 
 use App\Enums\Auth\AdminRole;
 use App\Models\User;
+use Closure;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Validation\Rules\Password;
 
 /**
@@ -35,7 +37,12 @@ final class UserForm
                         ->email()
                         ->required()
                         ->maxLength(255)
-                        ->unique(User::class, 'email', ignoreRecord: true),
+                        // Unique as it is saved: AdminUserDTO lowercases the email, so compare case-insensitively.
+                        ->rule(fn (?User $record): Closure => function (string $attribute, mixed $value, Closure $fail) use ($record): void {
+                            if (is_string($value) && self::emailTaken($value, $record)) {
+                                $fail(__('console.admins.denied.email_taken'));
+                            }
+                        }),
                     TextInput::make('password')
                         ->label(__('console.admins.password'))
                         ->password()
@@ -65,5 +72,17 @@ final class UserForm
                         ->maxLength(500),
                 ]),
         ])->columns(1);
+    }
+
+    /**
+     * Whether another `users` row already has this email, compared as AdminUserDTO stores it (trimmed, lowercased)
+     * against the stored value lowercased, so a mixed-case duplicate is a form error, not a unique-index 500.
+     */
+    public static function emailTaken(string $email, ?User $ignore = null): bool
+    {
+        return User::query()
+            ->whereRaw('lower(email) = ?', [mb_strtolower(trim($email))])
+            ->when($ignore !== null, fn (Builder $query): Builder => $query->whereKeyNot($ignore?->getKey()))
+            ->exists();
     }
 }

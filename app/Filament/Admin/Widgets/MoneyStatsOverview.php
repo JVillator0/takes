@@ -6,8 +6,8 @@ namespace App\Filament\Admin\Widgets;
 
 use App\Enums\Takes\TakeStatus;
 use App\Filament\Admin\Support\Money;
+use App\Queries\Billing\GetActiveHoldsQuery;
 use App\Queries\Billing\GetMoneyTotalsQuery;
-use App\Queries\Customers\GetCustomerStatsQuery;
 use App\Queries\Takes\ListTakeStatusCountsQuery;
 use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Carbon\CarbonImmutable;
@@ -38,7 +38,7 @@ final class MoneyStatsOverview extends StatsOverviewWidget
         $today = CarbonImmutable::now('UTC')->startOfDay();
         $money = app(GetMoneyTotalsQuery::class)->execute($today, $today);
         $takes = app(ListTakeStatusCountsQuery::class)->execute($today);
-        $holds = app(GetCustomerStatsQuery::class)->execute();
+        $holds = app(GetActiveHoldsQuery::class)->execute();
         $billingDay = __('console.dashboard.stats.billing_day', ['date' => $today->toDateString()]);
 
         $running = array_sum(array_map(fn (TakeStatus $status): int => $takes[$status->value], TakeStatus::nonTerminal()));
@@ -59,7 +59,7 @@ final class MoneyStatsOverview extends StatsOverviewWidget
                     'created' => array_sum($takes),
                     'running' => $running,
                 ])),
-            Stat::make(__('console.dashboard.stats.holds'), $holds->activeHolds->formatExact())
+            Stat::make(__('console.dashboard.stats.holds'), $holds->held->formatExact())
                 ->description(__('console.dashboard.stats.holds_count', ['count' => $holds->openUsageRecords])),
         ];
     }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Actions\Admin\CreateAdminUserAction;
 use App\Actions\Admin\DeleteAdminUserAction;
+use App\Actions\Admin\RecordAdminActivityAction;
 use App\Actions\Admin\UpdateAdminUserAction;
 use App\DTOs\Admin\AdminUserDTO;
 use App\Enums\Auth\AdminRole;
@@ -13,6 +14,7 @@ use App\Filament\Admin\Resources\Users\Pages\EditUser;
 use App\Filament\Admin\Resources\Users\Pages\ListUsers;
 use App\Filament\Admin\Resources\Users\Pages\ViewUser;
 use App\Filament\Admin\Resources\Users\UserResource;
+use App\Models\LedgerEntry;
 use App\Models\User;
 use Database\Seeders\AdminRolesSeeder;
 use Filament\Actions\Testing\TestAction;
@@ -203,6 +205,61 @@ it('never deletes the last super admin', function (): void {
         ->toThrow(AdminChangeDeniedException::class, __('console.admins.denied.last_super_admin'));
 
     expect($last->refresh()->hasRole(AdminRole::SuperAdmin->value))->toBeTrue();
+});
+
+it('refuses to delete an admin with ledger history and says to remove their roles instead', function (): void {
+    $superAdmin = consoleAdmin(AdminRole::SuperAdmin);
+    $operator = consoleAdmin(AdminRole::Operator);
+    LedgerEntry::factory()->adjustment(2_000_000_000)->create(['admin_id' => $operator->id]);
+    $this->actingAs($superAdmin);
+
+    Livewire::test(ListUsers::class)
+        ->callAction(TestAction::make('deleteAdmin')->table($operator), ['reason' => 'Left the team'])
+        ->assertNotified(__('console.admins.denied.has_history'));
+
+    expect(User::query()->whereKey($operator->id)->exists())->toBeTrue()
+        ->and($operator->refresh()->hasRole(AdminRole::Operator->value))->toBeTrue()
+        ->and(Activity::query()->where('event', DeleteAdminUserAction::EVENT)->exists())->toBeFalse();
+});
+
+it('refuses to delete an admin who caused audit entries', function (): void {
+    $superAdmin = consoleAdmin(AdminRole::SuperAdmin);
+    $operator = consoleAdmin(AdminRole::Operator);
+    app(RecordAdminActivityAction::class)->execute($operator, 'credits_adjusted');
+
+    expect(fn () => app(DeleteAdminUserAction::class)->execute($superAdmin, $operator, 'Left the team'))
+        ->toThrow(AdminChangeDeniedException::class, __('console.admins.denied.has_history'));
+    expect(User::query()->whereKey($operator->id)->exists())->toBeTrue();
+});
+
+it('refuses an email another admin already uses, whatever its case', function (): void {
+    $this->actingAs(consoleAdmin(AdminRole::SuperAdmin));
+    $other = User::factory()->admin(AdminRole::Operator)->create(['email' => 'ops@example.com']);
+
+    Livewire::test(CreateUser::class)
+        ->fillForm(['name' => 'Dup', 'email' => 'OPS@Example.com', 'password' => 'a-long-password-1', 'roles' => [AdminRole::Auditor->value], 'reason' => 'x'])
+        ->call('create')
+        ->assertHasFormErrors(['email']);
+
+    // Saving an admin with its own email (any case) is not a duplicate.
+    Livewire::test(EditUser::class, ['record' => $other->id])
+        ->fillForm(['email' => 'Ops@Example.com', 'reason' => 'Same address'])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect(User::query()->whereRaw('lower(email) = ?', ['ops@example.com'])->count())->toBe(1)
+        ->and($other->refresh()->email)->toBe('ops@example.com');
+});
+
+it('lists only users that hold a console role', function (): void {
+    $this->actingAs(consoleAdmin(AdminRole::Auditor));
+    $admin = consoleAdmin(AdminRole::Operator);
+    $noRole = User::factory()->create();
+
+    Livewire::test(ListUsers::class)
+        ->assertCanSeeTableRecords([$admin])
+        ->assertCanNotSeeTableRecords([$noRole]);
+    $this->get('/admin/admins/'.$noRole->id)->assertNotFound();
 });
 
 it('updates and creates through the actions with normalised input', function (): void {

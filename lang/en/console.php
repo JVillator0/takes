@@ -437,6 +437,8 @@ return [
         'denied' => [
             'own_account' => 'You cannot delete your own account.',
             'last_super_admin' => 'The last super admin must keep the role; add another super admin first.',
+            'has_history' => 'This admin has ledger or audit history, so the account stays: remove their roles instead to revoke access.',
+            'email_taken' => 'Another admin already uses this email.',
         ],
     ],
 

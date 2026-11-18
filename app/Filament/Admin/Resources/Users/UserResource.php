@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Filament\Admin\Resources\Users;
 
+use App\Enums\Auth\AdminRole;
 use App\Filament\Admin\Resources\Users\Pages\CreateUser;
 use App\Filament\Admin\Resources\Users\Pages\EditUser;
 use App\Filament\Admin\Resources\Users\Pages\ListUsers;
@@ -52,7 +53,7 @@ final class UserResource extends Resource
      */
     public static function getEloquentQuery(): Builder
     {
-        return User::query()->with('roles');
+        return User::query()->role(AdminRole::values(), AdminRole::GUARD)->with('roles');
     }
 
     public static function form(Schema $schema): Schema
