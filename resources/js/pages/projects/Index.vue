@@ -18,6 +18,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useCopy } from '@/composables/useCopy';
+import { useReturnFocus } from '@/composables/useReturnFocus';
 import {
     index as projectsIndex,
     show as showProject,
@@ -51,6 +52,12 @@ const runSearch = useDebounceFn((value: string): void => {
 }, 250);
 
 const creating = ref(false);
+/* Two buttons open New project; focus returns to the one used (F-20). */
+const createFocus = useReturnFocus();
+const openCreate = (): void => {
+    createFocus.remember();
+    creating.value = true;
+};
 const form = useForm({ name: '' });
 const canCreate = computed(
     () => page.props.auth.can?.createProject.allowed === true,
@@ -84,7 +91,7 @@ const create = (): void => {
                     class="min-w-0 flex-1 sm:w-64"
                     @update:model-value="runSearch(String($event))"
                 />
-                <Button v-if="canCreate" @click="creating = true">
+                <Button v-if="canCreate" @click="openCreate">
                     <Plus aria-hidden="true" />
                     {{ t('takes.projects.new') }}
                 </Button>
@@ -161,14 +168,17 @@ const create = (): void => {
                         : t('takes.projects.empty')
                 }}
             </p>
-            <Button v-if="canCreate && !search" @click="creating = true">
+            <Button v-if="canCreate && !search" @click="openCreate">
                 <Plus aria-hidden="true" />
                 {{ t('takes.projects.new') }}
             </Button>
         </div>
 
         <Dialog v-model:open="creating">
-            <DialogContent class="sm:max-w-md">
+            <DialogContent
+                class="sm:max-w-md"
+                @close-auto-focus="createFocus.onCloseAutoFocus"
+            >
                 <DialogHeader>
                     <DialogTitle>{{ t('takes.projects.new') }}</DialogTitle>
                 </DialogHeader>

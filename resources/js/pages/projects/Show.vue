@@ -30,6 +30,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useBuyCredits } from '@/composables/useBuyCredits';
 import { useCopy } from '@/composables/useCopy';
+import { useReturnFocus } from '@/composables/useReturnFocus';
 import { useTakeUpdates } from '@/composables/useTakeUpdates';
 import StudioLayout from '@/layouts/StudioLayout.vue';
 import {
@@ -391,7 +392,11 @@ watch(
 const renaming = ref(false);
 const renameForm = useForm({ name: props.project.name });
 
+/* Rename opens from a menu item; focus returns to the menu trigger (F-20). */
+const renameFocus = useReturnFocus();
+
 const startRename = (): void => {
+    renameFocus.remember(document.getElementById('project-actions'));
     renameForm.name = props.project.name;
     renameForm.clearErrors();
     renaming.value = true;
@@ -565,6 +570,7 @@ const canPurchase = computed(
                         <DropdownMenu v-if="canManage">
                             <DropdownMenuTrigger as-child>
                                 <Button
+                                    id="project-actions"
                                     variant="ghost"
                                     size="icon"
                                     class="size-8 shrink-0"
@@ -623,7 +629,10 @@ const canPurchase = computed(
         </TakeDrawer>
 
         <Dialog v-model:open="renaming">
-            <DialogContent class="sm:max-w-md">
+            <DialogContent
+                class="sm:max-w-md"
+                @close-auto-focus="renameFocus.onCloseAutoFocus"
+            >
                 <DialogHeader>
                     <DialogTitle>{{ t('takes.projects.rename') }}</DialogTitle>
                 </DialogHeader>
