@@ -6,6 +6,7 @@ namespace App\Http\Middleware;
 
 use App\DTOs\Auth\AbilityDTO;
 use App\DTOs\Billing\BalanceSummaryDTO;
+use App\Enums\Auth\CustomerRole;
 use App\Http\Resources\Billing\CreditPackResource;
 use App\Models\Customer;
 use App\Models\Project;
@@ -148,7 +149,7 @@ final class HandleInertiaRequests extends Middleware
      * the exact value for its tooltip (D-042); the frontend never does money
      * math. `available = balance − held` (D-024).
      *
-     * @return array{id: int, name: string, email: string, available: string, available_exact: string, on_hold: string, on_hold_exact: string}|null
+     * @return array{id: int, name: string, email: string, available: string, available_exact: string, on_hold: string, on_hold_exact: string, read_only: bool}|null
      */
     private function customerProps(?Customer $customer): ?array
     {
@@ -167,6 +168,9 @@ final class HandleInertiaRequests extends Middleware
             'available_exact' => $balance['availableExact'],
             'on_hold' => $balance['onHold'],
             'on_hold_exact' => $balance['onHoldExact'],
+            // The showcase login (D-072) can browse but not create: the pages
+            // explain it. A flag, so no role name reaches the client.
+            'read_only' => $customer->hasRole(CustomerRole::Showcase->value),
         ];
     }
 

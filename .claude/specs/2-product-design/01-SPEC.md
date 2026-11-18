@@ -358,6 +358,9 @@ Strings added with spec 4 (takes and generation). Same rules: keys are the full 
 | `takes.projects.archived` | composer and Describe a change when the project was archived meanwhile (`project_archived`) | "This project is archived. Takes can't be added to it." |
 | `takes.projects.sample_prompt` | P03/P04 empty state, pre-filled composer | "A lighthouse on a cliff at dusk, warm light, cinematic wide shot" |
 | `demo.ephemeral_name` | name of a "Try a demo account" customer | "Demo account" |
+| `demo.accounts.showcase` | P02 demo panel, showcase login (D-072) | "Showcase customer · read-only, real history" |
+| `takes.showcase.notice` | P03, P04 notice while signed in as the read-only showcase login (D-072) | "Showcase account: read-only, with real history. To generate, try a demo account or create your own." |
+| `takes.showcase.register` | P03, P04 showcase notice: sign out, then register (the other action reuses `landing.hero.demo` and opens the P02 demo panel) | "Create your own" |
 | `takes.projects.title` | P03 heading | "Projects" |
 | `takes.projects.search` | P03 search field | "Search projects" |
 | `takes.projects.new` | P03 button and dialog title | "New project" |

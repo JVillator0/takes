@@ -196,6 +196,12 @@ return [
         'version_current' => '#:id this take',
     ],
 
+    /* The showcase login (D-072) on P03/P04: read-only, so it says how to generate. */
+    'showcase' => [
+        'notice' => 'Showcase account: read-only, with real history. To generate, try a demo account or create your own.',
+        'register' => 'Create your own',
+    ],
+
     /* Projects (P03). */
     'projects' => [
         'untitled' => 'Untitled project',

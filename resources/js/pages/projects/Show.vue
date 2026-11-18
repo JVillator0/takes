@@ -6,6 +6,7 @@ import { computed, nextTick, ref, shallowRef, watch } from 'vue';
 import { toast } from 'vue-sonner';
 import InputError from '@/components/InputError.vue';
 import LiveIndicator from '@/components/takes/LiveIndicator.vue';
+import ShowcaseNotice from '@/components/takes/ShowcaseNotice.vue';
 import DescribeChangePanel from '@/components/takes/DescribeChangePanel.vue';
 import TakeComposer from '@/components/takes/TakeComposer.vue';
 import TakeDrawer from '@/components/takes/TakeDrawer.vue';
@@ -497,6 +498,7 @@ const canPurchase = computed(
                 class="flex min-w-0 flex-1 flex-col gap-4 p-4 pb-64 sm:p-6 sm:pb-64 lg:pb-6"
                 aria-labelledby="workspace-title"
             >
+                <ShowcaseNotice />
                 <div
                     v-if="negativeBalance"
                     role="status"

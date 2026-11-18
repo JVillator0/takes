@@ -4,6 +4,7 @@ import { Plus } from '@lucide/vue';
 import { useDebounceFn } from '@vueuse/core';
 import { computed, ref } from 'vue';
 import InputError from '@/components/InputError.vue';
+import ShowcaseNotice from '@/components/takes/ShowcaseNotice.vue';
 import TakeImage from '@/components/takes/TakeImage.vue';
 import TakeStatusBadge from '@/components/takes/TakeStatusBadge.vue';
 import { Button } from '@/components/ui/button';
@@ -69,6 +70,7 @@ const create = (): void => {
     <Head :title="t('takes.projects.title')" />
 
     <div class="flex flex-col gap-6 p-4 sm:p-6">
+        <ShowcaseNotice />
         <div class="flex flex-wrap items-center justify-between gap-3">
             <h1 class="text-2xl font-semibold tracking-tight">
                 {{ t('takes.projects.title') }}

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Enums\Auth\CustomerRole;
 use App\Enums\Auth\DemoAccount;
 use App\Models\Customer;
 use Database\Seeders\DemoAccountsSeeder;
@@ -28,8 +29,21 @@ it('shares the customer with money as server-formatted strings only (D-023, D-02
             'available_exact' => '$10.33358125',
             'on_hold' => '$0.3140',
             'on_hold_exact' => '$0.3139625',
+            'read_only' => false,
         ]));
 });
+
+it('flags the read-only showcase login, and only it (D-072, QA #162)', function (CustomerRole $role, bool $readOnly): void {
+    $customer = Customer::factory()->withRole($role)->create();
+
+    $this->actingAs($customer, 'customer')
+        ->get(route('projects.index'))
+        ->assertInertia(fn (Assert $page) => $page->where('auth.customer.read_only', $readOnly));
+})->with([
+    'showcase' => [CustomerRole::Showcase, true],
+    'customer' => [CustomerRole::Customer, false],
+    'restricted' => [CustomerRole::Restricted, false],
+]);
 
 it('shares allowed abilities under auth.can', function (): void {
     $customer = Customer::factory()->restricted()->create();
