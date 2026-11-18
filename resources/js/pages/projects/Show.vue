@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import { ChevronUp, EllipsisVertical } from '@lucide/vue';
-import { useMediaQuery } from '@vueuse/core';
+import { useElementSize, useMediaQuery } from '@vueuse/core';
 import { computed, nextTick, ref, shallowRef, watch } from 'vue';
 import { toast } from 'vue-sonner';
 import InputError from '@/components/InputError.vue';
@@ -138,11 +138,14 @@ const filter = computed({
     },
 });
 
-/** The pill's On hold opens this project's In progress filter (2-02). */
-const holdsHref = computed(
-    () =>
-        showProject(props.project.id, { query: { status: 'in_progress' } }).url,
-);
+/**
+ * The pill's On hold opens this project's In progress filter (2-02), in
+ * place: the same partial visit as the filter tabs, so the composer draft,
+ * the drawer and the live subscription stay.
+ */
+const showHolds = (): void => {
+    filter.value = 'in_progress';
+};
 
 const loadMore = (): void => {
     router.reload({
@@ -260,6 +263,26 @@ const sheetExpanded = ref(false);
 const isDesktop = useMediaQuery('(min-width: 64rem)');
 const composerCollapsed = computed(
     () => !isDesktop.value && !sheetExpanded.value,
+);
+
+/*
+ * The grid ends above the collapsed sheet, whatever it holds (a denied
+ * estimate, an error): its measured height, kept while it is collapsed so
+ * expanding (an overlay) does not move the grid. Desktop keeps lg:pb-6.
+ */
+const { height: sheetHeight } = useElementSize(composerPanel, undefined, {
+    box: 'border-box',
+});
+const collapsedSheetHeight = ref(0);
+watch([sheetHeight, composerCollapsed], ([height, collapsed]) => {
+    if (collapsed) {
+        collapsedSheetHeight.value = height;
+    }
+});
+const gridPadding = computed(() =>
+    isDesktop.value
+        ? undefined
+        : { paddingBottom: `${collapsedSheetHeight.value + 24}px` },
 );
 
 const focusComposer = async (): Promise<void> => {
@@ -430,7 +453,7 @@ const canPurchase = computed(
 <template>
     <Head :title="project.name" />
 
-    <StudioLayout :balance="balance" :holds-href="holdsHref" fluid>
+    <StudioLayout :balance="balance" :holds-action="showHolds" fluid>
         <template #switcher>
             <nav
                 class="flex min-w-0 items-center gap-1.5 text-sm"
@@ -463,8 +486,10 @@ const canPurchase = computed(
                 :class="[
                     'z-20 border-t bg-background lg:static lg:w-[400px] lg:shrink-0 lg:border-t-0 lg:border-r',
                     'max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:rounded-t-2xl max-lg:shadow-[0_-8px_24px_-12px_rgb(0_0_0/0.25)]',
-                    sheetExpanded &&
-                        'max-lg:max-h-[85svh] max-lg:overflow-y-auto',
+                    'max-lg:overflow-y-auto',
+                    sheetExpanded
+                        ? 'max-lg:max-h-[85svh]'
+                        : 'max-lg:max-h-[50svh]',
                 ]"
             >
                 <button
@@ -495,12 +520,14 @@ const canPurchase = computed(
                         :available-exact="balance.availableExact"
                         :compact="composerCollapsed"
                         @created="sheetExpanded = false"
+                        @expand="sheetExpanded = true"
                     />
                 </div>
             </aside>
 
             <section
-                class="flex min-w-0 flex-1 flex-col gap-4 p-4 pb-64 sm:p-6 sm:pb-64 lg:pb-6"
+                class="flex min-w-0 flex-1 flex-col gap-4 p-4 sm:p-6 lg:pb-6"
+                :style="gridPadding"
                 aria-labelledby="workspace-title"
             >
                 <ShowcaseNotice />

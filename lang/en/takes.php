@@ -149,6 +149,8 @@ return [
         'submit_with_max' => 'Generate take · up to :amount',
         'submitting' => 'Generating…',
         'shortcut' => 'Press :keys to generate',
+        'settings_need_attention' => 'A setting needs attention.',
+        'show_settings' => 'Show settings',
     ],
 
     /* Estimate panel (P04, P05-A). The margin is never shown to customers (D-023). */
