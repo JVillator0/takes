@@ -19,6 +19,7 @@ use App\Exceptions\Takes\SnapshotRatesMissingException;
 use App\Jobs\PersistTakeImageJob;
 use App\Jobs\ReconcileTakeJob;
 use App\Models\Take;
+use App\Support\Money\TokenCost;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -40,6 +41,7 @@ final readonly class ApplyTakeSnapshotAction
     public function __construct(
         private SettleUsageAction $settleUsage,
         private VoidUsageAction $voidUsage,
+        private TokenCost $tokenCost,
     ) {}
 
     /**
@@ -113,7 +115,7 @@ final readonly class ApplyTakeSnapshotAction
             if ($outcome === TransitionOutcome::Applied) {
                 $this->advance($take, $snapshot);
             } elseif ($outcome === TransitionOutcome::OrphanSuccess) {
-                $this->recordOrphan($take);
+                $this->recordOrphan($take, $snapshot);
             } elseif ($outcome === TransitionOutcome::IgnoredConflict) {
                 // A terminal take contradicted by the provider: always flagged (spec 5 matrix).
                 $this->flag($take, AttentionReason::InternalFailure);
@@ -248,17 +250,51 @@ final readonly class ApplyTakeSnapshotAction
      * it had accepted (D-077). The customer keeps "failed, not charged": the
      * usage stays voided and the cost is absorbed. Both rows
      * carry a durable flag for Needs attention and reconciliation (D-054, D-058).
+     *
+     * The absorbed cost (units × the generation's own rates, on its UTC
+     * billing day) is kept on the voided usage, never in the ledger, so
+     * `billing:verify --usage` can attribute that day's Pixelforge cost
+     * (issue #102). Recorded once: a replay of the same late success finds it.
+     * Without rates it is not priced from cached prices (D-055): the orphan is
+     * still flagged and that day stays a loud --usage mismatch.
      */
-    private function recordOrphan(Take $take): void
+    private function recordOrphan(Take $take, GenerationSnapshotDTO $snapshot): void
     {
         $this->flag($take, AttentionReason::OrphanSuccess);
 
         $usage = $take->usageRecord()->firstOrFail();
+        $changes = [];
 
-        // Not a money write: the usage is voided, so Settle/Void ignore it,
-        // and the take lock serializes every writer of this take's usage.
         if (! in_array(UsageFlag::Orphan->value, $usage->flags, true)) {
-            $usage->forceFill(['flags' => [...$usage->flags, UsageFlag::Orphan->value]])->save();
+            $changes['flags'] = [...$usage->flags, UsageFlag::Orphan->value];
+        }
+
+        // invalidReason() rejected a succeeded snapshot without usage or completion time.
+        assert($snapshot->usage !== null && $snapshot->completedAt !== null);
+
+        if ($usage->absorbed_cost_nanos === null && $snapshot->rates !== null) {
+            $units = new UsageUnitsDTO($snapshot->usage->toUnits());
+            $rates = new RatesSnapshotDTO($snapshot->rates->toNanosPerMillion());
+
+            $changes = [
+                ...$changes,
+                'units' => $units->tokens,
+                'rates' => $rates->toArray(),
+                'absorbed_cost_nanos' => $this->tokenCost->compute($units->tokens, $rates->toArray(), ['usage_record_id' => $usage->id])->toInt(),
+                'external_id' => $snapshot->id,
+                'completed_at' => $snapshot->completedAt->utc(),
+                'billing_date' => $snapshot->completedAt->utc()->toDateString(),
+            ];
+        } elseif ($usage->absorbed_cost_nanos === null) {
+            $context = ['take_id' => $take->id, 'generation_id' => $snapshot->id];
+            DB::afterCommit(fn () => Log::warning('takes.orphan_without_rates', $context));
+        }
+
+        // Not a money write: the usage is voided (cost and charge stay 0), so
+        // Settle/Void ignore it, and the take lock serializes every writer of
+        // this take's usage.
+        if ($changes !== []) {
+            $usage->forceFill($changes)->save();
         }
     }
 

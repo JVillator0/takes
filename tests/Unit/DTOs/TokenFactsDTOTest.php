@@ -92,4 +92,39 @@ it('rejects a malformed tokens block', function (Closure $break): void {
     'reference tokens that would overflow' => [function (array &$p): void {
         $p['tokens']['per_reference_image'] = PHP_INT_MAX;
     }],
+    'characters per token that would overflow intdiv' => [function (array &$p): void {
+        $p['tokens']['characters_per_text_token'] = PHP_INT_MAX;
+    }],
+    'output that would overflow the cost' => [function (array &$p): void {
+        $p['tokens']['output']['high']['1536x1024'] = PHP_INT_MAX;
+    }],
+    'reasoning that would overflow the cost' => [function (array &$p): void {
+        $p['tokens']['reasoning']['high']['max'] = PHP_INT_MAX;
+    }],
 ]);
+
+it('bounds the constructor too, so a hand-built DTO cannot overflow the estimator', function (): void {
+    $defaults = TokenFactsDTO::defaults();
+
+    expect(fn () => new TokenFactsDTO(TokenFactsDTO::MAX_CHARACTERS_PER_TEXT_TOKEN + 1, 1_500, 765, $defaults->outputTokens, $defaults->reasoningTokens))
+        ->toThrow(InvalidArgumentException::class, 'characters_per_text_token')
+        ->and(fn () => new TokenFactsDTO(4, 1_500, TokenFactsDTO::MAX_TOKENS_PER_KIND + 1, $defaults->outputTokens, $defaults->reasoningTokens))
+        ->toThrow(InvalidArgumentException::class, 'per_reference_image');
+});
+
+it('parses the JSON number variance the same whatever the precision ini (#107)', function (): void {
+    $saved = ['precision' => ini_get('precision'), 'serialize_precision' => ini_get('serialize_precision')];
+    ini_set('precision', '17');
+    ini_set('serialize_precision', '17');
+
+    try {
+        $pricing = $this->pricing;
+        $pricing['tokens']['text_token_variance'] = 0.15;
+
+        expect(TokenFactsDTO::fromPricingArray($pricing)->textTokenVarianceBps)->toBe(1_500);
+    } finally {
+        foreach ($saved as $key => $value) {
+            ini_set($key, (string) $value);
+        }
+    }
+});

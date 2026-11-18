@@ -124,13 +124,30 @@ test('money code never uses floats', function (): void {
 });
 
 // money.md M-07: RecordLedgerEntryAction owns balance_nanos; Open/Settle/Void own
-// held_nanos. Models declare the columns; factories and tests set fixtures.
+// held_nanos. Models declare the columns as array keys (defaults, casts), so
+// there only assignments and increments count; factories and tests set fixtures.
 test('cached money columns are written only from App\Actions\Billing', function (): void {
     expect(SourceScan::columnWrites(
         ['app', 'routes', 'config', 'database/seeders'],
         ['balance_nanos', 'held_nanos'],
-        except: ['app/Actions/Billing/', 'app/Models/'],
+        except: ['app/Actions/Billing/'],
+        modelPaths: ['app/Models/'],
     ))->toBe([]);
+});
+
+test('the column-write scan still sees writes inside a model, not its declarations', function (): void {
+    $file = SourceScan::root().'/storage/framework/testing-model-column-writes.php';
+    file_put_contents($file, "<?php\nclass M {\n protected \$attributes = ['held_nanos' => 0];\n protected function casts(): array { return ['balance_nanos' => 'integer']; }\n public function a(): void { \$this->balance_nanos = 1; }\n public function b(): void { \$this->increment('held_nanos'); }\n}\n");
+
+    try {
+        expect(SourceScan::columnWrites(['storage/framework/testing-model-column-writes.php'], ['balance_nanos', 'held_nanos'], modelPaths: ['storage/framework/testing-model-']))
+            ->toBe([
+                'storage/framework/testing-model-column-writes.php:5 ->balance_nanos =',
+                'storage/framework/testing-model-column-writes.php:6 writes held_nanos',
+            ]);
+    } finally {
+        unlink($file);
+    }
 });
 
 test('the column-write scan sees assignments, array keys and increments', function (): void {

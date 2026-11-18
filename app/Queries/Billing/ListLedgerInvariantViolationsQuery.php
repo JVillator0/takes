@@ -7,10 +7,12 @@ namespace App\Queries\Billing;
 use App\DTOs\Billing\RatesSnapshotDTO;
 use App\DTOs\Billing\UsageUnitsDTO;
 use App\Enums\Billing\UsageStatus;
+use App\Enums\Suggestions\SuggestionStatus;
 use App\Enums\Takes\TakeStatus;
 use App\Models\UsageRecord;
 use App\Support\Money\Nanodollars;
 use App\Support\Money\TokenCost;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Psr\Log\NullLogger;
 use Throwable;
@@ -19,9 +21,12 @@ use Throwable;
  * The money invariants of spec 3-03 (D-024, D-059), each as one query over
  * the whole dataset. Returns one human-readable line per violation; an empty
  * list means the ledger, the cached columns and the usage records agree.
- * Used by `billing:verify` (specs 9, 10). It scans every row (settled amounts
- * are re-priced in PHP), so it is a CLI check; the spec 7 widget needs a
- * bounded variant (issue #102).
+ * Used by `billing:verify` (specs 9, 10). Unbounded, it scans every row
+ * (settled amounts are re-priced in PHP), which suits the CLI. A page load
+ * (spec 7's ledger-drift widget) passes `$repriceSince`: the checks that are
+ * one SQL aggregate still cover every row, and only the settled usages billed
+ * on or after that day are re-priced, so the PHP work is bounded by the window,
+ * not by history (issue #102).
  */
 final readonly class ListLedgerInvariantViolationsQuery
 {
@@ -34,8 +39,11 @@ final readonly class ListLedgerInvariantViolationsQuery
         $this->tokenCost = new TokenCost(new NullLogger);
     }
 
-    /** @return list<string> */
-    public function execute(): array
+    /**
+     * @param  CarbonImmutable|null  $repriceSince  first UTC billing day whose settled usages are re-priced; null = all of them
+     * @return list<string>
+     */
+    public function execute(?CarbonImmutable $repriceSince = null): array
     {
         return [
             ...$this->balanceDrift(),
@@ -43,7 +51,8 @@ final readonly class ListLedgerInvariantViolationsQuery
             ...$this->chargeEntries(),
             ...$this->purchaseEntries(),
             ...$this->openUsageOnTerminalTake(),
-            ...$this->settledAmounts(),
+            ...$this->openUsageOnTerminalSuggestion(),
+            ...$this->settledAmounts($repriceSince),
         ];
     }
 
@@ -145,7 +154,6 @@ final readonly class ListLedgerInvariantViolationsQuery
 
     /**
      * A terminal take has released its hold: its usage is settled or voided.
-     * Suggestions join this check with spec 8 (issue #102).
      *
      * @return list<string>
      */
@@ -169,17 +177,43 @@ final readonly class ListLedgerInvariantViolationsQuery
     }
 
     /**
+     * A suggestion whose AI call is over (every status but `pending`, spec 8)
+     * has released its hold: its usage is settled or voided (issue #102).
+     *
+     * @return list<string>
+     */
+    private function openUsageOnTerminalSuggestion(): array
+    {
+        return array_values(DB::table('usage_records')
+            ->join('suggestions', function ($join): void {
+                $join->on('suggestions.id', '=', 'usage_records.billable_id')
+                    ->where('usage_records.billable_type', 'suggestion');
+            })
+            ->where('usage_records.status', UsageStatus::Open->value)
+            ->whereIn('suggestions.status', array_map(
+                fn (SuggestionStatus $status): string => $status->value,
+                array_filter(SuggestionStatus::cases(), fn (SuggestionStatus $status): bool => $status->isTerminal()),
+            ))
+            ->orderBy('usage_records.id')
+            ->select('usage_records.id', 'suggestions.id as suggestion_id', 'suggestions.status as suggestion_status')
+            ->get()
+            ->map(fn (object $row): string => "usage {$row->id}: still open but suggestion {$row->suggestion_id} is {$row->suggestion_status}")
+            ->all());
+    }
+
+    /**
      * A settled usage's amounts follow from its own units and rates:
      * cost = ceil(Σ units × rate / 1M), charge = cost with its markup.
      *
      * @return list<string>
      */
-    private function settledAmounts(): array
+    private function settledAmounts(?CarbonImmutable $since): array
     {
         $violations = [];
 
         UsageRecord::query()
             ->where('status', UsageStatus::Settled)
+            ->when($since !== null, fn ($query) => $query->where('billing_date', '>=', $since?->toDateString()))
             ->orderBy('id')
             ->lazyById()
             ->each(function (UsageRecord $usage) use (&$violations): void {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Support\Money\Nanodollars;
 use App\Support\Money\RoundingMode;
+use Tests\Support\SourceScan;
 
 describe('parsing', function (): void {
     it('parses USD decimal strings into exact nanodollars', function (string $input, int $expected): void {
@@ -170,16 +171,7 @@ it('converts whole dollars, the credit-pack unit, without leaving integers', fun
 });
 
 it('contains no float or built-in rounding helpers', function (): void {
-    $tokens = token_get_all((string) file_get_contents(dirname(__DIR__, 3).'/app/Support/Money/Nanodollars.php'));
-    $code = array_map(
-        fn (array|string $token): string => is_array($token)
-            ? (in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true) ? '' : $token[1])
-            : $token,
-        $tokens,
-    );
-    $source = implode('', $code);
-
-    foreach (['float', 'round(', 'floatval', 'number_format(', 'floor(', 'ceil(', 'bcmath', '**'] as $forbidden) {
-        expect(str_contains($source, $forbidden))->toBeFalse("Nanodollars must not use [{$forbidden}].");
-    }
+    // The shared token-level scan (also catches `/`, `/=`, `fdiv`, `pow`, #107).
+    expect(SourceScan::phpFiles(['app/Support/Money/Nanodollars.php']))->toHaveCount(1)
+        ->and(SourceScan::floatViolations(['app/Support/Money/Nanodollars.php']))->toBe([]);
 });

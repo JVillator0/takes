@@ -12,8 +12,13 @@ use App\Support\Pixelforge\Payload;
  * GET /v1/pricing: the current rates and the token tables the estimator
  * needs (spec 3-03 §4). The same shape is the config fallback.
  *
- * `text_token_variance` arrives as a JSON number (0.15); it is kept as
- * integer basis points (1500) via its decimal string, never as a float.
+ * `text_token_variance` arrives as a JSON number (0.15) from the API or a
+ * string ("0.15") from the config fallback; it is kept as integer basis
+ * points (1500) via its decimal string, never as a float.
+ *
+ * The token tables are also held to {@see TokenFactsDTO}'s bounds here, at
+ * the boundary: a payload the estimator could not use is unreadable, so the
+ * client falls back to the config pricing instead (#107).
  *
  * @phpstan-import-type RatesPayload from RatesDTO
  *
@@ -24,7 +29,7 @@ use App\Support\Pixelforge\Payload;
  *     rates: RatesPayload,
  *     tokens: array{
  *         characters_per_text_token: int,
- *         text_token_variance: string,
+ *         text_token_variance: string|int|float,
  *         per_reference_image: int,
  *         output: array<'low'|'medium'|'high', array<'1024x1024'|'1536x1024'|'1024x1536', int>>,
  *         reasoning: array<'low'|'medium'|'high', array{min: int, max: int}>,
@@ -82,7 +87,7 @@ final readonly class PricingDTO
             throw Payload::invalid('characters_per_text_token', 'a positive integer');
         }
 
-        return new self(
+        $pricing = new self(
             rates: RatesDTO::fromArray(Payload::array($data, 'rates')),
             charactersPerTextToken: $charactersPerToken,
             textTokenVarianceBps: self::basisPoints($tokens['text_token_variance'] ?? null),
@@ -90,6 +95,11 @@ final readonly class PricingDTO
             outputTokens: $output,
             reasoningTokens: $reasoning,
         );
+
+        // Throws InvalidArgumentException on a value out of the estimator's bounds.
+        TokenFactsDTO::fromPricing($pricing);
+
+        return $pricing;
     }
 
     public function outputTokensFor(TakeQuality $quality, TakeSize $size): int

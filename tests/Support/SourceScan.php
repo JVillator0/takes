@@ -269,13 +269,17 @@ final class SourceScan
      * Writes to the given columns: `->col = …` / `->col += …`, an array key
      * `'col' =>` (update, forceFill, create), and `increment('col')` /
      * `decrement('col')`. Files under `$except` (relative prefixes) are skipped.
+     * Files under `$modelPaths` declare the columns as array keys (`$attributes`
+     * defaults, `casts()`), so there only member assignments and increments
+     * count: a model method or hook that writes the column is still caught.
      *
      * @param  list<string>  $paths
      * @param  list<string>  $columns
      * @param  list<string>  $except
+     * @param  list<string>  $modelPaths  project-relative prefixes of model files
      * @return list<string>
      */
-    public static function columnWrites(array $paths, array $columns, array $except = []): array
+    public static function columnWrites(array $paths, array $columns, array $except = [], array $modelPaths = []): array
     {
         $assignments = ['=', '+=', '-=', '*=', '/=', '??='];
         $violations = [];
@@ -289,6 +293,7 @@ final class SourceScan
                 }
             }
 
+            $isModel = array_filter($modelPaths, fn (string $prefix): bool => str_starts_with($relative, $prefix)) !== [];
             $tokens = self::significantTokens($file);
 
             foreach ($tokens as $index => [$id, $text, $line]) {
@@ -313,7 +318,7 @@ final class SourceScan
 
                 $callee = strtolower($tokens[$index - 2][1] ?? '');
 
-                if ($next === '=>' || (($tokens[$index - 1][1] ?? '') === '(' && in_array($callee, ['increment', 'decrement', 'incrementquietly', 'decrementquietly'], true))) {
+                if ((! $isModel && $next === '=>') || (($tokens[$index - 1][1] ?? '') === '(' && in_array($callee, ['increment', 'decrement', 'incrementquietly', 'decrementquietly'], true))) {
                     $violations[] = "{$relative}:{$line} writes {$literal}";
                 }
             }
