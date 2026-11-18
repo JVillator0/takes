@@ -31,7 +31,7 @@ Each rule has an ID that reviewers cite. Default severity is **important**; rule
 
 ## Permissions (critical)
 
-- [ ] **FI-07 Shield on everything.** Every resource, custom page (`Reports`, `PixelforgeUsage`, `AnthropicUsage`, `Pricing`), widget and action is behind a Shield permission; page and widget permissions are enabled so nothing is visible to a `web` role by default. **Critical.**
+- [ ] **FI-07 Shield on everything.** Every resource, custom page (`Reports`, `PixelforgeUsage`, `AnthropicUsage`, `Pricing`), widget and action is behind a Shield permission; page and widget permissions are enabled so nothing is visible to a `web` role by default. **Critical.** Exception: a widget that is not discovered and lives only inside one custom page (`BillingReportStats` on Reports, `PixelforgeDiscrepancies` on Pixelforge usage) has no Shield permission of its own; it uses `isDiscovered = false` and gates `canView()` on its host page's `canAccess()` (the page's Shield permission), so it can never render where the page is denied.
 - [ ] **FI-08 Write actions are audited.** Every write action: Shield permission, confirmation modal, a required reason when money or access changes, an activity-log entry. The write itself goes through an `App\Actions\*` class (architecture.md); money changes go through `RecordLedgerEntryAction` under the customer lock (money.md M-07, M-10). **Critical.**
 - [ ] **FI-09 Auditor is read-only.** The auditor role sees no write action (hidden, not just disabled), and is MFA-exempt.
 

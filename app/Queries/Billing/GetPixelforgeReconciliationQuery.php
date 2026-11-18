@@ -18,6 +18,7 @@ use App\Models\UsageRecord;
 use App\Services\Pixelforge\PixelforgeClient;
 use App\Support\Pixelforge\AdminRequestBudget;
 use Carbon\CarbonImmutable;
+use Closure;
 use Illuminate\Support\Facades\Cache;
 use InvalidArgumentException;
 
@@ -49,7 +50,11 @@ final readonly class GetPixelforgeReconciliationQuery
 
     public function __construct(private PixelforgeClient $client) {}
 
-    public function execute(CarbonImmutable $from, CarbonImmutable $until, bool $refresh = false): PixelforgeReconciliationDTO
+    /**
+     * @param  bool  $cachedOnly  judge only from the cached figures and never call Pixelforge (Billing › Reports
+     *                            reconciled badge); a day with no cached final figures is Unavailable
+     */
+    public function execute(CarbonImmutable $from, CarbonImmutable $until, bool $refresh = false, bool $cachedOnly = false): PixelforgeReconciliationDTO
     {
         $from = $from->utc()->startOfDay();
         $until = $until->utc()->startOfDay();
@@ -60,7 +65,7 @@ final readonly class GetPixelforgeReconciliationQuery
 
         $ours = $this->ours($from, $until);
         $inFlight = $this->inFlight($from, $until);
-        [$theirs, $fetchedAt, $unavailable, $throttled] = $this->theirs($from, $until, $refresh);
+        [$theirs, $fetchedAt, $unavailable, $throttled] = $this->theirs($from, $until, $refresh && ! $cachedOnly, $cachedOnly);
         $today = CarbonImmutable::now('UTC')->toDateString();
 
         $days = [];
@@ -157,7 +162,7 @@ final readonly class GetPixelforgeReconciliationQuery
      *
      * @return array{0: array<string, UsageTotalsDTO>, 1: CarbonImmutable|null, 2: bool, 3: bool} figures, fetched at, unavailable, throttled
      */
-    private function theirs(CarbonImmutable $from, CarbonImmutable $until, bool $refresh): array
+    private function theirs(CarbonImmutable $from, CarbonImmutable $until, bool $refresh, bool $cachedOnly = false): array
     {
         $dates = [];
 
@@ -171,20 +176,20 @@ final readonly class GetPixelforgeReconciliationQuery
             }
         }
 
-        $fresh = array_filter(array_combine($dates, array_map(fn (string $date): mixed => Cache::get(self::dayKey($date)), $dates)), self::isFinalOrOpen(...), ARRAY_FILTER_USE_BOTH);
+        $fresh = array_filter(self::cachedEntries($dates, self::dayKey(...)), self::isFinalOrOpen(...), ARRAY_FILTER_USE_BOTH);
 
         if (count($fresh) === count($dates)) {
             return [...$this->decode($fresh), false, false];
         }
 
         $fallback = function () use ($dates, $fresh): array {
-            $last = array_filter(array_combine($dates, array_map(fn (string $date): mixed => Cache::get(self::lastKey($date)), $dates)), self::isFinalOrOpen(...), ARRAY_FILTER_USE_BOTH);
+            $last = array_filter(self::cachedEntries($dates, self::lastKey(...)), self::isFinalOrOpen(...), ARRAY_FILTER_USE_BOTH);
 
             return $this->decode($fresh + $last);
         };
 
         // A failed fetch is remembered for a minute, so an outage is not retried on every round-trip.
-        if (Cache::has(self::DOWN_KEY)) {
+        if ($cachedOnly || Cache::has(self::DOWN_KEY)) {
             return [...$fallback(), true, false];
         }
 
@@ -252,7 +257,29 @@ final readonly class GetPixelforgeReconciliationQuery
         return 'admin:pixelforge-usage:day:'.$date;
     }
 
-    private static function lastKey(string $date): string
+    /**
+     * The cached entries of the dates under one key family, read with one Cache::many() (a single query on the
+     * database store) instead of one read per day.
+     *
+     * @param  list<string>  $dates
+     * @param  Closure(string): string  $key
+     * @return array<string, mixed> date => cached entry (null when missing)
+     */
+    private static function cachedEntries(array $dates, Closure $key): array
+    {
+        $keys = array_map($key, $dates);
+        $values = Cache::many($keys);
+        $entries = [];
+
+        foreach ($dates as $index => $date) {
+            $entries[$date] = $values[$keys[$index]] ?? null;
+        }
+
+        return $entries;
+    }
+
+    /** The last-good (closed-day, final) entry of one day; public so tests can seed the fallback. */
+    public static function lastKey(string $date): string
     {
         return 'admin:pixelforge-usage:last:'.$date;
     }
