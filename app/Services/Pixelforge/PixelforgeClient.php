@@ -43,7 +43,7 @@ final class PixelforgeClient
 
     private const array LIST_STATUSES = ['queued', 'processing', 'succeeded', 'failed'];
 
-    /** True when an API key is set. Shared as the `pixelforge.configured` prop. */
+    /** True when an API key is set. Shared as the `imageService.configured` prop. */
     public function isConfigured(): bool
     {
         return $this->apiKey() !== null;

@@ -18,6 +18,8 @@ use App\Models\Project;
 use App\Models\Suggestion;
 use App\Models\Take;
 use App\Support\Suggestions\ProposalReferences;
+use App\Support\Suggestions\SuggestionDiff;
+use App\Support\Takes\TakeImageUrl;
 use App\Support\Takes\UnavailableSuggestedTakeCreator;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -223,5 +225,57 @@ describe('base image reference (spec 4 remix source order)', function (): void {
 
         expect(ProposalReferences::count($proposal, $this->base))->toBe(1)
             ->and(ProposalReferences::baseImageUnavailable($proposal, $this->base))->toBeTrue();
+    });
+});
+
+describe('kept references to take images (#133)', function (): void {
+    beforeEach(function (): void {
+        // The base take keeps its parent's image as a reference, stored as the
+        // provider's signed URL the way a remix stored it; the parent has no
+        // persisted copy and its provider URL lives 30 more minutes.
+        $this->parent = Suggestions::baseTake($this->customer, [
+            'project_id' => $this->base->project_id,
+            'reference_images' => [],
+            'image_path' => null,
+            'image_url_expires_at' => now()->addMinutes(30),
+        ]);
+        $this->parent->forceFill(['image_url' => "https://pixelforge.promptedit.dev/images/{$this->parent->pixelforge_id}.png?expires=1&signature=x"])->save();
+        $this->base->forceFill([
+            'parent_take_id' => $this->parent->id,
+            'reference_images' => [$this->parent->image_url, 'https://images.example/ref-1.png'],
+        ])->save();
+        $this->suggestion->forceFill(['proposal' => Suggestions::proposal(['add_base_image_as_reference' => false])])->save();
+        $this->proposal = TakeChangeProposalDTO::fromArray(Suggestions::proposal(['add_base_image_as_reference' => false]));
+    });
+
+    it('re-signs a kept take-image reference when it is attached, more than an hour later', function (): void {
+        Storage::fake();
+        Storage::put("takes/{$this->customer->id}/{$this->parent->id}.png", 'png');
+        $this->parent->forceFill(['image_path' => "takes/{$this->customer->id}/{$this->parent->id}.png"])->save();
+
+        $this->travel(61)->minutes();
+        applySuggestion();
+
+        expect($this->creator->calls[0]['dto']->referenceImages)->toBe([
+            TakeImageUrl::forReference($this->parent),
+            'https://images.example/ref-1.png',
+        ])->and($this->creator->calls[0]['dto']->referenceImages[0])->not->toBe($this->base->reference_images[0]);
+    });
+
+    it('flags an unresolvable kept reference on the diff row and refuses apply before any take is created', function (): void {
+        $this->travel(31)->minutes();
+
+        expect(ProposalReferences::referenceUnavailable($this->proposal, $this->base))->toBeTrue()
+            ->and(ProposalReferences::baseImageUnavailable($this->proposal, $this->base))->toBeFalse()
+            ->and(SuggestionDiff::build($this->proposal, $this->base)['rows'][2]['note'])->toBe('This image is no longer available');
+
+        expect(fn () => applySuggestion())->toThrow(BaseImageUnavailableException::class)
+            ->and($this->suggestion->refresh()->status)->toBe(SuggestionStatus::Proposed)
+            ->and($this->creator->calls)->toBe([]);
+    });
+
+    it('does not flag kept references that still resolve', function (): void {
+        expect(ProposalReferences::referenceUnavailable($this->proposal, $this->base))->toBeFalse()
+            ->and(SuggestionDiff::build($this->proposal, $this->base)['rows'][2]['note'])->toBeNull();
     });
 });

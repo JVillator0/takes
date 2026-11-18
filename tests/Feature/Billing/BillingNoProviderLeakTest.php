@@ -26,16 +26,15 @@ afterEach(function (): void {
 });
 
 /**
- * Every key (nested ones too) and scalar value of the page props, except two
- * shared props owned elsewhere: the lang copy (scanned by LandingPageTest) and
- * spec 3-04's `pixelforge.configured` boolean.
+ * Every key (nested ones too) and scalar value of the page props, except the
+ * lang copy (scanned by LandingPageTest), a shared prop owned elsewhere.
  *
  * @param  array<array-key, mixed>  $props
  */
 function billingPropsText(array $props, bool $root = true): string
 {
     if ($root) {
-        unset($props['copy'], $props['pixelforge']);
+        unset($props['copy']);
     }
 
     $text = [];

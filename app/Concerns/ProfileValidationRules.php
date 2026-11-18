@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Concerns;
 
 use App\Models\Customer;
+use App\Rules\NotDemoAccountEmail;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Unique;
@@ -37,6 +38,8 @@ trait ProfileValidationRules
     /**
      * Get the validation rules used to validate user emails.
      *
+     * The seeded demo addresses are reserved (D-072, #111).
+     *
      * @return array<int, Unique|ValidationRule|array<mixed>|string>
      */
     protected function emailRules(?int $userId = null): array
@@ -49,6 +52,7 @@ trait ProfileValidationRules
             $userId === null
                 ? Rule::unique(Customer::class)
                 : Rule::unique(Customer::class)->ignore($userId),
+            new NotDemoAccountEmail,
         ];
     }
 }

@@ -93,3 +93,13 @@ it('shares updateAccount as denied for a shared demo login and allowed otherwise
         ->get(route('profile.edit'))
         ->assertInertia(fn (Assert $page) => $page->where('auth.can.updateAccount.allowed', true));
 });
+
+it('links the disabled settings fieldset to the lock notice that explains it (F-20)', function (string $page): void {
+    $source = (string) file_get_contents(resource_path("js/pages/settings/{$page}.vue"));
+
+    // The notice is on the page from first paint, so a live region would never
+    // announce it: the fieldset is described by it instead.
+    expect($source)->toContain('id="account-locked-notice"')
+        ->toContain(":aria-describedby=\"locked ? 'account-locked-notice' : undefined\"")
+        ->not->toContain('role="status"');
+})->with(['Profile', 'Security']);

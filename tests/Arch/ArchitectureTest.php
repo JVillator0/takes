@@ -211,3 +211,13 @@ test('the take-status scan sees enum cases, string values and variables next to 
         unlink($take);
     }
 });
+
+arch('query objects are named Get…Query, List…Query or Search…Query')
+    ->expect(fn (): array => array_values(array_filter(
+        array_map(
+            fn (string $path): string => basename($path, '.php'),
+            glob(app_path('Queries/*/*.php')) ?: [],
+        ),
+        fn (string $name): bool => preg_match('/^(Get|List|Search)[A-Z]\w*Query$/', $name) !== 1,
+    )))
+    ->toBe([]);
