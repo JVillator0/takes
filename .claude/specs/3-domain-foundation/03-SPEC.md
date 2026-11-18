@@ -50,12 +50,12 @@ Pixelforge max: `text_max = ceil(ceil(chars/4) × 115/100)`, refs × 765, output
 | min_cost_nanos, min_charge_nanos | from the estimate (spec 7 uses them for the estimate range) |
 | flags | jsonb array default `[]`: `over_estimate`, `cost_mismatch`, `orphan`; durable backing of Needs attention (D-054) |
 | provider_cost_nanos, charge_nanos | null while open; 0 when voided |
-| absorbed_cost_nanos | null unless a voided usage's work was still billed by the provider (an unusable AI response, spec 8): its cost at the open rates, with its units, tokens and `completed_at`, never `billing_date`; counted only by the daily AI budget; admin-only (D-023) |
+| absorbed_cost_nanos | null unless a voided usage's work was still billed by the provider (an unusable AI response, spec 8): its cost at the open rates, with its units, tokens and `completed_at`, never `billing_date`; counted only by the daily AI budget; admin-only (D-023, D-087) |
 | markup_bps | snapshot (2500) |
 | external_id | `gen_…` / Anthropic message id |
 | completed_at, billing_date | provider completion time; `billing_date` = its UTC date |
 | timestamps | |
-CHECKs: token columns ≥ 0; open ⇒ cost/charge null; settled ⇒ not null; voided ⇒ both 0; `absorbed_cost_nanos` null unless voided, and ≥ 0; all amounts ≥ 0. Index `(provider, billing_date)`, `(customer_id, billing_date)`, partial `(customer_id) where status = 'open'`.
+CHECKs: token columns ≥ 0; open ⇒ cost/charge null; settled ⇒ not null; voided ⇒ both 0; `absorbed_cost_nanos` null unless voided, then ≥ 0 with `completed_at` set (D-087); all amounts ≥ 0. Index `(provider, billing_date)`, `(customer_id, billing_date)`, partial `(customer_id) where status = 'open'`.
 
 ### `ledger_entries` (append-only, real money only; **no hold rows**, D-024)
 `id` bigint · `customer_id` · `type` (`purchase`, `promo_grant`, `charge`, `adjustment`) · `amount_nanos` (signed) · `usage_record_id` null · `purchase_id` null (ulid FK `purchases`) · `admin_id` null · `reason` null · `created_at`.

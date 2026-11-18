@@ -15,7 +15,7 @@ use UnexpectedValueException;
  * settled usages billed today at their provider cost, plus voided usages
  * whose call the provider still billed (refusal, `max_tokens`, invalid
  * output, a result after expiry) at their `absorbed_cost_nanos`, completed
- * today, plus every open usage at its `max_cost_nanos` (currently held,
+ * today (UTC, D-087), plus every open usage at its `max_cost_nanos` (currently held,
  * whenever it was opened: the worst case still in flight). A voided usage
  * with no provider work (an error before any token, an expiry) costs nothing.
  */

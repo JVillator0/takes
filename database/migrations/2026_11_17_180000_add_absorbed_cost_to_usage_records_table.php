@@ -13,8 +13,9 @@ use Illuminate\Support\Facades\Schema;
  * output that fails re-validation, or a result that came back after the
  * suggestion expired) is voided, so the customer pays nothing (M-13), but
  * Anthropic bills those tokens. The global daily AI budget (`ai_paused`)
- * counts them. Admin-only (D-023); `provider_cost_nanos` and `charge_nanos`
- * of a voided usage stay 0, so no report or ledger sum changes.
+ * counts them by `completed_at` (UTC day), so the CHECK requires it. D-087.
+ * Admin-only (D-023); `provider_cost_nanos` and `charge_nanos` of a voided
+ * usage stay 0, so no report or ledger sum changes.
  */
 return new class extends Migration
 {
@@ -25,7 +26,7 @@ return new class extends Migration
             $table->bigInteger('absorbed_cost_nanos')->nullable()->after('charge_nanos');
         });
 
-        DB::statement("ALTER TABLE usage_records ADD CONSTRAINT usage_records_absorbed_cost_check CHECK (absorbed_cost_nanos IS NULL OR (status = 'voided' AND absorbed_cost_nanos >= 0))");
+        DB::statement("ALTER TABLE usage_records ADD CONSTRAINT usage_records_absorbed_cost_check CHECK (absorbed_cost_nanos IS NULL OR (status = 'voided' AND absorbed_cost_nanos >= 0 AND completed_at IS NOT NULL))");
     }
 
     public function down(): void

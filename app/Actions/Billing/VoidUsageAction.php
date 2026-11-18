@@ -15,13 +15,16 @@ use App\Support\Money\TokenCost;
 
 /**
  * Provider work failed or was rejected: release the hold, charge nothing
- * (failed = free, spec 3-03 §3 and §6). Voiding a usage that is not open is a
- * no-op, so a void can never undo a settled charge.
+ * (failed = free, spec 3-03 §3 and §6). Voiding a usage that is not open
+ * changes no money, so a void can never undo a settled charge (M-12).
  *
  * When the provider still billed the failed call (an unusable AI response),
  * the caller passes what it consumed: the voided usage keeps those units and
  * their cost as `absorbed_cost_nanos`, which the global daily AI budget counts
- * (spec 8 Guardrails). Cost and charge stay 0: the customer is never charged.
+ * (spec 8 Guardrails, D-087). Cost and charge stay 0: the customer is never
+ * charged. The one write on a non-open usage: a voided usage with no absorbed
+ * cost yet records it (an AI result that came back after expiry); a second
+ * absorb, or any absorb on a settled usage, is a no-op.
  */
 final readonly class VoidUsageAction
 {

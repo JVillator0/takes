@@ -21,4 +21,12 @@ final readonly class AbsorbedUsageDTO
         public CarbonImmutable $completedAt,
         public ?string $externalId = null,
     ) {}
+
+    /**
+     * @param  array{units: UsageUnitsDTO, rates: RatesSnapshotDTO, completed_at: CarbonImmutable, external_id?: string|null}  $data
+     */
+    public static function fromArray(array $data): self
+    {
+        return new self($data['units'], $data['rates'], $data['completed_at'], $data['external_id'] ?? null);
+    }
 }

@@ -38,8 +38,9 @@ beforeEach(function (): void {
 
 /**
  * A take in $state: a provider status, `failed:<code>` for a local failure
- * after Pixelforge accepted it, or `failed:<code>:<submit kind>` for one
- * before any acceptance, with that `last_submit_error_kind` (`none` = null).
+ * after Pixelforge accepted it, or `failed:<code>:<submit kind>:<attempts>`
+ * for one before any acceptance, with that `last_submit_error_kind`
+ * (`none` = null) and `submit_attempts`.
  */
 function matrixTake(string $state): Take
 {
@@ -47,14 +48,14 @@ function matrixTake(string $state): Take
         return Takes::in($state);
     }
 
-    [, $code, $kind] = [...explode(':', $state), null];
+    [, $code, $kind, $attempts] = [...explode(':', $state), null, null];
     $code = FailureCode::from($code);
     $take = Takes::pendingWithHold();
     // A cancel is only allowed while waiting for capacity, where nothing exists
     // at Pixelforge (D-044); the others failed after Pixelforge accepted it,
     // unless the row names the submit state the take failed in.
     $take->forceFill(match (true) {
-        $kind !== null => ['last_submit_error_kind' => SubmitErrorKind::tryFrom($kind)],
+        $kind !== null => ['last_submit_error_kind' => SubmitErrorKind::tryFrom($kind), 'submit_attempts' => (int) $attempts],
         $code === FailureCode::Cancelled => ['last_submit_error_kind' => SubmitErrorKind::Capacity],
         default => ['pixelforge_id' => 'gen_'.$take->id],
     })->save();
@@ -91,10 +92,12 @@ it('stores the matrix outcome for every row', function (string $from, string $in
     ['failed:cancelled', 'succeeded', WebhookOutcome::IgnoredConflict, 'failed'],
     // D-077(c): an `internal` failure of a take Pixelforge had accepted.
     ['failed:internal', 'succeeded', WebhookOutcome::OrphanSuccess, 'failed'],
-    // D-082: an `internal` failure while a submit was ambiguous; never after capacity answers only or no answer.
-    ['failed:internal:ambiguous', 'succeeded', WebhookOutcome::OrphanSuccess, 'failed'],
-    ['failed:internal:capacity', 'succeeded', WebhookOutcome::IgnoredConflict, 'failed'],
-    ['failed:internal:none', 'succeeded', WebhookOutcome::IgnoredConflict, 'failed'],
+    // D-082: an `internal` failure while a submit was in doubt (ambiguous, or an attempt
+    // counted but never answered); never after capacity answers only or before any attempt.
+    ['failed:internal:ambiguous:2', 'succeeded', WebhookOutcome::OrphanSuccess, 'failed'],
+    ['failed:internal:none:1', 'succeeded', WebhookOutcome::OrphanSuccess, 'failed'],
+    ['failed:internal:capacity:3', 'succeeded', WebhookOutcome::IgnoredConflict, 'failed'],
+    ['failed:internal:none:0', 'succeeded', WebhookOutcome::IgnoredConflict, 'failed'],
     ['failed', 'succeeded', WebhookOutcome::IgnoredConflict, 'failed'],
 ]);
 

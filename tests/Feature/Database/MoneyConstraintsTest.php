@@ -187,11 +187,13 @@ it('rejects usage records that break a CHECK constraint', function (array $overr
     'voided with a charge' => [['status' => 'voided', 'provider_cost_nanos' => 0, 'charge_nanos' => 125], 'usage_records_voided_check'],
     'absorbed cost while open' => [['absorbed_cost_nanos' => 100], 'usage_records_absorbed_cost_check'],
     'absorbed cost on a settled usage' => [['status' => 'settled', 'provider_cost_nanos' => 100, 'charge_nanos' => 125, 'billing_date' => '2026-11-17', 'absorbed_cost_nanos' => 100], 'usage_records_absorbed_cost_check'],
-    'negative absorbed cost' => [['status' => 'voided', 'provider_cost_nanos' => 0, 'charge_nanos' => 0, 'absorbed_cost_nanos' => -1], 'usage_records_absorbed_cost_check'],
+    'negative absorbed cost' => [['status' => 'voided', 'provider_cost_nanos' => 0, 'charge_nanos' => 0, 'absorbed_cost_nanos' => -1, 'completed_at' => now()], 'usage_records_absorbed_cost_check'],
+    // The daily AI budget dates absorbed cost by completed_at (D-087): without it the cost would be invisible.
+    'absorbed cost without completed_at' => [['status' => 'voided', 'provider_cost_nanos' => 0, 'charge_nanos' => 0, 'absorbed_cost_nanos' => 100], 'usage_records_absorbed_cost_check'],
 ]);
 
 it('lets only a voided usage carry absorbed provider cost (spec 8 budget)', function (): void {
-    DB::table('usage_records')->insert(usageRow($this->customer, ['status' => 'voided', 'provider_cost_nanos' => 0, 'charge_nanos' => 0, 'absorbed_cost_nanos' => 254_000]));
+    DB::table('usage_records')->insert(usageRow($this->customer, ['status' => 'voided', 'provider_cost_nanos' => 0, 'charge_nanos' => 0, 'absorbed_cost_nanos' => 254_000, 'completed_at' => now()]));
 
     expect(DB::table('usage_records')->value('absorbed_cost_nanos'))->toBe(254_000);
 });
