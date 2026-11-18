@@ -102,7 +102,7 @@ Set on the environment:
 | `DEMO_LOGIN_THROTTLE_PER_IP` | `5` |
 | `DEMO_ACCOUNTS_PASSWORD` | attached Cloud secret (public on purpose, D-072) |
 | `ADMIN_ENVIRONMENT_LABEL` | `production` |
-| `ADMIN_EMAIL`, `ADMIN_AUDITOR_EMAIL` | `admin@takes.example`, `auditor@takes.example` (login identifiers only) |
+| `ADMIN_EMAIL`, `ADMIN_AUDITOR_EMAIL` | set (see submission form, D-081) |
 | `ADMIN_PASSWORD`, `ADMIN_AUDITOR_PASSWORD` | attached Cloud secrets (random, generated for production; `AdminUsersSeeder` was run once by hand) |
 
 Attached secrets: `PIXELFORGE_API_KEY`, `ANTHROPIC_API_KEY`, `PIXELFORGE_WEBHOOK_SECRET`, `ADMIN_PASSWORD`, `ADMIN_AUDITOR_PASSWORD`, `DEMO_ACCOUNTS_PASSWORD` (encrypted locally by the CLI; values are piped in from the password manager, never typed or passed as flags).
@@ -170,12 +170,12 @@ Run as the **showcase** customer against the production Pixelforge key (label "T
 
 Results:
 
-- **Webhooks:** 18 verified deliveries (14 `applied`, 4 `duplicate`) plus the dashboard `ping`, all answered 2xx: a delivery row is only kept when the handler commits (a 5xx rolls it back, W-09).
+- **Webhooks:** 18 verified deliveries (14 `applied`, 4 `duplicate`) plus the dashboard `ping`. These rows prove the 18 committed deliveries were answered 2xx. They cannot show a failed attempt, because a 5xx rolls its row back (W-09), and Pixelforge's dashboard Recent deliveries was not checked in this run (the API has no deliveries endpoint).
 - **Money:** showcase balance $5.00 + $5.00 − $0.256906 = **$9.743094**, held $0.00. Every failure charged $0.00. `billing:verify`: "Billing invariants hold." `billing:verify --usage` for 2026-11-17: "Pixelforge usage matches". No open usage and no non-terminal take in the whole database at the end.
 - **Margin** (settled usage, same definition as the Reports page): Pixelforge 6 takes, charge $0.256703125 on cost $0.2053625; Anthropic 1 suggestion, charge $0.000202875 on cost $0.0001623: **20.00 %** for both.
 - **Pixelforge usage page** (`GetPixelforgeReconciliationQuery`): 2026-11-15 and 2026-11-16 Match; today (2026-11-17) shows Pending with 0 in flight, as designed for the current UTC day (D-034); the CLI check above compares today explicitly and matches.
 - **Live status:** `BROADCAST_CONNECTION=reverb`, the Reverb host is baked into the built JS, `/broadcasting/auth` answers 401 without a session, and a server-side trigger to the Reverb app succeeds. No browser was subscribed during this run (Reverb metrics show 0 connections), so the in-browser update (and the polling fallback) is left to the QA pass (spec 10, D-071).
-- **Queue:** the managed queue processed the submit, reconcile and broadcast jobs. Two failed jobs are listed: a probe closure from the deploy check, and one `SubmitTakeJob` "attempted too many times" from the `[overloaded]` retries (the take still failed free on time).
+- **Queue:** the managed queue processed the submit, reconcile and broadcast jobs. Two failed jobs are listed: a probe closure from the deploy check, and the `[overloaded]` take's `SubmitTakeJob` marked "attempted too many times". That entry is the designed window expiry: `retryUntil()` is the 30-minute submit window, the worker fails the job when it passes, and `failed()` runs the free `provider_busy` expiry. The retry cadence is tracked in #149.
 
 Cold start of `/` after idle (scale to zero for app and database), measured with:
 
