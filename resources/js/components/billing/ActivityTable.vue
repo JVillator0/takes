@@ -87,10 +87,13 @@ const cell =
                     </tr>
                 </thead>
                 <tbody class="@max-2xl:block">
-                    <tr v-if="activity.rows.length === 0">
+                    <tr
+                        v-if="activity.rows.length === 0"
+                        class="@max-2xl:block"
+                    >
                         <td
                             colspan="5"
-                            class="px-3 py-6 text-center text-muted-foreground"
+                            class="px-3 py-6 text-center text-muted-foreground @max-2xl:block @max-2xl:w-full"
                         >
                             {{ t('billing.activity.empty') }}
                         </td>
