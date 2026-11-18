@@ -82,14 +82,16 @@ it('applies a 202: the take is queued, the gate slot is freed and reconcile star
     Queue::assertPushed(ReconcileTakeJob::class, fn (ReconcileTakeJob $job): bool => $job->takeId === $take->id);
 })->with(['202' => false, 'replayed 202' => true]);
 
-it('waits for capacity on a busy answer, honouring Retry-After plus jitter, with the same key', function (int $status, string $code, string $explanation): void {
+it('waits for capacity on a busy answer, at least the first backoff step plus jitter, with the same key', function (int $status, string $code, string $explanation): void {
     $take = Takes::pendingWithHold();
+    // Retry-After 7 is shorter than the first step: the backoff wins (#149).
     fakeCreate(TakeFlow::error($code, $status, '7'), acceptedFor($take));
 
     $delay = TakeFlow::runSubmit($take);
 
     $take->refresh();
-    expect($delay)->toBeGreaterThanOrEqual(7)->toBeLessThanOrEqual(12)
+    expect($delay)->toBeGreaterThanOrEqual(SubmitTakeJob::CAPACITY_BACKOFF_STEP_SECONDS)
+        ->toBeLessThanOrEqual(SubmitTakeJob::CAPACITY_BACKOFF_STEP_SECONDS + SubmitTakeJob::JITTER_SECONDS)
         ->and($take->status)->toBe(TakeStatus::Pending)
         ->and($take->last_submit_error_kind)->toBe(SubmitErrorKind::Capacity)
         ->and($take->last_submit_error)->toBe($code)
@@ -108,6 +110,82 @@ it('waits for capacity on a busy answer, honouring Retry-After plus jitter, with
     '429 rate limit' => [429, 'rate_limit_exceeded', 'takes.explanation.waiting_busy'],
     '503 overloaded' => [503, 'overloaded', 'takes.explanation.waiting_busy'],
 ]);
+
+it('honours a Retry-After longer than the backoff', function (): void {
+    $take = Takes::pendingWithHold();
+    fakeCreate(TakeFlow::error('overloaded', 503, '90'));
+
+    expect(TakeFlow::runSubmit($take))->toBeGreaterThanOrEqual(90)->toBeLessThanOrEqual(90 + SubmitTakeJob::JITTER_SECONDS);
+});
+
+it('backs off one take under continuous capacity answers: at most 3 calls a minute, then provider_busy', function (int $status, string $code): void {
+    $take = Takes::pendingWithHold();
+    $calls = [];
+    Http::preventStrayRequests();
+    Http::fake([TakeFlow::API.'/generations' => function () use (&$calls, $code, $status): PromiseInterface {
+        $calls[] = now()->getTimestamp();
+
+        return TakeFlow::error($code, $status, '1');
+    }]);
+
+    $delays = [];
+
+    // Run the job the way the queue would, until the window ends it.
+    while (($delay = TakeFlow::runSubmit($take)) !== null && count($delays) < 500) {
+        $delays[] = $delay;
+        $this->travel($delay)->seconds();
+    }
+
+    $take->refresh();
+    expect($take->status)->toBe(TakeStatus::Failed)
+        ->and($take->failure_code)->toBe(FailureCode::ProviderBusy)
+        ->and(Takes::usage($take)->status)->toBe(UsageStatus::Voided)
+        ->and($take->customer()->firstOrFail()->held_nanos)->toBe(0)
+        ->and($take->submit_attempts)->toBe(count($calls))
+        ->and(max($delays))->toBeLessThanOrEqual(SubmitTakeJob::CAPACITY_BACKOFF_MAX_SECONDS + SubmitTakeJob::JITTER_SECONDS)
+        // ~18 calls in 30 min instead of one every few seconds.
+        ->and(count($calls))->toBeGreaterThan(10)->toBeLessThanOrEqual(20);
+
+    // The window, not the worker, ended it: expired on the run just past it.
+    expect(now()->getTimestamp())->toBeLessThanOrEqual(SubmitTakeJob::windowEnd($take)->getTimestamp() + 1);
+
+    foreach ($calls as $at) {
+        $inMinute = count(array_filter($calls, fn (int $call): bool => $call >= $at && $call < $at + 60));
+
+        expect($inMinute)->toBeLessThanOrEqual(3);
+    }
+})->with([
+    '429 rate limit' => [429, 'rate_limit_exceeded'],
+    '429 concurrency' => [429, 'concurrency_limit_exceeded'],
+    '503 overloaded' => [503, 'overloaded'],
+]);
+
+it('does not count gate waits as API attempts: the first capacity answer after them backs off from the first step', function (): void {
+    $take = Takes::pendingWithHold();
+    $gate = app(SubmitGate::class);
+    $others = Take::factory()->count(3)->create();
+
+    // Three other takes are submitting: the gate is at its cap.
+    foreach ($others as $other) {
+        expect($gate->acquire($other, 'other-job')->allowed)->toBeTrue();
+    }
+
+    fakeCreate(TakeFlow::error('overloaded', 503, '1'));
+
+    foreach (range(1, 5) as $wait) {
+        expect(TakeFlow::runSubmit($take))->toBeGreaterThanOrEqual(3)->toBeLessThanOrEqual(8);
+    }
+
+    expect($take->refresh()->submit_attempts)->toBe(0);
+    Http::assertNothingSent();
+
+    $others->each(fn (Take $other) => $gate->finish($other, 'other-job'));
+
+    expect(TakeFlow::runSubmit($take))->toBeGreaterThanOrEqual(SubmitTakeJob::CAPACITY_BACKOFF_STEP_SECONDS)
+        ->toBeLessThanOrEqual(SubmitTakeJob::CAPACITY_BACKOFF_STEP_SECONDS + SubmitTakeJob::JITTER_SECONDS)
+        ->and($take->refresh()->submit_attempts)->toBe(1);
+    Http::assertSentCount(1);
+});
 
 it('caps every release at 900 s, even for a long Retry-After', function (): void {
     $take = Takes::pendingWithHold();
@@ -298,11 +376,12 @@ it('treats an attempt that never reported back as in doubt when the window ends'
     expect($take->refresh()->failure_code)->toBe(FailureCode::SubmitTimeout);
 });
 
-it('expires the take when the worker gives up after retryUntil', function (): void {
+it('outlives the window by one maximum release, and still expires the take if the worker gives up', function (): void {
     $take = Takes::pendingWithHold(['last_submit_error_kind' => SubmitErrorKind::Capacity, 'submit_attempts' => 1]);
 
+    // The window ends the take in handle(), not the worker's retryUntil (#149).
     expect((new SubmitTakeJob($take->id))->retryUntil()->getTimestamp())
-        ->toBe($take->created_at->addMinutes(30)->getTimestamp());
+        ->toBe($take->created_at->addMinutes(30)->addSeconds(SubmitTakeJob::MAX_DELAY_SECONDS + 60)->getTimestamp());
 
     $this->travel(31)->minutes();
     (new SubmitTakeJob($take->id))->failed(new MaxAttemptsExceededException('retryUntil passed'));

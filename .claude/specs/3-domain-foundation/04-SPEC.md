@@ -26,7 +26,7 @@ Decimal strings are parsed with `Nanodollars`; timestamps with `CarbonImmutable`
 Customer-facing copy for every code is in 2-01 only (D-057); this table names codes, not strings.
 | HTTP / code | Exception | Caller behavior (spec 4) |
 |---|---|---|
-| 429 `rate_limit_exceeded`, `concurrency_limit_exceeded`; 503 `overloaded` | `PixelforgeBusy(retryAfter, code)` | **definite non-creation**: take stays `pending` with `last_submit_error_kind = capacity`; release job after Retry-After (+ jitter), **every release delay capped at 900 s**; after 30 min of this (from `takes.created_at`) fail free `provider_busy` |
+| 429 `rate_limit_exceeded`, `concurrency_limit_exceeded`; 503 `overloaded` | `PixelforgeBusy(retryAfter, code)` | **definite non-creation**: take stays `pending` with `last_submit_error_kind = capacity`; release job after max(Retry-After, a backoff growing 20 … 120 s with each API attempt) + jitter (#149), **every release delay capped at 900 s**; after 30 min of this (from `takes.created_at`) fail free `provider_busy` |
 | connection error / timeout / other 5xx | `PixelforgeUnavailable` | **ambiguous**: `last_submit_error_kind = ambiguous`, retry with the same idempotency key (5 s, backing off, cap 900 s) for up to 30 min from `takes.created_at`, then fail free `submit_timeout` (orphan possible) |
 | 429 `daily_limit_exceeded` | `PixelforgeRejected(code)` | fail free now, `daily_limit`; no retry |
 | 400 `content_policy_violation` | `PixelforgeRejected(code)` | fail free now, `content_policy` |

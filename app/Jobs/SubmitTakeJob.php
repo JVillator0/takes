@@ -33,7 +33,8 @@ use Throwable;
  * Sends a pending take to Pixelforge (spec 4 "Submit", the 3-04 error table).
  *
  *   202 (or a replay)      ⇒ ApplyTakeSnapshotAction (safe if a webhook already moved it)
- *   PixelforgeBusy         ⇒ `capacity`, release after Retry-After + jitter
+ *   PixelforgeBusy         ⇒ `capacity`, release after max(Retry-After, a
+ *                            backoff growing 20, 40 … 120 s) + jitter (#149)
  *   PixelforgeUnavailable  ⇒ `ambiguous` (sticky), release after 5 s + jitter, same key
  *   PixelforgeRejected     ⇒ FailTakeAction now, free (content_policy, validation,
  *                            daily_limit, or internal + critical log for 401/404/409)
@@ -43,12 +44,15 @@ use Throwable;
  * Every attempt sends the take's idempotency key, so a replay after a
  * timeout is never a second generation (D-033). No transaction is open and
  * no row is locked during the HTTP call (M-16). Every release is capped at
- * 900 s (M-17); `retryUntil` is the 30-minute window, and the release before
- * it lands just past the window, so the expiry runs on time in failed().
+ * 900 s (M-17) and never lands later than one second past the 30-minute
+ * window; `retryUntil` outlives that window by one maximum release, so the
+ * window (handle() expiring the take), not the worker's attempt limit, ends
+ * the take (#149).
  *
  * Before calling, the job asks the app-wide request budget (50/min, below
  * Pixelforge's 60) and the 3-04 in-flight gate (3); when either says no it
- * releases without calling and without counting an attempt.
+ * releases shortly without calling and without counting an attempt, so
+ * those waits never grow the capacity backoff.
  *
  * Unique per take for the whole submit window plus one maximum release:
  * the reconcile job and the sweeper re-dispatch it for a pending take with
@@ -66,6 +70,16 @@ final class SubmitTakeJob implements ShouldBeUnique, ShouldQueue
 
     /** Retry delay after an ambiguous outcome or an exhausted request budget. */
     public const int RETRY_SECONDS = 5;
+
+    /**
+     * Minimum wait after a capacity answer grows by this much per API attempt
+     * (20, 40, 60 … s), so one take waiting for capacity makes at most about
+     * three calls a minute against the shared 60 rpm budget (#149).
+     */
+    public const int CAPACITY_BACKOFF_STEP_SECONDS = 20;
+
+    /** The capacity backoff stops growing here (always well below 900 s, M-17). */
+    public const int CAPACITY_BACKOFF_MAX_SECONDS = 120;
 
     /** Random seconds added to every release, so released jobs do not stampede. */
     public const int JITTER_SECONDS = 5;
@@ -102,12 +116,19 @@ final class SubmitTakeJob implements ShouldBeUnique, ShouldQueue
         return $this->takeId;
     }
 
-    /** The 30-minute submit window, anchored on takes.created_at only (spec 4 "Thresholds"). */
+    /**
+     * The 30-minute submit window (anchored on takes.created_at only, spec 4
+     * "Thresholds") plus one maximum release and a minute of grace: the last
+     * release lands just past the window, and handle() then fails the take
+     * by its last outcome. The worker gives up only if that run never came.
+     */
     public function retryUntil(): DateTimeInterface
     {
         $take = Take::query()->find($this->takeId);
 
-        return $take === null ? CarbonImmutable::now() : self::windowEnd($take);
+        return $take === null
+            ? CarbonImmutable::now()
+            : self::windowEnd($take)->addSeconds(self::MAX_DELAY_SECONDS + 60);
     }
 
     /**
@@ -182,7 +203,7 @@ final class SubmitTakeJob implements ShouldBeUnique, ShouldQueue
             // Definite non-creation: free the slot now (#98).
             $gate->finish($take, $this->holder);
             $recordOutcome->execute($take, $waitingKind, $exception->errorCode);
-            $this->releaseWithin($take, min($exception->retryAfter, self::MAX_DELAY_SECONDS) + $this->jitter());
+            $this->releaseWithin($take, $this->capacityDelay($take, $exception->retryAfter));
 
             return;
         } catch (PixelforgeUnavailable $exception) {
@@ -287,6 +308,21 @@ final class SubmitTakeJob implements ShouldBeUnique, ShouldQueue
         $untilWindowEnd = max(1, self::windowEnd($take)->getTimestamp() - CarbonImmutable::now()->getTimestamp() + 1);
 
         $this->release(min($seconds, $untilWindowEnd, self::MAX_DELAY_SECONDS));
+    }
+
+    /**
+     * Seconds to wait after a capacity answer: Retry-After, but never less
+     * than a backoff that grows with the take's API attempts (gate and budget
+     * waits are not attempts), plus jitter, capped at 900 s (M-17).
+     */
+    private function capacityDelay(Take $take, int $retryAfter): int
+    {
+        $backoff = min(
+            self::CAPACITY_BACKOFF_STEP_SECONDS * max(1, $take->submit_attempts),
+            self::CAPACITY_BACKOFF_MAX_SECONDS,
+        );
+
+        return min(max($retryAfter, $backoff) + $this->jitter(), self::MAX_DELAY_SECONDS);
     }
 
     private function jitter(): int
