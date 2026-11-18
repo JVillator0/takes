@@ -27,6 +27,10 @@ No CI or compose pin had to change.
 | Bucket | `takes-images` | `fls-a33fc5db-2ed6-4510-a8ac-2acfc1414be0` | private, R2, key `takes-app` read/write (`flsk-a33fc5dc-4d26-4b04-b64e-467075c131b4`) | $0.02/GB-mo |
 | Secret | `PIXELFORGE_API_KEY` | `scrt-a33fc5ed-eb21-49a4-bebe-163586ff2c95` | Pixelforge production key | – |
 | Secret | `ANTHROPIC_API_KEY` | `scrt-a33fc5f0-7c6d-464f-be97-d54c219c2c6b` | `promptedit-takes` workspace key | – |
+| Secret | `PIXELFORGE_WEBHOOK_SECRET` | `scrt-a33ffbac-b9ac-401a-980a-02b34768363c` | `whsec_…` of the production key's webhook | – |
+| Secret | `ADMIN_PASSWORD` | `scrt-a33fed0d-ba45-4530-9220-025c4f0197bc` | super admin (spec 7) | – |
+| Secret | `ADMIN_AUDITOR_PASSWORD` | `scrt-a33fed0f-d566-449e-8f65-7e6b5ce82f17` | auditor, public on purpose (submission form) | – |
+| Secret | `DEMO_ACCOUNTS_PASSWORD` | `scrt-a33fed12-37f7-4ee9-8cf1-9cf7edfec675` | seeded demo logins, public on purpose (D-072) | – |
 | Application | `takes` | `app-a33fe256-a922-4702-aee9-e2fe5eff7889` | GitHub `JVillator0/takes`, branch `main`, push to deploy | plan fee $5 (+$5 usage credit) |
 | Environment | `production` | `env-a33fe259-b507-4b8b-a421-44924be4336a` | <https://takes-production-aodrsk.laravel.cloud>, PHP 8.5, Node 24; database `production`, WebSocket app `takes`, bucket `takes-images` as default disk `private` | – |
 | App compute | `App` | `inst-a33fe259-c062-45cb-8401-aec407d51f80` | Flex 1 GiB (`flex-1gb`), 1 replica, scale to zero after 5 min, no scheduler (D-036) | $0.01786/h awake |
@@ -83,10 +87,10 @@ Set on the environment:
 | `SESSION_DRIVER` | `database` |
 | `SESSION_SECURE_COOKIE` | `true` |
 | `CACHE_STORE` | `database` |
-| `BROADCAST_CONNECTION` | `log` until spec 5 (#112) is deployed, then `reverb`. `laravel/reverb` brings the Pusher client and `config/broadcasting.php` defaults the Reverb keys to empty strings, so `package:discover` and `routes/channels.php` boot with `reverb` even before Cloud injects `REVERB_*` (`tests/Feature/Webhooks/BroadcastingPropTest.php`) |
+| `BROADCAST_CONNECTION` | `reverb` (since 2026-11-17, after spec 5 #112 deployed; it was `log` before). `laravel/reverb` brings the Pusher client and `config/broadcasting.php` defaults the Reverb keys to empty strings, so `package:discover` and `routes/channels.php` boot with `reverb` even before Cloud injects `REVERB_*` (`tests/Feature/Webhooks/BroadcastingPropTest.php`) |
 | `PIXELFORGE_BASE_URL` | `https://pixelforge.promptedit.dev/v1` |
-| `PIXELFORGE_WEBHOOK_SECRET` | the `whsec_…` of the production key, set once the dashboard webhook exists |
-| `TAKES_SUPPORT_EMAIL` | support address (not set yet: the config default applies) |
+| `PIXELFORGE_WEBHOOK_SECRET` | attached Cloud secret (above) |
+| `TAKES_SUPPORT_EMAIL` | `support@takes.example` (placeholder until a real address is chosen) |
 | `TAKES_DAILY_CAP_PER_CUSTOMER` | `40` |
 | `TAKES_DAILY_CAP_GLOBAL` | `300` |
 | `WELCOME_CREDIT_USD` | `1.00` |
@@ -96,13 +100,14 @@ Set on the environment:
 | `TAKES_AI_THROTTLE_PER_MINUTE` | `6` |
 | `DEMO_LOGIN_ENABLED` | `true` |
 | `DEMO_LOGIN_THROTTLE_PER_IP` | `5` |
-| `DEMO_ACCOUNTS_PASSWORD` | the public demo password (D-072); not set, so the config default applies |
+| `DEMO_ACCOUNTS_PASSWORD` | attached Cloud secret (public on purpose, D-072) |
 | `ADMIN_ENVIRONMENT_LABEL` | `production` |
-| `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_AUDITOR_EMAIL`, `ADMIN_AUDITOR_PASSWORD` | not set yet (`AdminUsersSeeder` runs by hand, spec 7) |
+| `ADMIN_EMAIL`, `ADMIN_AUDITOR_EMAIL` | set (see submission form, D-081) |
+| `ADMIN_PASSWORD`, `ADMIN_AUDITOR_PASSWORD` | attached Cloud secrets (random, generated for production; `AdminUsersSeeder` was run once by hand) |
 
-Attached secrets: `PIXELFORGE_API_KEY`, `ANTHROPIC_API_KEY` (encrypted locally by the CLI; values are piped in, never typed or passed as flags).
+Attached secrets: `PIXELFORGE_API_KEY`, `ANTHROPIC_API_KEY`, `PIXELFORGE_WEBHOOK_SECRET`, `ADMIN_PASSWORD`, `ADMIN_AUDITOR_PASSWORD`, `DEMO_ACCOUNTS_PASSWORD` (encrypted locally by the CLI; values are piped in from the password manager, never typed or passed as flags).
 
-Pixelforge webhook URL for the production key: `https://takes-production-aodrsk.laravel.cloud/webhooks/pixelforge` (the dashboard *ping* must return 200).
+Pixelforge webhook URL for the production key: `https://takes-production-aodrsk.laravel.cloud/webhooks/pixelforge`. The dashboard test event was delivered and recorded as one `webhook_deliveries` row with outcome `ping`; an invalid, missing or stale signature returns 401 and writes no `webhook_events` or `webhook_deliveries` row (checked with `curl`, row counts unchanged).
 
 ## Commands
 
@@ -140,6 +145,38 @@ The managed queue uses Cloud's defaults: visibility is extended in 3-minute step
 
 Infra smoke after the first deploys (commits `2cf46ac` and `0575dab`, 2026-11-17): `/`, `/up`, `/register`, `/login` and `/admin/login` return 200 over HTTPS with HTTPS asset URLs; 18 migrations ran, none pending; the deploy seeder created the customer roles (`customer`, `restricted`, `showcase`) and the admin roles (`super_admin`, `operator`, `auditor`); Postgres reports 17.12; the default disk is `private` and the queue connection `cloud`. Feature smoke (takes, webhooks, live status) follows specs 4 and 5 (issue #80).
 
+### Production smoke test (2026-11-17, 23:10 – 23:41 UTC, commit `f120c1e`)
+
+Run as the **showcase** customer against the production Pixelforge key (label "Takes production (Laravel Cloud)"), from `cloud command:run` / `cloud tinker` calling the same actions the controllers call (`CreateTakeAction`, `CreateSuggestionAction` + `ApplySuggestionAction`, `PurchaseCreditsAction`), so every take is a real Pixelforge generation. Steps:
+
+1. An operator top-up of **$5.00** through `AdjustCustomerCreditsAction` (audited `adjustment` ledger row by the super admin; the showcase is seeded without credit).
+2. `php artisan takes:showcase --unlock`.
+3. Seven takes, 1024×1024: the normal prompt at `medium`, the six scenario prompts at `low`. Then one remix of the normal take (`medium`), one AI change ("Warmer light", Claude Haiku) applied as a new take, and one $5 pack purchase.
+4. Wait until every take is terminal, then `php artisan billing:verify` and `php artisan billing:verify --usage --from=2026-11-17 --to=2026-11-17`.
+5. `php artisan takes:showcase --lock`.
+
+| Take | Expected | Actual | Charge (exact) | Webhook deliveries (type: outcome) |
+|---|---|---|---|---|
+| normal: "A lighthouse on a rocky cliff at dusk, soft watercolor" | Done | Done in 21 s | $0.06603125 | processing: applied, succeeded: applied, succeeded: duplicate (redelivery) |
+| `[succeed]` | Done | Done in 9 s | $0.021778125 | processing: applied + duplicate, succeeded: applied |
+| `[fail]` | Failed, not charged | Failed `generation_failed`, usage voided | $0.00 | processing: applied, failed: applied |
+| `[duplicate] [succeed]` | Done, every event twice, charged once | Done in 30 s; each event delivered twice, second one `duplicate`; one charge | $0.015384375 | processing: applied + duplicate, succeeded: applied + duplicate |
+| `[slow]` | Done after 60 – 90 s | Done in 101 s | $0.021878125 | processing: applied, succeeded: applied |
+| `[blocked]` | Failed by the content policy | Failed `content_policy` at submit, usage voided | $0.00 | none (rejected on create) |
+| `[overloaded]` | Waiting for capacity, then Done | Waiting for capacity for the whole 30 min window (323 submit attempts, each refused for capacity), then Failed `provider_busy`, usage voided (spec 3-04) | $0.00 | none (never created) |
+| Remix of the normal take ("… at dawn …") | Done | Done in 9 s | $0.061253125 | processing: applied, succeeded: applied |
+| AI change "Warmer light" on the normal take | Suggestion charged, new take Done | Suggestion proposed and applied; new take Done in 24 s | $0.000202875 (suggestion) + $0.070378125 (take) | processing: applied, succeeded: applied |
+| Purchase, $5 pack | Paid, invoiced | Paid, invoice `INV-2026-000003` | +$5.00 credit | – |
+
+Results:
+
+- **Webhooks:** 18 verified deliveries (14 `applied`, 4 `duplicate`) plus the dashboard `ping`. These rows prove the 18 committed deliveries were answered 2xx. They cannot show a failed attempt, because a 5xx rolls its row back (W-09), and Pixelforge's dashboard Recent deliveries was not checked in this run (the API has no deliveries endpoint).
+- **Money:** showcase balance $5.00 + $5.00 − $0.256906 = **$9.743094**, held $0.00. Every failure charged $0.00. `billing:verify`: "Billing invariants hold." `billing:verify --usage` for 2026-11-17: "Pixelforge usage matches". No open usage and no non-terminal take in the whole database at the end.
+- **Margin** (settled usage, same definition as the Reports page): Pixelforge 6 takes, charge $0.256703125 on cost $0.2053625; Anthropic 1 suggestion, charge $0.000202875 on cost $0.0001623: **20.00 %** for both.
+- **Pixelforge usage page** (`GetPixelforgeReconciliationQuery`): 2026-11-15 and 2026-11-16 Match; today (2026-11-17) shows Pending with 0 in flight, as designed for the current UTC day (D-034); the CLI check above compares today explicitly and matches.
+- **Live status:** `BROADCAST_CONNECTION=reverb`, the Reverb host is baked into the built JS, `/broadcasting/auth` answers 401 without a session, and a server-side trigger to the Reverb app succeeds. No browser was subscribed during this run (Reverb metrics show 0 connections), so the in-browser update (and the polling fallback) is left to the QA pass (spec 10, D-071).
+- **Queue:** the managed queue processed the submit, reconcile and broadcast jobs. Two failed jobs are listed: a probe closure from the deploy check, and the `[overloaded]` take's `SubmitTakeJob` marked "attempted too many times". That entry is the designed window expiry: `retryUntil()` is the 30-minute submit window, the worker fails the job when it passes, and `failed()` runs the free `provider_busy` expiry. The retry cadence is tracked in #149.
+
 Cold start of `/` after idle (scale to zero for app and database), measured with:
 
 ```sh
@@ -151,7 +188,10 @@ curl -s -o /dev/null -w 'status=%{http_code} connect=%{time_connect}s ttfb=%{tim
 | `/` after 12 min idle (app and database both asleep), 2026-11-17 21:01 UTC | 200, TTFB **2.98 s** (connect 0.22 s): under the 3 s target, above D-038's ≈ 0.5 s estimate, which assumed a warm database |
 | `/` warm, right after | 200, TTFB 0.33 s |
 | `/up` warm | 200, 0.26 s |
-| Signed webhook ping after idle (target < 10 s) | pending spec 5 |
+| `/` after 12 min idle again, after the smoke test (commit `f120c1e`), 2026-11-17 23:54 UTC | 200, TTFB **2.73 s** (connect 0.31 s) |
+| `/` warm, right after | 200, TTFB 0.29 s |
+| Webhook endpoint right after the cold page (invalid signature) | 401 in 0.31 s, nothing written |
+| Signed webhook ping after idle (target < 10 s) | the dashboard test event was answered 200 (row `ping`); its latency after idle was not captured, Pixelforge's Recent deliveries shows it |
 
 ## Rotating keys
 

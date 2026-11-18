@@ -4,7 +4,7 @@
 
 **Takes** is an image-generation studio built on the Pixelforge API for the PromptEdit take-home ([brief](https://pixelforge.promptedit.dev/assessment)). The role's mission is to *"create the most intuitive video editing tool UIs in the world"*, so Takes borrows the vocabulary of video editing: every generation is a **take**, takes live in **projects**, any take can be **remixed**, and **Describe a change** turns a sentence ("warmer, portrait") into a reviewed parameter diff with a new price. Customers pay the provider's cost plus 25% from prepaid (simulated) credits. Every provider call, Pixelforge images and Anthropic suggestions alike, goes through one ledger in integer nanodollars, so each charge is exact, recorded once and explainable.
 
-Live app: **TBD_APP_URL** · Plan and execution: [GitHub Project](https://github.com/users/JVillator0/projects/4) · Specs: [`.claude/specs/`](.claude/specs/README.md) · Decisions: [`DECISIONS.md`](.claude/specs/DECISIONS.md)
+Live app: **https://takes-production-aodrsk.laravel.cloud** · Plan and execution: [GitHub Project](https://github.com/users/JVillator0/projects/4) · Specs: [`.claude/specs/`](.claude/specs/README.md) · Decisions: [`DECISIONS.md`](.claude/specs/DECISIONS.md)
 
 ## Brief coverage
 
@@ -19,11 +19,11 @@ Every requirement, tip and stretch goal of the brief, plus what was added. Paths
 | Failed generations are free | required | Add `[fail]` to a prompt: "Failed", "You were not charged.", balance back where it was | `ApplyTakeSnapshotAction` / `app/Actions/Takes/FailTakeAction.php` -> `app/Actions/Billing/VoidUsageAction.php` | `tests/Feature/Takes/FailTakeActionTest.php`, `tests/Feature/Webhooks/WebhookOutcomeMatrixTest.php` (lands with #112), `TakeMoneyFlowTest` "is free when the generation fails" (lands with #117) |
 | Fractional cents | required | Lists show 4 decimals, money pages the exact amount | `app/Support/Money/Nanodollars.php` (`format`, `formatExact`, integer only) | `tests/Unit/Money/NanodollarsTest.php`, `tests/Arch/ArchitectureTest.php` (no floats in money code) |
 | Live history: status, estimated and actual cost, image | required | Generate and watch the card move Queued -> Processing -> Done without reloading | `app/Events/TakeUpdated.php`, `resources/js/composables/useTakeUpdates.ts` (lands with #112), `resources/js/pages/projects/Show.vue` (lands with #121) | `tests/Feature/Webhooks/TakeUpdatedBroadcastTest.php` (lands with #112), `tests/Feature/Projects/WorkspacePagesTest.php` (lands with #121) |
-| Webhook signatures verified | required | `curl -i -X POST TBD_APP_URL/webhooks/pixelforge -d '{}'` answers 401 and writes nothing | `app/Http/Middleware/VerifyPixelforgeSignature.php`, `app/Support/Pixelforge/WebhookSignature.php` (lands with #112) | `tests/Feature/Webhooks/PixelforgeSignatureTest.php` (lands with #112) |
+| Webhook signatures verified | required | `curl -i -X POST https://takes-production-aodrsk.laravel.cloud/webhooks/pixelforge -d '{}'` answers 401 and writes nothing | `app/Http/Middleware/VerifyPixelforgeSignature.php`, `app/Support/Pixelforge/WebhookSignature.php` (lands with #112) | `tests/Feature/Webhooks/PixelforgeSignatureTest.php` (lands with #112) |
 | Duplicate events never recorded twice | required | Showcase take `[duplicate] [succeed]`: one charge; `/admin` › Providers › Webhook deliveries shows the `duplicate` rows | `app/Actions/Webhooks/HandlePixelforgeWebhookAction.php` (lands with #112), unique `webhook_events.event_id` | `tests/Feature/Webhooks/WebhookIdempotencyTest.php` (lands with #112), `tests/Committed/TakeTransitionConcurrencyTest.php` |
-| Correct state despite out-of-order events | required | Showcase take `[slow]`; its deliveries in `/admin` show `ignored_stale` where a late `processing` arrived | `app/Actions/Takes/ApplyTakeSnapshotAction.php` (outcome matrix) | `tests/Feature/Takes/ApplyTakeSnapshotActionTest.php`, `WebhookOutcomeMatrixTest` (lands with #112) |
-| Rate limits, concurrency, overloads, failures after acceptance | required | `[overloaded]`: "Waiting for capacity", then it runs; Cancel works while waiting. A fourth take at once stays "Submitting" until a slot frees | `app/Jobs/SubmitTakeJob.php` (lands with #117), `app/Support/Pixelforge/SubmitGate.php`, `app/Services/Pixelforge/PixelforgeClient.php` | `tests/Feature/Takes/SubmitTakeJobTest.php` (lands with #117), `tests/Feature/Pixelforge/SubmitGateTest.php`, `tests/Feature/Pixelforge/PixelforgeClientTest.php` |
-| Public deployment | required | TBD_APP_URL (Laravel Cloud) | [`docs/deploy.md`](docs/deploy.md) | Smoke test in spec 9 (#80), not Pest |
+| Correct state despite out-of-order events | required | The outcome matrix: a late `processing` after `succeeded` is `ignored_stale` and changes nothing (the showcase data has no out-of-order delivery to show) | `app/Actions/Takes/ApplyTakeSnapshotAction.php` (outcome matrix) | `tests/Feature/Takes/ApplyTakeSnapshotActionTest.php`, `WebhookOutcomeMatrixTest` (lands with #112) |
+| Rate limits, concurrency, overloads, failures after acceptance | required | `[overloaded]`: "Waiting for capacity", then it runs, or fails free as `provider_busy` after 30 min; Cancel works while waiting. A fourth take at once stays "Submitting" until a slot frees | `app/Jobs/SubmitTakeJob.php` (lands with #117), `app/Support/Pixelforge/SubmitGate.php`, `app/Services/Pixelforge/PixelforgeClient.php` | `tests/Feature/Takes/SubmitTakeJobTest.php` (lands with #117), `tests/Feature/Pixelforge/SubmitGateTest.php`, `tests/Feature/Pixelforge/PixelforgeClientTest.php` |
+| Public deployment | required | https://takes-production-aodrsk.laravel.cloud (Laravel Cloud) | [`docs/deploy.md`](docs/deploy.md) | Smoke test in spec 9 (#80), not Pest |
 | Admin report: spend, provider cost and profit per day and per user | stretch · redeploy evidence | `/admin` › Billing › Reports, toggle By day / By customer, Export CSV | `app/Filament/Admin/Clusters/Billing/Pages/Reports.php`, `app/Queries/Billing/GetBillingReportQuery.php` (lands with #113) | `tests/Feature/Admin/BillingReportsTest.php` (lands with #113) |
 | Provider cost matches `GET /v1/usage` | stretch · redeploy evidence | `/admin` › Providers › Pixelforge usage: one "match" per day with data, "N in flight" today | `app/Filament/Admin/Clusters/Providers/Pages/PixelforgeUsage.php` (lands with #132), `app/Console/Commands/VerifyBillingCommand.php` (`--usage`) | `tests/Feature/Billing/VerifyBillingCommandTest.php`, `tests/Feature/Admin/PixelforgeUsageTest.php` (lands with #132) |
 | Per-user credit balances | stretch · redeploy evidence | Balance pill in the header, `/billing`, `/admin` › Customers (balance, on hold, available, Adjust credits) | `app/Queries/Billing/GetBillingSummaryQuery.php`, `app/Filament/Admin/Resources/Customers/` (lands with #131) | `tests/Feature/Billing/BillingPageTest.php`, `tests/Feature/Admin/AdminCustomersTest.php` (lands with #131) |
@@ -44,7 +44,7 @@ Every requirement, tip and stretch goal of the brief, plus what was added. Paths
 
 ## Review in 5 minutes
 
-1. **Open TBD_APP_URL.** The first request after idle can take a second or two: the app and database scale to zero ([trade-offs](#trade-offs-and-what-id-do-next)).
+1. **Open https://takes-production-aodrsk.laravel.cloud.** The first request after idle takes about 3 seconds: the app and database scale to zero ([trade-offs](#trade-offs-and-what-id-do-next)).
 2. **Register** (recommended). No email verification (D-030); the account starts with a **$1.00 welcome credit**, enough for several takes. Or press **Try a demo account** on the landing or sign-in page: one click creates a fresh customer with the same credit, valid for 24 hours (D-045, D-065).
 3. **Generate.** Type a prompt; the button shows the maximum price before you submit. Then try the scenario chips:
    - `[fail]`: the take fails and says "You were not charged."; the hold is released.
@@ -53,8 +53,8 @@ Every requirement, tip and stretch goal of the brief, plus what was added. Paths
    - `[overloaded]` (typed by hand, no chip): the take shows **Waiting for capacity**, retries on its own, and can be cancelled while it waits.
 4. **Open a done take.** The drawer shows the exact charge, the parameters, Remix and Describe a change.
 5. **Billing.** `/billing` shows balance, on hold, available, the activity with a running balance, and an invoice per purchase.
-6. **Showcase customer** (read-only, real history from the production smoke test): sign in as `showcase@example.com` with password `TBD_DEMO_PASSWORD`. It can look but not create, buy or edit (D-072).
-7. **Admin** at `TBD_APP_URL/admin` with the **auditor** login from the submission form (read-only, no MFA prompt). Look at:
+6. **Showcase customer** (read-only, real history from the production smoke test): sign in as `showcase@example.com` with password `x1zDSVr4FQmqh35+IailUmdhhiD06I1P`. It can look but not create, buy or edit (D-072).
+7. **Admin** at `https://takes-production-aodrsk.laravel.cloud/admin` with the **auditor** login from the submission form (read-only, no MFA prompt). Look at:
    - Billing › Reports: spend, provider cost and profit by day or by customer; every day with spend shows a 20.0% margin.
    - Providers › Pixelforge usage: our cost per day next to `GET /v1/usage`, one "match" per day with data.
    - Studio › Takes › any take: estimate, units, rates, cost, charge, the ledger row and every webhook delivery with its outcome.
@@ -64,20 +64,22 @@ The showcase and demo logins share Pixelforge's account-wide limits (3 in flight
 
 **Data left on the deployed app.** The showcase customer's history comes from the production smoke test (spec 9): every take is a real Pixelforge call on the production key, so the numbers can be compared with the Pixelforge dashboard and `/v1/usage`. Charges are filled in from the deployed app.
 
-| Prompt | Expected status | Charge |
-|---|---|---|
-| normal prompt | Done | TBD |
-| `[succeed]` | Done | TBD |
-| `[fail]` | Failed: "You were not charged." | $0.00 |
-| `[duplicate] [succeed]` | Done; every event delivered twice, charged once | TBD |
-| `[slow]` | Done after 60 to 90 s | TBD |
-| `[blocked]` | Failed: declined by the content policy | $0.00 |
-| `[overloaded]` | Waiting for capacity, then Done | TBD |
-| Remix of the normal take | Done | TBD |
-| One AI change (redeploy evidence, spec 8) | Suggestion charged, new take Done | TBD (suggestion) + TBD (take) |
-| One purchase (redeploy evidence, spec 6) | Paid, invoice `INV-TBD` | +TBD credit, not a charge |
+| Prompt (showcase, 2026-11-17) | Expected status | Actual status | Charge |
+|---|---|---|---|
+| "A lighthouse on a rocky cliff at dusk, soft watercolor" (medium) | Done | Done in 21 s | $0.06603125 |
+| `[succeed] A red bicycle leaning on a blue wall` | Done | Done in 9 s | $0.021778125 |
+| `[fail] A teapot shaped like a snail` | Failed: "You were not charged." | Failed (generation failed) | $0.00 |
+| `[duplicate] [succeed] Three paper boats on a pond` | Done; every event delivered twice, charged once | Done; both events delivered twice, the second recorded as `duplicate`; one charge | $0.015384375 |
+| `[slow] A snowy mountain cabin with warm lights` | Done after 60 to 90 s | Done after 101 s | $0.021878125 |
+| `[blocked] A street market at night` | Failed: declined by the content policy | Failed (content policy) | $0.00 |
+| `[overloaded] A cat reading a newspaper` | Waiting for capacity, then Done | Waiting for capacity for 30 min (323 submit attempts, each refused for capacity), then Failed `provider_busy` | $0.00 |
+| Remix of the normal take ("… at dawn …", medium) | Done | Done in 9 s | $0.061253125 |
+| One AI change, "Warmer light" on the normal take (spec 8) | Suggestion charged, new take Done | Suggestion applied, new take Done in 24 s | $0.000202875 (suggestion) + $0.070378125 (take) |
+| One purchase, $5 pack (spec 6) | Paid, invoice | Paid, invoice `INV-2026-000003` | +$5.00 credit, not a charge |
 
-Pixelforge key label: `TBD_KEY_LABEL` (production key). The Pixelforge account email is in the submission form, not here: contact emails stay out of the public repository (D-081).
+Scenario prompts ran at `low` quality, the others at `medium`, all 1024×1024. The showcase also holds an audited $5.00 operator top-up (it is seeded without credit), so its balance is $5.00 + $5.00 − $0.256906 = $9.743094. Smoke run 23:10 – 23:41 UTC; `billing:verify --usage` for 2026-11-17 matched Pixelforge; details in [`docs/deploy.md`](docs/deploy.md#production-smoke-test-2026-11-17-2310--2341-utc-commit-f120c1e).
+
+Pixelforge key label: `Takes production (Laravel Cloud)` (production key). The Pixelforge account email is in the submission form, not here: contact emails stay out of the public repository (D-081).
 
 <!-- DATA CHECK: `php artisan billing:verify --usage` result and UTC timestamp, filled after the last QA re-verification (spec 10 § Final checks). -->
 
@@ -298,9 +300,9 @@ Live at **<https://takes-production-aodrsk.laravel.cloud>** on Laravel Cloud (US
 
 | Cold start (2026-11-17) | Result |
 |---|---|
-| `/` after 12 min idle (app and database asleep) | 2.98 s to first byte |
-| `/` warm | 0.33 s |
-| Signed webhook ping after idle | measured with spec 5 |
+| `/` after 12 min idle (app and database asleep) | 2.98 s and 2.73 s to first byte (two runs) |
+| `/` warm | 0.29 – 0.33 s |
+| Signed webhook ping after idle (target < 10 s) | not captured: the dashboard test ping was answered 200 (recorded as `ping`), but its latency after idle was not measured |
 
 Resources, build and deploy commands, environment variables and key rotation are in [`docs/deploy.md`](docs/deploy.md).
 
