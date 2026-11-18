@@ -524,7 +524,9 @@ it('offers Reconcile now on drill-down rows of open takes to operators, never on
         ->assertActionVisible(TestAction::make('reconcile')->table($openKey))
         ->assertActionHidden(TestAction::make('reconcile')->table($orphanKey))
         ->callAction(TestAction::make('reconcile')->table($openKey))
-        ->assertNotified();
+        ->assertNotified()
+        // The take is final now: the same render no longer offers Reconcile now on it.
+        ->assertActionHidden(TestAction::make('reconcile')->table($openKey));
 
     expect($open->refresh()->status)->toBe(TakeStatus::Succeeded)
         ->and(Activity::query()->where('event', 'reconciled')->where('subject_id', $open->id)->exists())->toBeTrue();
@@ -566,3 +568,19 @@ it('decides Reconcile now for every drill-down row with one take query', functio
     expect($decisions)->toBe([true, true, true, false])
         ->and($takeQueries)->toBeLessThanOrEqual(1);
 });
+
+it('opens on a valid from/until in the query string and ignores an invalid one', function (array $query, string $from, string $until): void {
+    Http::fake(['pixelforge.test/v1/usage*' => Http::response(usagePayload($from, $until, []))]);
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
+
+    Livewire::withQueryParams($query)->test(PixelforgeUsage::class)
+        ->assertSet('rangeFrom', $from)
+        ->assertSet('rangeUntil', $until)
+        ->assertSchemaStateSet(['from' => $from, 'until' => $until], 'form');
+})->with([
+    'one day' => [['from' => '2026-10-25', 'until' => '2026-10-25'], '2026-10-25', '2026-10-25'],
+    'unordered' => [['from' => '2026-11-16', 'until' => '2026-11-01'], '2026-11-04', '2026-11-17'],
+    'over 92 days' => [['from' => '2026-01-01', 'until' => '2026-11-16'], '2026-11-04', '2026-11-17'],
+    'not a date' => [['from' => '2026-13-40', 'until' => '2026-11-16'], '2026-11-04', '2026-11-17'],
+    'only one bound' => [['from' => '2026-11-10'], '2026-11-04', '2026-11-17'],
+]);

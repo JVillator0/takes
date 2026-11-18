@@ -91,6 +91,18 @@ final class PixelforgeUsage extends Page implements HasTable
         $today = CarbonImmutable::now('UTC')->startOfDay();
         $this->rangeFrom = $today->subDays(self::DEFAULT_DAYS - 1)->toDateString();
         $this->rangeUntil = $today->toDateString();
+
+        // Optional ?from=&until= (e.g. the Reports reconciled badge links to its day): used only when both are real
+        // dates, ordered and within MAX_DAYS; anything else keeps the default window.
+        $from = self::date(request()->query('from'));
+        $until = self::date(request()->query('until'));
+
+        if ($from !== null && $until !== null && $from <= $until
+            && CarbonImmutable::parse($from, 'UTC')->diffInDays(CarbonImmutable::parse($until, 'UTC')) < GetPixelforgeReconciliationQuery::MAX_DAYS) {
+            $this->rangeFrom = $from;
+            $this->rangeUntil = $until;
+        }
+
         $this->form->fill(['from' => $this->rangeFrom, 'until' => $this->rangeUntil]);
     }
 
@@ -358,7 +370,7 @@ final class PixelforgeUsage extends Page implements HasTable
     /** A real Y-m-d date (DatePicker state), or null for a cleared or malformed one. */
     private static function date(mixed $value): ?string
     {
-        if (! is_string($value) || preg_match(self::DATE_PATTERN, substr($value, 0, 10)) !== 1) {
+        if (! is_string($value) || strlen($value) > 32 || preg_match(self::DATE_PATTERN, substr($value, 0, 10)) !== 1) {
             return null;
         }
 

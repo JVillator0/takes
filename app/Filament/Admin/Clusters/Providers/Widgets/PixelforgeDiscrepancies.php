@@ -72,6 +72,8 @@ final class PixelforgeDiscrepancies extends TableWidget
 
                         if ($take !== null) {
                             ReconcileTakeAction::reconcile($take);
+                            // The take may be final now: re-read the open takes for this render.
+                            $this->openTakeIds = null;
                         }
                     }),
             ]);

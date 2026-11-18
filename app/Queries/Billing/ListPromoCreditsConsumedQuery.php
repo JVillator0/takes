@@ -29,22 +29,18 @@ final readonly class ListPromoCreditsConsumedQuery
      */
     public function execute(BillingReportFilterDTO $filter): array
     {
+        // The customers with settled usage in the filter, as a subquery: no id list round-trips through PHP.
         $customers = UsageRecord::query()
+            ->select('customer_id')
             ->where('status', UsageStatus::Settled->value)
             ->whereBetween('billing_date', [$filter->from->toDateString(), $filter->until->toDateString()])
             ->when($filter->customerId !== null, fn ($query) => $query->where('customer_id', $filter->customerId))
-            ->when($filter->provider !== null, fn ($query) => $query->where('provider', $filter->provider?->value))
-            ->distinct()
-            ->pluck('customer_id');
-
-        if ($customers->isEmpty()) {
-            return [];
-        }
+            ->when($filter->provider !== null, fn ($query) => $query->where('provider', $filter->provider?->value));
 
         $entries = LedgerEntry::query()
             ->toBase()
             ->leftJoin('usage_records', 'usage_records.id', '=', 'ledger_entries.usage_record_id')
-            ->whereIn('ledger_entries.customer_id', $customers->all())
+            ->whereIn('ledger_entries.customer_id', $customers)
             ->orderBy('ledger_entries.customer_id')
             ->orderBy('ledger_entries.id')
             ->select([

@@ -18,7 +18,7 @@ final readonly class ListReconciledDaysQuery
     public function __construct(private GetPixelforgeReconciliationQuery $reconciliation) {}
 
     /**
-     * @return list<string> 'Y-m-d' dates
+     * @return list<string> 'Y-m-d' dates, ascending
      */
     public function execute(CarbonImmutable $from, CarbonImmutable $until): array
     {
@@ -35,6 +35,8 @@ final readonly class ListReconciledDaysQuery
                 }
             }
         }
+
+        sort($reconciled);
 
         return $reconciled;
     }

@@ -17,10 +17,12 @@ use App\Models\UsageRecord;
 use App\Models\User;
 use App\Queries\Billing\GetBillingReportQuery;
 use App\Queries\Billing\GetPixelforgeReconciliationQuery;
+use App\Queries\Billing\ListReconciledDaysQuery;
 use Carbon\CarbonImmutable;
 use Database\Seeders\AdminRolesSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
 use Spatie\Activitylog\Models\Activity;
@@ -369,7 +371,7 @@ it('shows the reconciled badge only for a day the cached Pixelforge check matche
         ->assertTableColumnStateNotSet('reconciled', 'Reconciled', '2026-11-14')
         ->assertTableColumnStateNotSet('reconciled', 'Reconciled', '2026-11-13')
         ->assertTableColumnStateNotSet('reconciled', 'Reconciled', '2026-11-17')
-        ->assertSeeHtml(PixelforgeUsage::getUrl());
+        ->assertSeeHtml(e(PixelforgeUsage::getUrl(['from' => '2026-11-16', 'until' => '2026-11-16'])));
 
     Http::assertNothingSent();
     expect($usage->billing_date?->toDateString())->toBe('2026-11-16');
@@ -511,4 +513,71 @@ it('renders the stats widget without polling', function (): void {
     Livewire::test(BillingReportStats::class, BillingReportStats::props(app(GetBillingReportQuery::class)->execute(BillingReportFilterDTO::lastThirtyDays())->totals))
         ->assertOk()
         ->assertDontSeeHtml('wire:poll');
+});
+
+/**
+ * One settled Pixelforge usage on the day and a cached Pixelforge entry under the key: matching ours, or off by one
+ * nanodollar.
+ */
+function seedPixelforgeDay(Customer $customer, string $day, string $key, bool $matching = true): void
+{
+    UsageRecord::factory()->settled(10_000_000)->create(['customer_id' => $customer->id, 'billing_date' => $day, 'input_text_tokens' => 1, 'input_image_tokens' => 0, 'output_tokens' => 0, 'reasoning_tokens' => 0]);
+    Cache::put($key, ['fetched_at' => '2026-11-17T08:00:00+00:00', 'totals' => [
+        'generations' => 1, 'input_text_tokens' => 1, 'input_image_tokens' => 0, 'output_tokens' => 0, 'reasoning_tokens' => 0,
+        'cost_nanos' => $matching ? 10_000_000 : 10_000_001,
+    ]], 300);
+}
+
+it('links the reconciled badge to Pixelforge usage for that very day, outside its default window', function (): void {
+    $customer = Customer::factory()->create();
+    // 23 days back: outside Pixelforge usage's default 14-day window, inside the Reports default 30 days.
+    seedPixelforgeDay($customer, '2026-10-25', GetPixelforgeReconciliationQuery::dayKey('2026-10-25'));
+    $url = PixelforgeUsage::getUrl(['from' => '2026-10-25', 'until' => '2026-10-25']);
+    $this->actingAs(User::factory()->admin(AdminRole::Auditor)->create());
+
+    Livewire::test(Reports::class)
+        ->assertTableColumnStateSet('reconciled', 'Reconciled', '2026-10-25')
+        ->assertSeeHtml(e($url));
+
+    Livewire::withQueryParams(['from' => '2026-10-25', 'until' => '2026-10-25'])
+        ->test(PixelforgeUsage::class)
+        ->assertSet('rangeFrom', '2026-10-25')
+        ->assertSet('rangeUntil', '2026-10-25')
+        ->assertCanSeeTableRecords(['2026-10-25'])
+        ->assertTableColumnStateSet('status', 'Match', '2026-10-25');
+
+    $this->get($url)->assertOk()->assertSee('1 of 1 closed days match');
+    Http::assertNothingSent();
+});
+
+it('judges the badge across 92-day chunks and from the last-good cache, never calling Pixelforge', function (): void {
+    $customer = Customer::factory()->create();
+    // 2026-05-01 → 2026-11-16 is 200 days: chunks 05-01..07-31, 08-01..10-31, 11-01..11-16.
+    foreach (['2026-05-01', '2026-07-31', '2026-08-01', '2026-10-31', '2026-11-01', '2026-11-16'] as $edge) {
+        seedPixelforgeDay($customer, $edge, GetPixelforgeReconciliationQuery::dayKey($edge));
+    }
+    // The 5-minute entry expired: only the last-good entry is left, matching on one day and not on the next.
+    seedPixelforgeDay($customer, '2026-09-15', GetPixelforgeReconciliationQuery::lastKey('2026-09-15'));
+    seedPixelforgeDay($customer, '2026-09-16', GetPixelforgeReconciliationQuery::lastKey('2026-09-16'), matching: false);
+
+    $days = app(ListReconciledDaysQuery::class)->execute(CarbonImmutable::parse('2026-05-01', 'UTC'), CarbonImmutable::parse('2026-11-16', 'UTC'));
+
+    expect($days)->toBe(['2026-05-01', '2026-07-31', '2026-08-01', '2026-09-15', '2026-10-31', '2026-11-01', '2026-11-16']);
+    Http::assertNothingSent();
+});
+
+it('reads the badge cache in batches on the database store, not one query per day', function (): void {
+    config(['cache.default' => 'database']);
+    Cache::forgetDriver('database');
+    $customer = Customer::factory()->create();
+    seedPixelforgeDay($customer, '2026-11-01', GetPixelforgeReconciliationQuery::dayKey('2026-11-01'));
+
+    DB::enableQueryLog();
+    $days = app(ListReconciledDaysQuery::class)->execute(CarbonImmutable::parse('2026-08-18', 'UTC'), CarbonImmutable::parse('2026-11-16', 'UTC'));
+    $cacheReads = collect(DB::getQueryLog())->filter(fn (array $query): bool => str_contains($query['query'], 'from "cache"'))->count();
+
+    // 91 days, one chunk: one dayKey batch and one lastKey batch.
+    expect($days)->toBe(['2026-11-01'])
+        ->and($cacheReads)->toBe(2);
+    Http::assertNothingSent();
 });

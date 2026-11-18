@@ -266,7 +266,7 @@ final class Reports extends Page implements HasTable
                     ->badge()
                     ->color('success')
                     ->state(fn (array $record): mixed => $record['reconciled'] ? __('console.reports.reconciled') : null)
-                    ->url(fn (array $record): ?string => $record['reconciled'] ? PixelforgeUsage::getUrl() : null)
+                    ->url(fn (array $record): ?string => $record['reconciled'] ? PixelforgeUsage::getUrl(['from' => $record[ArrayRecord::getKeyName()], 'until' => $record[ArrayRecord::getKeyName()]]) : null)
                     ->visible($byDay),
                 self::count('takes', 'console.reports.takes', fn (): int => $total()->takes),
                 self::count('failed_takes', 'console.reports.failed', fn (): int => $total()->failedTakes),
