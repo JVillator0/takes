@@ -53,11 +53,7 @@ const onClick = (): void => {
             <TooltipTrigger as-child>
                 <component
                     :is="asLink ? Link : 'button'"
-                    v-bind="
-                        asLink
-                            ? { href: holdsHref, preserveScroll: true }
-                            : { type: 'button' }
-                    "
+                    v-bind="asLink ? { href: holdsHref } : { type: 'button' }"
                     @click="onClick"
                     data-slot="balance-pill"
                     :class="[
