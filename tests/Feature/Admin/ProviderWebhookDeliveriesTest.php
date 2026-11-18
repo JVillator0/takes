@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Enums\Auth\AdminRole;
 use App\Enums\Webhooks\WebhookOutcome;
+use App\Filament\Admin\Clusters\Providers\Resources\WebhookDeliveries\Actions\ViewPayloadAction;
 use App\Filament\Admin\Clusters\Providers\Resources\WebhookDeliveries\Pages\ListWebhookDeliveries;
 use App\Filament\Admin\Clusters\Studio\Resources\Takes\Pages\ViewTake;
 use App\Filament\Admin\Clusters\Studio\Resources\Takes\RelationManagers\WebhookDeliveriesRelationManager;
@@ -45,20 +46,31 @@ it('lists deliveries with their outcome and filters by outcome', function (): vo
         ->assertCanNotSeeTableRecords([$applied]);
 });
 
-it('opens the raw payload, escaped', function (): void {
-    $event = WebhookEvent::factory()->create(['payload' => ['type' => 'generation.succeeded', 'note' => '<script>alert(1)</script>']]);
+it('opens the raw payload in a read-only, wrapping, scrollable field, escaped', function (): void {
+    $imageUrl = 'https://pixelforge.example/images/gen_123.png?X-Signature='.str_repeat('a1b2c3d4', 40);
+    $event = WebhookEvent::factory()->create(['payload' => [
+        'type' => 'generation.succeeded',
+        'note' => '<script>alert(1)</script>',
+        'data' => ['object' => ['image_url' => $imageUrl]],
+    ]]);
     $delivery = WebhookDelivery::factory()->create(['event_id' => $event->event_id, 'webhook_event_id' => $event->id]);
+    // jsonb keeps its own key order: compare with the payload as stored.
+    $json = json_encode($event->refresh()->payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 
     Livewire::test(ListWebhookDeliveries::class)
         ->assertActionVisible(TestAction::make('viewPayload')->table($delivery))
         ->mountAction(TestAction::make('viewPayload')->table($delivery))
-        ->assertHasNoErrors();
-
-    $html = view('filament.admin.webhook-payload', [
-        'json' => json_encode($event->payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
-    ])->render();
-
-    expect($html)->toContain('&lt;script&gt;alert(1)&lt;/script&gt;')->not->toContain('<script>');
+        ->assertHasNoErrors()
+        ->assertSchemaStateSet(['payload' => $json], 'mountedActionSchema0')
+        // A read-only textarea with a fixed height: long lines (the signed image_url) wrap and it scrolls.
+        ->assertMountedActionModalSeeHtml([
+            'data-testid="webhook-payload"',
+            'readonly',
+            'rows="'.ViewPayloadAction::ROWS.'"',
+            'overflow-wrap: anywhere',
+        ])
+        // The JSON reaches the textarea as its value (field state), never as markup.
+        ->assertMountedActionModalDontSeeHtml('<script>alert(1)</script>');
 });
 
 it('counts the last 24 hours of events and outcomes', function (): void {

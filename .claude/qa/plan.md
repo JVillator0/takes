@@ -10,14 +10,14 @@ How to read a row: `ID` is stable (re-verification refers to it). `Account / vie
 
 - Required: spec 3 (only what a browser or the public webhook endpoint can observe), 4, 5, 9.
 - Stretch that shipped: 6 (billing page, purchases, invoices) and 8 (Describe a change).
-- Spec 7, limited to: Filament foundation (login, MFA required for admins except the MFA-exempt read-only auditor, clusters, Shield); Studio (Takes list, take view A06 with **Reconcile now hidden for the auditor**, Projects); Providers › Webhook deliveries; Billing › Reports (A03); Providers › Pixelforge usage reconciliation (A04, issue #64); Customers resource with balances and Adjust credits (issue #68; the auditor sees no write action).
+- Spec 7, limited to: Filament foundation (login, MFA required for admins except the MFA-exempt read-only auditor, clusters, Shield); Studio (Takes list, take view A06 with **Reconcile now hidden for the auditor**, Projects); Providers › Webhook deliveries; Billing › Reports (A03); Providers › Pixelforge usage reconciliation (A04, issue #64); Customers resource with balances and Adjust credits (issue #68; the auditor sees no write action); since D-086, the Dashboard (A02: money stats, charts, Needs attention for takes) and System › Admins (the auditor lists and views admins and sees no create, edit or delete).
 - Cross-cutting: 2-01 copy tables, disclosure (D-023), money formats (D-021, D-042), wireframes P01 to P10 and A03, A04, A06, scenario keywords, live status, accessibility smoke, console errors, brief-coverage matrix rows (D-044).
 
 **Out of scope** (cut by [D-080](../specs/DECISIONS.md#L83) or not observable; do not file issues for these):
 
-- Dashboard widgets and *Needs attention* (#67, wireframe A02).
+- Dashboard: the non-take *Needs attention* types and the AI budget stat (D-086 ships the rest of A02).
 - Ledger invariant widget and Ledger entries resource (#63 remainder).
-- Users, Purchases and Invoices admin resources (#70).
+- Purchases and Invoices admin resources (the Admins resource ships with D-086).
 - Anthropic usage and Pricing pages (#71).
 - Spec 8 issue 5: the admin AI suggestions resource and the customer-facing *Edit in composer* action (#76).
 - Anything only checkable by reading code or the database (locks, transactions, enum values, Pest-only cases such as out-of-order snapshots that cannot be produced from a browser).
@@ -322,7 +322,7 @@ All on `QA / D`, project "QA run", prompt `QA <name> <keyword>`, Low / Square un
 
 ### 6.12 Wireframes
 
-Normative sheets per [specs README L97](../specs/README.md#L97); compare layout, information shown and states at the stated viewport. Information missing or wrong is `qa:major`; a layout difference with all information present is `qa:minor` (differences may be recorded in the building PR, [2-02 L34](../specs/2-product-design/02-SPEC.md#L34)). A02 is out (D-080); the A05 Adjust credits modal is not reachable by the auditor.
+Normative sheets per [specs README L97](../specs/README.md#L97); compare layout, information shown and states at the stated viewport. Information missing or wrong is `qa:major`; a layout difference with all information present is `qa:minor` (differences may be recorded in the building PR, [2-02 L34](../specs/2-product-design/02-SPEC.md#L34)). A02 is in only as D-086 built it (today's stats, charts with a 14 / 30-day select, Needs attention for takes); the A05 Adjust credits modal is not reachable by the auditor.
 
 | ID | Account / viewport | Steps | Expected | Source | Gen/AI |
 |---|---|---|---|---|---|

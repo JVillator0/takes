@@ -21,6 +21,49 @@ return [
 
     'dashboard' => [
         'title' => 'Dashboard',
+        'updated' => 'Updated :time UTC',
+        'refresh' => 'Refresh',
+        'stats' => [
+            'spend_today' => 'Spend today',
+            'cost_today' => 'Provider cost today',
+            'profit_today' => 'Profit today',
+            'margin' => 'Margin :margin',
+            'takes_today' => 'Takes today',
+            'takes_today_value' => ':succeeded succeeded · :failed failed',
+            'takes_today_description' => ':created created today, :running still in progress',
+            'holds' => 'Active holds',
+            'holds_count' => ':count open usage records',
+            'billing_day' => 'Billing day :date (UTC)',
+        ],
+        'range' => [
+            '14' => 'Last 14 days',
+            '30' => 'Last 30 days',
+        ],
+        'spend_chart' => [
+            'heading' => 'Spend, cost and profit',
+            'description' => 'Settled usage per UTC billing day; spend stacked by provider.',
+            'spend' => 'Spend · :provider',
+            'cost' => 'Provider cost',
+            'profit' => 'Profit',
+        ],
+        'cost_split' => [
+            'heading' => 'Provider cost by provider',
+            'description' => 'Settled provider cost in the range.',
+        ],
+        'takes_by_status' => [
+            'heading' => 'Takes by status',
+            'description' => 'Takes created in the range.',
+        ],
+        'attention' => [
+            'heading' => 'Needs attention',
+            'description' => 'Takes with an attention flag, and stuck takes (no provider update for 15 min, or pending for 35 min).',
+            'type' => 'Type',
+            'stuck' => 'Stuck',
+            'reference' => 'Reference',
+            'since' => 'Since (UTC)',
+            'empty' => 'Nothing needs attention',
+            'open' => 'Open take',
+        ],
     ],
 
     'enums' => [
@@ -58,6 +101,23 @@ return [
             'promo_grant' => 'Promo grant',
             'charge' => 'Charge',
             'adjustment' => 'Adjustment',
+        ],
+        'attention_reason' => [
+            'invalid_snapshot' => 'Invalid snapshot',
+            'orphan_success' => 'Orphan success',
+            'cost_mismatch' => 'Cost mismatch',
+            'reconcile_exhausted' => 'Reconcile exhausted',
+            'internal_failure' => 'Internal failure',
+            'over_estimate' => 'Over estimate',
+        ],
+        'provider' => [
+            'pixelforge' => 'Pixelforge',
+            'anthropic' => 'Anthropic',
+        ],
+        'admin_role' => [
+            'super_admin' => 'Super admin',
+            'operator' => 'Operator',
+            'auditor' => 'Auditor (read-only)',
         ],
         'customer_role' => [
             'customer' => 'Customer',
@@ -246,6 +306,7 @@ return [
         'outcome' => 'Outcome',
         'payload' => 'Payload',
         'view_payload' => 'View JSON',
+        'close' => 'Close',
         'take_filter' => 'Take id',
         'deliveries_24h' => 'Events (24 h)',
         'duplicates' => 'Duplicates',
@@ -345,6 +406,40 @@ return [
         'invalid_range' => 'Pick an ordered range of at most :days days.',
         'provider_cost' => 'Provider cost',
         'footnote' => 'Profit = customer spend − provider cost, from settled usage only (purchases are prepaid cash, never spend). With an exact 25% markup on cost the margin on spend is always 20.0%; any other value, totals included, is highlighted as an invariant alert. Promo/adjustment credits consumed: the part of the spend paid from promo grants and positive adjustments, which are spent before purchases (D-084); it counts as spend with no cash received.',
+    ],
+
+    'admins' => [
+        'single' => 'Admin',
+        'plural' => 'Admins',
+        'name' => 'Name',
+        'email' => 'Email',
+        'password' => 'Password',
+        'password_help' => 'Leave empty to keep the current password.',
+        'roles' => 'Roles',
+        'roles_help' => 'Super admins can do everything; operators read everything and run the audited actions; auditors only read.',
+        'mfa' => 'Authenticator app',
+        'mfa_set_up' => 'Set up',
+        'mfa_not_set_up' => 'Not set up',
+        'account' => 'Account',
+        'access' => 'Access',
+        'audit' => 'Audit',
+        'reason' => 'Reason',
+        'reason_help' => 'Recorded in the activity log with this change.',
+        'you' => 'You',
+        'confirm_create' => 'Create this admin?',
+        'confirm_save' => 'Save the changes to this admin?',
+        'confirm_description' => 'Access to the console changes now and the change is recorded in the activity log.',
+        'delete' => [
+            'heading' => 'Delete admin',
+            'description' => 'The admin loses access to the console immediately. This cannot be undone.',
+            'done' => 'Admin deleted',
+        ],
+        'denied' => [
+            'own_account' => 'You cannot delete your own account.',
+            'last_super_admin' => 'The last super admin must keep the role; add another super admin first.',
+            'has_history' => 'This admin has ledger or audit history, so the account stays: remove their roles instead to revoke access.',
+            'email_taken' => 'Another admin already uses this email.',
+        ],
     ],
 
     'audit' => [

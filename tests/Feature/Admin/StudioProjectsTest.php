@@ -6,6 +6,7 @@ use App\Enums\Auth\AdminRole;
 use App\Filament\Admin\Clusters\Studio\Resources\Projects\Pages\ListProjects;
 use App\Filament\Admin\Clusters\Studio\Resources\Projects\Pages\ViewProject;
 use App\Filament\Admin\Clusters\Studio\Resources\Projects\RelationManagers\TakesRelationManager;
+use App\Filament\Admin\Clusters\Studio\Resources\Takes\Pages\ListTakes;
 use App\Models\Project;
 use App\Models\Take;
 use App\Models\UsageRecord;
@@ -56,6 +57,23 @@ it("filters projects with takes in progress and lists only that project's takes"
     Livewire::test(TakesRelationManager::class, ['ownerRecord' => $busy, 'pageClass' => ViewProject::class])
         ->assertCanSeeTableRecords([$runningTake])
         ->assertCanNotSeeTableRecords([$idleTake]);
+});
+
+it('drops the Customer · Project column and filters inside a project, and Studio › Takes keeps them', function (): void {
+    $project = Project::factory()->create();
+    Take::factory()->create(['customer_id' => $project->customer_id, 'project_id' => $project->id]);
+
+    $scoped = Livewire::test(TakesRelationManager::class, ['ownerRecord' => $project, 'pageClass' => ViewProject::class])
+        ->assertTableColumnDoesNotExist('customer.name')
+        ->assertTableFilterExists('status');
+
+    expect($scoped->instance()->getTable()->getFilter('customer'))->toBeNull()
+        ->and($scoped->instance()->getTable()->getFilter('project'))->toBeNull();
+
+    Livewire::test(ListTakes::class)
+        ->assertTableColumnExists('customer.name')
+        ->assertTableFilterExists('customer')
+        ->assertTableFilterExists('project');
 });
 
 it('loads the projects list with a fixed number of queries', function (): void {

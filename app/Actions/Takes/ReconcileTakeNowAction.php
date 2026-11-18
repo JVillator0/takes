@@ -30,7 +30,8 @@ final readonly class ReconcileTakeNowAction
      */
     public function execute(User $admin, Take $take): ReconcileResultDTO
     {
-        $statusBefore = $take->status;
+        // The status as it is now, not as the page loaded it: a webhook may have landed while the modal was open.
+        $statusBefore = $take->refresh()->status;
 
         $result = $this->reconcileTake->execute($take, operator: true);
 
