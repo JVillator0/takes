@@ -2,13 +2,16 @@
 
 declare(strict_types=1);
 
+use App\Actions\Billing\OpenUsageAction;
 use App\Actions\Billing\PurchaseCreditsAction;
 use App\Actions\Billing\VoidUsageAction;
 use App\DTOs\Billing\UsageUnitsDTO;
+use App\Enums\Billing\Provider;
 use App\Enums\Takes\TakeStatus;
 use App\Models\Customer;
 use App\Models\LedgerEntry;
 use App\Models\Purchase;
+use App\Models\Suggestion;
 use App\Support\Money\Nanodollars;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Request;
@@ -35,6 +38,21 @@ function cleanDataset(): Customer
     Customer::factory()->create();
 
     return $customer->refresh();
+}
+
+/**
+ * An orphan success (D-025): a voided usage, nothing charged, whose provider
+ * cost was absorbed on $billingDate (as ApplyTakeSnapshotAction records it).
+ */
+function orphanUsage(int $absorbedCost, string $billingDate): void
+{
+    $usage = DB::transaction(fn () => app(VoidUsageAction::class)->execute(Billing::openForNewTake(Billing::fundedCustomer())));
+    DB::table('usage_records')->where('id', $usage->id)->update([
+        'flags' => json_encode(['orphan']),
+        'absorbed_cost_nanos' => $absorbedCost,
+        'completed_at' => $billingDate.' 12:00:00+00',
+        'billing_date' => $billingDate,
+    ]);
 }
 
 /**
@@ -168,6 +186,39 @@ it('fails when a terminal take still holds an open usage', function (): void {
         ->assertFailed();
 });
 
+it('fails when a suggestion whose AI call is over still holds an open usage (#102)', function (string $status): void {
+    $customer = Billing::fundedCustomer();
+    $suggestion = Suggestion::factory()->create(['customer_id' => $customer->id]);
+    $usage = DB::transaction(fn () => app(OpenUsageAction::class)->execute(
+        $suggestion,
+        Provider::Anthropic,
+        Billing::estimate(1_000_000),
+        Billing::anthropicRates(),
+        'claude-haiku-5-5',
+    ));
+    DB::table('suggestions')->where('id', $suggestion->id)->update(['status' => $status]);
+
+    $this->artisan('billing:verify')
+        ->expectsOutputToContain("usage {$usage->id}: still open but suggestion {$suggestion->id} is {$status}")
+        ->assertFailed();
+})->with(['proposed', 'applied', 'discarded', 'failed']);
+
+it('accepts the open usage of a pending suggestion', function (): void {
+    $customer = Billing::fundedCustomer();
+    $suggestion = Suggestion::factory()->create(['customer_id' => $customer->id]);
+    DB::transaction(fn () => app(OpenUsageAction::class)->execute(
+        $suggestion,
+        Provider::Anthropic,
+        Billing::estimate(1_000_000),
+        Billing::anthropicRates(),
+        'claude-haiku-5-5',
+    ));
+
+    $this->artisan('billing:verify')
+        ->expectsOutput('Billing invariants hold.')
+        ->assertSuccessful();
+});
+
 describe('--usage', function (): void {
     it('refuses --from or --to without --usage instead of ignoring the range', function (string $options): void {
         cleanDataset();
@@ -244,6 +295,28 @@ describe('--usage', function (): void {
         $this->artisan('billing:verify --usage --from=2026-11-15 --to=2026-11-18')
             ->expectsOutputToContain('Pixelforge usage matches from 2026-11-15 to 2026-11-18.')
             ->assertSuccessful();
+    });
+
+    it('attributes an orphan success to its own line instead of reporting drift (#102)', function (): void {
+        Billing::settle(Billing::openForNewTake(Billing::fundedCustomer()));
+        orphanUsage(Billing::EXAMPLE_COST, '2026-11-16');
+        orphanUsage(7, '2026-11-17');
+        fakePixelforgeUsage(['2026-11-16' => Billing::EXAMPLE_COST, '2026-11-17' => Billing::EXAMPLE_COST + 7]);
+
+        $this->artisan('billing:verify --usage --from=2026-11-15 --to=2026-11-18')
+            ->expectsOutputToContain('usage 2026-11-16: Orphan success (cost absorbed) $0.268375')
+            ->expectsOutputToContain('usage 2026-11-17: Orphan success (cost absorbed) $0.000000007')
+            ->expectsOutputToContain('Pixelforge usage matches from 2026-11-15 to 2026-11-18.')
+            ->assertSuccessful();
+    });
+
+    it('still fails an orphan day whose total differs, naming the absorbed part', function (): void {
+        orphanUsage(Billing::EXAMPLE_COST, '2026-11-16');
+        fakePixelforgeUsage(['2026-11-16' => Billing::EXAMPLE_COST + 1]);
+
+        $this->artisan('billing:verify --usage --from=2026-11-15 --to=2026-11-18')
+            ->expectsOutputToContain('usage 2026-11-16: ledger cost $0.00 + absorbed orphan cost $0.268375 but Pixelforge reports $0.268375001')
+            ->assertFailed();
     });
 
     it('fails on the day the costs differ', function (): void {

@@ -8,6 +8,7 @@ use App\DTOs\Takes\ReconcileResultDTO;
 use App\Enums\Takes\AttentionReason;
 use App\Enums\Takes\FailureCode;
 use App\Enums\Takes\ReconcileStatus;
+use App\Enums\Takes\TakeStatus;
 use App\Exceptions\Billing\TransactionNotAllowedException;
 use App\Exceptions\Pixelforge\PixelforgeBusy;
 use App\Exceptions\Pixelforge\PixelforgeRejected;
@@ -49,7 +50,7 @@ final readonly class ReconcileTakeAction
         $take->refresh();
         $generationId = $take->pixelforge_id ?? $generationId;
 
-        if ($take->status->isTerminal()) {
+        if ($take->status->isTerminal() && ! $this->mayHideUnpricedOrphan($take, $generationId)) {
             return new ReconcileResultDTO(ReconcileStatus::Terminal);
         }
 
@@ -102,6 +103,23 @@ final readonly class ReconcileTakeAction
         return new ReconcileResultDTO($take->refresh()->status->isTerminal()
             ? ReconcileStatus::Terminal
             : ReconcileStatus::InFlight);
+    }
+
+    /**
+     * A failed take whose local failure may have hidden a generation
+     * Pixelforge ran (ApplyTakeSnapshotAction::mayHideAGeneration(): a
+     * submit_timeout, or an internal failure after acceptance) and whose
+     * absorbed cost is not recorded. Its late success arrived without rates
+     * (the webhook path threw and asked for this fetch), so the generation is
+     * read here and applied, which records the orphan with its own rates (#102).
+     */
+    private function mayHideUnpricedOrphan(Take $take, ?string $generationId): bool
+    {
+        return $take->status === TakeStatus::Failed
+            && $generationId !== null
+            && ($take->failure_code === FailureCode::SubmitTimeout
+                || ($take->failure_code === FailureCode::Internal && $take->pixelforge_id !== null))
+            && $take->usageRecord()->value('absorbed_cost_nanos') === null;
     }
 
     private function rejected(Take $take, PixelforgeRejected $exception): ReconcileResultDTO

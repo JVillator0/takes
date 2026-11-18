@@ -7,6 +7,7 @@ namespace App\Console\Commands;
 use App\Enums\Billing\Provider;
 use App\Exceptions\Pixelforge\PixelforgeException;
 use App\Exceptions\Pixelforge\PixelforgeNotConfigured;
+use App\Queries\Billing\GetAbsorbedDailyCostsQuery;
 use App\Queries\Billing\GetPixelforgeDailyCostsQuery;
 use App\Queries\Billing\GetSettledDailyCostsQuery;
 use App\Queries\Billing\ListLedgerInvariantViolationsQuery;
@@ -21,8 +22,9 @@ use InvalidArgumentException;
 /**
  * Checks the money invariants (spec 3-03, D-059): Σ ledger = balance,
  * Σ open holds = held, one charge per usage, no open usage on a terminal
- * take, settled amounts consistent. `--usage` also compares our per-day
- * Pixelforge cost with Pixelforge's own report. Exit code 1 on any violation.
+ * take or suggestion, settled amounts consistent. `--usage` also compares our
+ * per-day Pixelforge cost (settled plus the cost absorbed by orphan
+ * successes, D-025) with Pixelforge's own report. Exit code 1 on any violation.
  */
 #[Signature('billing:verify
     {--usage : Also compare per-day Pixelforge cost with GET /v1/usage}
@@ -34,6 +36,7 @@ final class VerifyBillingCommand extends Command
     public function handle(
         ListLedgerInvariantViolationsQuery $invariantViolations,
         GetSettledDailyCostsQuery $settledCostPerDay,
+        GetAbsorbedDailyCostsQuery $absorbedCostPerDay,
         GetPixelforgeDailyCostsQuery $pixelforgeDailyCosts,
     ): int {
         $range = null;
@@ -59,7 +62,7 @@ final class VerifyBillingCommand extends Command
         $violations = $invariantViolations->execute();
 
         if ($range !== null) {
-            $violations = [...$violations, ...$this->usageViolations($settledCostPerDay, $pixelforgeDailyCosts, ...$range)];
+            $violations = [...$violations, ...$this->usageViolations($settledCostPerDay, $absorbedCostPerDay, $pixelforgeDailyCosts, ...$range)];
         }
 
         if ($violations === []) {
@@ -103,9 +106,17 @@ final class VerifyBillingCommand extends Command
         return [$from, $to];
     }
 
-    /** @return list<string> */
+    /**
+     * Per day, Pixelforge's cost must equal ours: settled cost plus the cost
+     * absorbed by orphan successes (issue #102). A matching day with absorbed
+     * cost is printed as its own "Orphan success (cost absorbed)" line (D-058),
+     * never as a mismatch.
+     *
+     * @return list<string>
+     */
     private function usageViolations(
         GetSettledDailyCostsQuery $settledCostPerDay,
+        GetAbsorbedDailyCostsQuery $absorbedCostPerDay,
         GetPixelforgeDailyCostsQuery $pixelforgeDailyCosts,
         CarbonImmutable $from,
         CarbonImmutable $to,
@@ -118,18 +129,22 @@ final class VerifyBillingCommand extends Command
             return ['--usage: Pixelforge usage is unavailable ('.class_basename($e).': '.$e->getMessage().')'];
         }
 
-        $ours = $settledCostPerDay->execute(Provider::Pixelforge, $from, $to);
+        $settled = $settledCostPerDay->execute(Provider::Pixelforge, $from, $to);
+        $absorbed = $absorbedCostPerDay->execute(Provider::Pixelforge, $from, $to);
         $violations = [];
 
         foreach (CarbonPeriodImmutable::create($from, $to) as $day) {
             $date = $day->toDateString();
-            $ourCost = $ours[$date] ?? Nanodollars::zero();
+            $settledCost = $settled[$date] ?? Nanodollars::zero();
+            $absorbedCost = $absorbed[$date] ?? Nanodollars::zero();
             $theirCost = $theirs[$date] ?? Nanodollars::zero();
 
-            // Orphan-success days (D-025) differ until their absorbed cost is
-            // recorded and attributed here (issue #102).
-            if (! $ourCost->equals($theirCost)) {
-                $violations[] = "usage {$date}: ledger cost {$ourCost->formatExact()} but Pixelforge reports {$theirCost->formatExact()}";
+            if (! $settledCost->plus($absorbedCost)->equals($theirCost)) {
+                $violations[] = $absorbedCost->isZero()
+                    ? "usage {$date}: ledger cost {$settledCost->formatExact()} but Pixelforge reports {$theirCost->formatExact()}"
+                    : "usage {$date}: ledger cost {$settledCost->formatExact()} + absorbed orphan cost {$absorbedCost->formatExact()} but Pixelforge reports {$theirCost->formatExact()}";
+            } elseif (! $absorbedCost->isZero()) {
+                $this->warn("usage {$date}: Orphan success (cost absorbed) {$absorbedCost->formatExact()}");
             }
         }
 
