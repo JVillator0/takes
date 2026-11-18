@@ -11,15 +11,31 @@ use InvalidArgumentException;
 
 /**
  * The token facts the take estimator needs (spec 4 "Estimate"): the `tokens`
- * block of GET /v1/pricing, parsed to integers at this boundary. The variance
- * arrives as a JSON number (0.15) or a string ("0.15") and becomes basis
- * points (1500) through its decimal string, never through float arithmetic.
- * {@see self::defaults()} is the documented table, used when /v1/pricing is
- * unavailable.
+ * block of GET /v1/pricing as integers. {@see PricingDTO} is the one parser
+ * of that block (the variance becomes basis points there, independent of the
+ * `precision` ini); this DTO adds the bounds that keep every estimate within
+ * integer arithmetic. PricingDTO::fromArray() checks a payload against them,
+ * so an absurd /v1/pricing is unreadable and the client serves the config
+ * fallback, instead of failing later with a TypeError or an overflow (#107).
+ * {@see self::defaults()} is the documented table.
  */
 final readonly class TokenFactsDTO
 {
     private const int BPS_DENOMINATOR = 10_000;
+
+    /**
+     * Above this, every prompt (at most MAX_PROMPT_CHARACTERS) is one text
+     * token anyway; the bound keeps `characters + cpt − 1` far from PHP_INT_MAX.
+     */
+    public const int MAX_CHARACTERS_PER_TEXT_TOKEN = PixelforgeTokenTable::MAX_PROMPT_CHARACTERS;
+
+    /**
+     * Sanity bound for a token count per kind (per reference image, output,
+     * reasoning): 125× the largest documented value (8,000 reasoning tokens).
+     * An estimate then stays below ~6M tokens, so Σ tokens × rate cannot
+     * overflow for any rate under ~$1,500 per 1M tokens (documented: $40).
+     */
+    public const int MAX_TOKENS_PER_KIND = 1_000_000;
 
     /**
      * @param  array<value-of<TakeQuality>, array<value-of<TakeSize>, int>>  $outputTokens  quality ⇒ size ⇒ tokens
@@ -32,29 +48,29 @@ final readonly class TokenFactsDTO
         public array $outputTokens,
         public array $reasoningTokens,
     ) {
-        if ($charactersPerTextToken < 1) {
-            throw new InvalidArgumentException('characters_per_text_token must be a positive integer.');
+        if ($charactersPerTextToken < 1 || $charactersPerTextToken > self::MAX_CHARACTERS_PER_TEXT_TOKEN) {
+            throw new InvalidArgumentException('characters_per_text_token must be between 1 and '.self::MAX_CHARACTERS_PER_TEXT_TOKEN.'.');
         }
 
         if ($textTokenVarianceBps < 0 || $textTokenVarianceBps >= self::BPS_DENOMINATOR) {
             throw new InvalidArgumentException('text_token_variance must be at least 0 and below 1.');
         }
 
-        if ($tokensPerReferenceImage < 0 || $tokensPerReferenceImage > intdiv(PHP_INT_MAX, PixelforgeTokenTable::MAX_REFERENCE_IMAGES)) {
-            throw new InvalidArgumentException('per_reference_image must be a non-negative integer that cannot overflow.');
+        if (! self::isTokenCount($tokensPerReferenceImage)) {
+            throw new InvalidArgumentException('per_reference_image must be between 0 and '.self::MAX_TOKENS_PER_KIND.'.');
         }
 
         foreach (TakeQuality::cases() as $quality) {
             foreach (TakeSize::cases() as $size) {
-                if (($outputTokens[$quality->value][$size->value] ?? -1) < 0) {
-                    throw new InvalidArgumentException("output.{$quality->value}.{$size->value} must be a non-negative integer.");
+                if (! self::isTokenCount($outputTokens[$quality->value][$size->value] ?? -1)) {
+                    throw new InvalidArgumentException("output.{$quality->value}.{$size->value} must be between 0 and ".self::MAX_TOKENS_PER_KIND.'.');
                 }
             }
 
             $range = $reasoningTokens[$quality->value] ?? null;
 
-            if ($range === null || $range['min'] < 0 || $range['min'] > $range['max']) {
-                throw new InvalidArgumentException("reasoning.{$quality->value} must be a range with 0 <= min <= max.");
+            if ($range === null || $range['min'] < 0 || $range['min'] > $range['max'] || ! self::isTokenCount($range['max'])) {
+                throw new InvalidArgumentException("reasoning.{$quality->value} must be a range with 0 <= min <= max <= ".self::MAX_TOKENS_PER_KIND.'.');
             }
         }
     }
@@ -94,44 +110,6 @@ final readonly class TokenFactsDTO
         );
     }
 
-    /**
-     * Parses a GET /v1/pricing response (decoded JSON). Only `tokens` is read;
-     * the rates are parsed separately into the rates snapshot.
-     *
-     * @param  array<array-key, mixed>  $pricing
-     */
-    public static function fromPricingArray(array $pricing): self
-    {
-        $tokens = self::arrayAt($pricing, 'tokens', 'tokens');
-        $outputTable = self::arrayAt($tokens, 'output', 'tokens.output');
-        $reasoningTable = self::arrayAt($tokens, 'reasoning', 'tokens.reasoning');
-
-        $output = [];
-        $reasoning = [];
-
-        foreach (TakeQuality::cases() as $quality) {
-            $bySize = self::arrayAt($outputTable, $quality->value, "tokens.output.{$quality->value}");
-
-            foreach (TakeSize::cases() as $size) {
-                $output[$quality->value][$size->value] = self::intAt($bySize, $size->value, "tokens.output.{$quality->value}.{$size->value}");
-            }
-
-            $range = self::arrayAt($reasoningTable, $quality->value, "tokens.reasoning.{$quality->value}");
-            $reasoning[$quality->value] = [
-                'min' => self::intAt($range, 'min', "tokens.reasoning.{$quality->value}.min"),
-                'max' => self::intAt($range, 'max', "tokens.reasoning.{$quality->value}.max"),
-            ];
-        }
-
-        return new self(
-            self::intAt($tokens, 'characters_per_text_token', 'tokens.characters_per_text_token'),
-            self::basisPoints($tokens['text_token_variance'] ?? null),
-            self::intAt($tokens, 'per_reference_image', 'tokens.per_reference_image'),
-            $output,
-            $reasoning,
-        );
-    }
-
     public function outputTokensFor(TakeQuality $quality, TakeSize $size): int
     {
         return $this->outputTokens[$quality->value][$size->value];
@@ -145,47 +123,8 @@ final readonly class TokenFactsDTO
         return $this->reasoningTokens[$quality->value];
     }
 
-    /**
-     * "0.15" or the decoded JSON number 0.15 ⇒ 1500, through the value's
-     * decimal string. At most 4 decimals, so the result is an exact integer.
-     */
-    private static function basisPoints(mixed $value): int
+    private static function isTokenCount(int $count): bool
     {
-        $decimal = is_numeric($value) ? (string) $value : '';
-
-        if (preg_match('/^0(?:\.(\d{1,4}))?$/', $decimal, $matches) !== 1) {
-            throw new InvalidArgumentException('tokens.text_token_variance must be a ratio below 1 with at most 4 decimals.');
-        }
-
-        return (int) str_pad($matches[1] ?? '', 4, '0');
-    }
-
-    /**
-     * @param  array<array-key, mixed>  $data
-     * @return array<array-key, mixed>
-     */
-    private static function arrayAt(array $data, string $key, string $path): array
-    {
-        $value = $data[$key] ?? null;
-
-        if (! is_array($value)) {
-            throw new InvalidArgumentException("{$path} must be an object.");
-        }
-
-        return $value;
-    }
-
-    /**
-     * @param  array<array-key, mixed>  $data
-     */
-    private static function intAt(array $data, string $key, string $path): int
-    {
-        $value = $data[$key] ?? null;
-
-        if (! is_int($value)) {
-            throw new InvalidArgumentException("{$path} must be an integer.");
-        }
-
-        return $value;
+        return $count >= 0 && $count <= self::MAX_TOKENS_PER_KIND;
     }
 }

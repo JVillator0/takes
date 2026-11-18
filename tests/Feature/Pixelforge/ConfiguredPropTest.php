@@ -14,11 +14,12 @@ beforeEach(function (): void {
     Http::fake();
 });
 
-it('shares pixelforge.configured = false and never creates a generation without a key', function (?string $key): void {
+it('shares imageService.configured = false and never creates a generation without a key', function (?string $key): void {
     config(['pixelforge.api_key' => $key]);
 
     $this->get('/')->assertOk()->assertInertia(fn (AssertableInertia $page) => $page
-        ->has('pixelforge', fn (AssertableInertia $pixelforge) => $pixelforge->where('configured', false)));
+        ->has('imageService', fn (AssertableInertia $service) => $service->where('configured', false))
+        ->missing('pixelforge'));
 
     expect(fn () => app(PixelforgeClient::class)->createGeneration(CreateGenerationDTO::forTake(Take::factory()->create()), 'key'))
         ->toThrow(PixelforgeNotConfigured::class);
@@ -30,13 +31,14 @@ it('shares pixelforge.configured = false and never creates a generation without 
     'blank' => ['   '],
 ]);
 
-it('shares pixelforge.configured = true with a key, and only the boolean', function (): void {
+it('shares imageService.configured = true with a key, and only the boolean', function (): void {
     config(['pixelforge.api_key' => 'pf_live_should_never_reach_the_browser']);
 
     $response = $this->get('/');
 
     $response->assertOk()->assertInertia(fn (AssertableInertia $page) => $page
-        ->has('pixelforge', fn (AssertableInertia $pixelforge) => $pixelforge->where('configured', true)));
+        ->has('imageService', fn (AssertableInertia $service) => $service->where('configured', true))
+        ->missing('pixelforge'));
 
     expect($response->getContent())->not->toContain('pf_live_should_never_reach_the_browser');
 });

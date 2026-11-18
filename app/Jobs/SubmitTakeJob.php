@@ -73,8 +73,8 @@ final class SubmitTakeJob implements ShouldBeUnique, ShouldQueue
 
     /**
      * Minimum wait after a capacity answer grows by this much per API attempt
-     * (20, 40, 60 … s), so one take waiting for capacity makes at most about
-     * three calls a minute against the shared 60 rpm budget (#149).
+     * (20, 40, 60 … s), so one take waiting for capacity makes at most two
+     * calls in any minute against the shared 60 rpm budget (#149).
      */
     public const int CAPACITY_BACKOFF_STEP_SECONDS = 20;
 
@@ -270,7 +270,7 @@ final class SubmitTakeJob implements ShouldBeUnique, ShouldQueue
      */
     private function expire(Take $take, FailTakeAction $failTake): void
     {
-        $code = $this->inDoubt($take) ? FailureCode::SubmitTimeout : FailureCode::ProviderBusy;
+        $code = $take->submitWasInDoubt() ? FailureCode::SubmitTimeout : FailureCode::ProviderBusy;
 
         Log::warning('Submit window expired: the take fails free.', [
             'take_id' => $take->id,
@@ -281,21 +281,10 @@ final class SubmitTakeJob implements ShouldBeUnique, ShouldQueue
         $failTake->execute($take, $code, 'The 30-minute submit window ended.');
     }
 
-    /**
-     * A submit is in doubt when an attempt may have reached Pixelforge
-     * without a definite answer: an ambiguous outcome, or an attempt that
-     * was counted but never recorded (the worker died during the call).
-     */
-    private function inDoubt(Take $take): bool
-    {
-        return $take->last_submit_error_kind === SubmitErrorKind::Ambiguous
-            || ($take->last_submit_error_kind === null && $take->submit_attempts > 0);
-    }
-
     /** The kind a capacity wait records: never `capacity` while a submit is in doubt. */
     private function waitingKind(Take $take): SubmitErrorKind
     {
-        return $this->inDoubt($take) ? SubmitErrorKind::Ambiguous : SubmitErrorKind::Capacity;
+        return $take->submitWasInDoubt() ? SubmitErrorKind::Ambiguous : SubmitErrorKind::Capacity;
     }
 
     /**

@@ -56,8 +56,9 @@ final class SuggestionResource extends JsonResource
             'charge' => $this->charge(),
             'diff' => $proposal === null ? null : SuggestionDiff::build($proposal, $details->baseTake),
             'newTake' => $this->newTake(),
-            // The proposal adds the base image but it has no usable URL: apply is refused.
-            'baseImageUnavailable' => $proposal !== null && ProposalReferences::baseImageUnavailable($proposal, $details->baseTake),
+            // A reference the new take needs (the base image, or a kept take
+            // image, #133) has no usable URL: apply is refused.
+            'baseImageUnavailable' => $proposal !== null && ProposalReferences::referenceUnavailable($proposal, $details->baseTake),
             'resultingTakeId' => $suggestion->resulting_take_id,
         ];
     }

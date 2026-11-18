@@ -28,7 +28,7 @@ use App\Models\Take;
  * the cache there, never over HTTP (M-16).
  *
  * Kept references that point at the customer's take images are re-issued
- * by CreateTakeAction (ResolveTakeImageReferencesQuery), or the apply is
+ * by CreateTakeAction (ListReferenceImageUrlsQuery), or the apply is
  * refused with BaseImageUnavailableException before anything is held.
  *
  * Idempotent: the key is uuid v5 of the suggestion id (ApplySuggestionAction),

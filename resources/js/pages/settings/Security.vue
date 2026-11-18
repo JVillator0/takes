@@ -43,7 +43,7 @@ defineOptions({
 
         <p
             v-if="locked"
-            role="status"
+            id="account-locked-notice"
             class="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground"
             data-test="account-locked-notice"
         >
@@ -64,7 +64,11 @@ defineOptions({
             class="space-y-6"
             v-slot="{ errors, processing }"
         >
-            <fieldset :disabled="locked" class="space-y-6">
+            <fieldset
+                :disabled="locked"
+                :aria-describedby="locked ? 'account-locked-notice' : undefined"
+                class="space-y-6"
+            >
                 <div class="grid gap-2">
                     <Label for="current_password">Current password</Label>
                     <PasswordInput

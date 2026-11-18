@@ -9,15 +9,21 @@ use App\Models\Take;
 
 /**
  * A take for its drawer (P06, `?take=` and `GET /takes/{take}`): the usage
- * for the price, the parent for "Compare with parent", and the lineage for
- * the version strip, all numbered. The caller has already checked ownership.
+ * for the price, the parent for "Compare with parent", the lineage for the
+ * version strip, all numbered, and the reference images re-issued for
+ * display: a stored take-image reference is a short-lived signed URL, so it
+ * is re-signed now and left out when it no longer resolves (#140). The
+ * caller has already checked ownership.
  */
 final class GetTakeDetailQuery
 {
     /** The strip shows at most this many ancestors and this many remixes. */
     private const int MAX_LINEAGE = 8;
 
-    public function __construct(private readonly ListTakeNumbersQuery $numbers) {}
+    public function __construct(
+        private readonly ListTakeNumbersQuery $numbers,
+        private readonly ListReferenceImageUrlsQuery $referenceImages,
+    ) {}
 
     public function execute(Take $take): TakeDetailDTO
     {
@@ -60,6 +66,11 @@ final class GetTakeDetailQuery
 
         $take->setAttribute('parent_number', $parent !== null ? ($numbers[$parent->id] ?? null) : null);
 
-        return new TakeDetailDTO($take, $parent, $versions);
+        return new TakeDetailDTO(
+            $take,
+            $parent,
+            $versions,
+            $this->referenceImages->execute($take->customer_id, array_values($take->reference_images), dropUnavailable: true),
+        );
     }
 }

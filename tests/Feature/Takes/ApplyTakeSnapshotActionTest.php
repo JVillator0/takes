@@ -171,6 +171,56 @@ describe('orphan success vs conflict', function (): void {
             ->and(Takes::usage($take)->flags)->toBe(['orphan']);
     });
 
+    it('records the absorbed provider cost on the voided usage, outside the ledger (#102)', function (): void {
+        $take = Takes::pendingWithHold(['last_submit_error_kind' => SubmitErrorKind::Ambiguous]);
+        app(FailTakeAction::class)->execute($take, FailureCode::SubmitTimeout, 'Submit window expired.');
+
+        applySnapshot($take, Takes::snapshot($take, 'succeeded'));
+        $usage = Takes::usage($take);
+
+        // The docs' succeeded generation: units × its own rates = 305,510,000, completed 2026-11-04 UTC.
+        expect($usage->status)->toBe(UsageStatus::Voided)
+            ->and($usage->absorbed_cost_nanos)->toBe(305_510_000)
+            ->and($usage->reasoning_tokens)->toBe(3_184)
+            ->and($usage->billing_date?->toDateString())->toBe('2026-11-04')
+            ->and($usage->external_id)->toBe(Takes::generationId($take))
+            ->and($usage->provider_cost_nanos)->toBe(0)
+            ->and($usage->charge_nanos)->toBe(0)
+            ->and(chargeCount())->toBe(0)
+            ->and($take->customer->refresh()->balance_nanos)->toBe(Takes::FUNDED_NANOS);
+
+        // A replay with other rates does not re-price what was already absorbed.
+        applySnapshot($take, Takes::snapshot($take, 'succeeded', ['rates' => [
+            'input_text_tokens' => '1.00', 'input_image_tokens' => '1.00', 'output_tokens' => '1.00', 'reasoning_tokens' => '1.00',
+        ]]));
+
+        expect(Takes::usage($take)->absorbed_cost_nanos)->toBe(305_510_000);
+    });
+
+    it('throws for an unpriced orphan without rates and writes nothing, so the caller fetches the generation', function (): void {
+        $take = Takes::pendingWithHold(['last_submit_error_kind' => SubmitErrorKind::Ambiguous]);
+        app(FailTakeAction::class)->execute($take, FailureCode::SubmitTimeout, 'Submit window expired.');
+
+        expect(fn () => applySnapshot($take, rebuildSnapshot(Takes::snapshot($take, 'succeeded'), ['rates' => null])))
+            ->toThrow(SnapshotRatesMissingException::class);
+
+        $usage = Takes::usage($take);
+
+        expect($take->refresh()->attention_reason)->toBeNull()
+            ->and($take->pixelforge_id)->toBeNull()
+            ->and($usage->flags)->toBe([])
+            ->and($usage->absorbed_cost_nanos)->toBeNull();
+    });
+
+    it('re-flags an already priced orphan whose replay has no rates, without throwing', function (): void {
+        $take = Takes::pendingWithHold(['last_submit_error_kind' => SubmitErrorKind::Ambiguous]);
+        app(FailTakeAction::class)->execute($take, FailureCode::SubmitTimeout, 'Submit window expired.');
+        applySnapshot($take, Takes::snapshot($take, 'succeeded'));
+
+        expect(applySnapshot($take, rebuildSnapshot(Takes::snapshot($take, 'succeeded'), ['rates' => null])))->toBe(TransitionOutcome::OrphanSuccess)
+            ->and(Takes::usage($take)->absorbed_cost_nanos)->toBe(305_510_000);
+    });
+
     it('records a late success after an internal failure of an accepted take as an orphan (D-077)', function (): void {
         $take = Takes::in('processing');
         app(FailTakeAction::class)->execute($take, FailureCode::Internal, 'Revoked key while reconciling.');
@@ -200,8 +250,44 @@ describe('orphan success vs conflict', function (): void {
             ->and(Takes::usage($take)->flags)->toBe(['orphan']);
     });
 
-    it('never turns an internal failure before acceptance into an orphan, whatever arrives first', function (array $leadIn, array $expected): void {
-        $take = Takes::pendingWithHold();
+    it('records a late success after an internal failure of an in-doubt submit as an orphan, on every replay (D-082)', function (array $submit, array $leadIn, array $expected): void {
+        // Pixelforge may hold the generation under the idempotency key.
+        $take = Takes::pendingWithHold($submit);
+        app(FailTakeAction::class)->execute($take, FailureCode::Internal, 'Revoked key while retrying an ambiguous submit.');
+
+        $outcomes = [];
+
+        foreach ([...$leadIn, 'succeeded', 'succeeded'] as $status) {
+            $outcomes[] = applySnapshot($take, Takes::snapshot($take, $status));
+        }
+
+        $take->refresh();
+        $usage = Takes::usage($take);
+
+        expect($outcomes)->toBe([...$expected, TransitionOutcome::OrphanSuccess, TransitionOutcome::OrphanSuccess])
+            ->and($take->status)->toBe(TakeStatus::Failed)
+            ->and($take->failure_code)->toBe(FailureCode::Internal)
+            ->and($take->submitWasInDoubt())->toBeTrue()
+            ->and($take->pixelforge_id)->not->toBeNull()
+            ->and($take->attention_reason)->toBe(AttentionReason::OrphanSuccess)
+            ->and($usage->status)->toBe(UsageStatus::Voided)
+            ->and($usage->flags)->toBe(['orphan'])
+            ->and($take->customer->refresh()->balance_nanos)->toBe(Takes::FUNDED_NANOS)
+            ->and($take->customer->held_nanos)->toBe(0)
+            ->and(chargeCount())->toBe(0);
+    })->with([
+        'ambiguous answer' => [['last_submit_error_kind' => SubmitErrorKind::Ambiguous, 'submit_attempts' => 2]],
+        // The worker died during the call: counted, never answered (same rule as SubmitTakeJob).
+        'attempt never answered' => [['last_submit_error_kind' => null, 'submit_attempts' => 1]],
+    ])->with([
+        'success applied twice' => [[], []],
+        'late queued first' => [['queued'], [TransitionOutcome::IgnoredStale]],
+        'late provider failure first' => [['failed'], [TransitionOutcome::IgnoredSameState]],
+    ]);
+
+    it('never turns an internal failure before acceptance into an orphan, whatever arrives first', function (array $submit, array $leadIn, array $expected): void {
+        // Capacity answers (429/503) only, or no attempt at all: nothing was created (D-082).
+        $take = Takes::pendingWithHold($submit);
         app(FailTakeAction::class)->execute($take, FailureCode::Internal, 'Rejected at submit.');
 
         $outcomes = [];
@@ -220,6 +306,9 @@ describe('orphan success vs conflict', function (): void {
             ->and(Takes::usage($take)->status)->toBe(UsageStatus::Voided)
             ->and(chargeCount())->toBe(0);
     })->with([
+        'no attempt yet' => [['last_submit_error_kind' => null, 'submit_attempts' => 0]],
+        'capacity answers only' => [['last_submit_error_kind' => SubmitErrorKind::Capacity, 'submit_attempts' => 3]],
+    ])->with([
         'success applied twice' => [[], []],
         'late queued first' => [['queued'], [TransitionOutcome::IgnoredStale]],
         'late provider failure first' => [['failed'], [TransitionOutcome::IgnoredSameState]],

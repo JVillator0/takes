@@ -18,7 +18,7 @@ use App\Support\Pricing\TakeEstimator;
  * range on the button and the hold are computed the same way; the action
  * recomputes it from the real prompt for the hold.
  */
-final class EstimateTakeQuery
+final class GetTakeEstimateQuery
 {
     public function __construct(
         private readonly GetTakePricingQuery $pricing,

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\DTOs\Billing\EstimateDTO;
+use App\DTOs\Pixelforge\PricingDTO;
 use App\DTOs\Pixelforge\TokenFactsDTO;
 use App\Enums\Takes\TakeQuality;
 use App\Enums\Takes\TakeSize;
@@ -131,7 +132,7 @@ describe('token tables', function (): void {
 describe('token facts from GET /v1/pricing', function (): void {
     it('uses the documented table when no token facts are given', function (): void {
         $fixture = json_decode((string) file_get_contents(dirname(__DIR__, 2).'/Fixtures/Pricing/pixelforge-docs-pricing.json'), true, flags: JSON_THROW_ON_ERROR);
-        $fromPricing = TokenFactsDTO::fromPricingArray($fixture['response']);
+        $fromPricing = TokenFactsDTO::fromPricing(PricingDTO::fromArray($fixture['response']));
 
         expect($this->estimator->estimateForCharacters(400, TakeSize::Landscape, TakeQuality::High, 2, $this->rates, $fromPricing))
             ->toEqual($this->estimator->estimateForCharacters(400, TakeSize::Landscape, TakeQuality::High, 2, $this->rates));

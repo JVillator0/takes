@@ -1,6 +1,6 @@
 name: audit
 
-# D-083: Dependabot ignores majors until v1.0.0, so advisories fixed only in a
+# D-083/D-085: Dependabot ignores majors until v1.0.0, so advisories fixed only in a
 # major are surfaced here instead. Not a required check: a new advisory must
 # never block an unrelated PR.
 
@@ -63,5 +63,27 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: npm audit
-        run: npm audit --audit-level=high
+      - name: Install dependencies
+        run: npm ci --include=dev --audit false
+
+      - name: npm audit (shipped surface)
+        run: npm audit --omit=dev --audit-level=high
+
+      # D-085: picomatch has no patched release; the full audit (dev included)
+      # is reported, not gated.
+      - name: npm audit (full, informational)
+        continue-on-error: true
+        run: |
+          set +e
+          npm audit --audit-level=high > audit-full.txt 2>&1
+          status=$?
+          {
+            echo '### Full npm audit (dev dependencies included)'
+            echo
+            echo "Exit code: $status"
+            echo
+            echo '```'
+            cat audit-full.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
